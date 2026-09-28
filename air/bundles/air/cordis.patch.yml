@@ -1,0 +1,39 @@
+# AIR product bundle: local-first defaults layered after dsh-base and dsh-web-app.
+# Later layers win per row id, so this patch changes upstream rows without
+# editing upstream YAML. A patch replaces a row's whole `config`.
+
+# Rows that send data to DeepSeek services or depend on a DeepSeek account.
+# `disabled` is row metadata, so a patch can always set it.
+- id: session-log-deepseek
+  disabled: true
+
+- id: plugin-package-inventory-deepseek
+  disabled: true
+
+- id: session-telemetry-otel
+  disabled: true
+
+- id: deepseek-account
+  disabled: true
+
+- id: llm-deepseek-account
+  disabled: true
+
+# Account Remote and settings page consume the disabled account service.
+- id: account-controller
+  disabled: true
+
+- id: ui-settings-account
+  disabled: true
+
+- id: web-search-deepseek
+  disabled: true
+
+# Default model for new Agents. The `ollama` route itself is declared in the
+# profile patch (see ../../examples/ollama.profile.cordis.patch.yml), because
+# saving any provider in Settings → Models replaces the whole `llm-pi-ai`
+# config at the profile layer.
+- id: agent-default-model
+  config:
+    provider: ollama
+    model: qwen3:8b

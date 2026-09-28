@@ -1,0 +1,6 @@
+{
+  "name": "@air/root",
+  "private": true,
+  "type": "module",
+  "license": "MIT"
+}

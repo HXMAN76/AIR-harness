@@ -1,0 +1,16 @@
+{
+  "name": "@air/dsh-air-bundle",
+  "description": "AIR product bundle: local-first defaults over the upstream Web composition",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "files": [
+    "cordis.patch.yml"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}

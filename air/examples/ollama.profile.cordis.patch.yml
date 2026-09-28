@@ -1,0 +1,21 @@
+# Copy into $DSH_HOME/profiles/air/cordis.patch.yml.
+# Declares a local Ollama route through the pi-ai provider. Ollama ignores the
+# key, but a named `apiKeyEnv` that resolves to a non-empty value avoids pi-ai's
+# ambient key discovery, which is only defined for catalog providers. Put
+# `OLLAMA_API_KEY=ollama` in $DSH_HOME/.env.
+
+- id: llm-pi-ai
+  config:
+    providers:
+      ollama:
+        displayName: Ollama (local)
+        apiKeyEnv: OLLAMA_API_KEY
+        api: openai-completions
+        baseURL: http://127.0.0.1:11434/v1
+        compat:
+          supportsDeveloperRole: false
+          maxTokensField: max_tokens
+        models:
+          - id: qwen3:8b
+            contextWindow: 32768
+            maxTokens: 8192
