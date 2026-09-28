@@ -1,0 +1,3 @@
+# Binary/encrypted test fixtures that break graphify's document extractor.
+packages/skill/skill-office/tests/fixtures/encrypted.xlsx
+packages/bundle/web-app/tests/fixtures/document-conversion.docx
