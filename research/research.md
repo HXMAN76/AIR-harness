@@ -54,6 +54,8 @@ The fork was synced on 2026-09-28: 2,224 upstream commits, about 7,000 files cha
 - New `host/product-telemetry-otel` and `client/product-analytics` for product usage events (explicit submission only, best effort). Disable in the AIR profile; publish the telemetry policy.
 - Default model still `deepseek-flash` in `bundle/base`.
 
+**Second sync, 0.2.0-rc.1 to 0.2.0-rc.2 (2026-09-29).** 187 upstream commits, about 1,000 files, no packages added or removed. Areas this plan builds on (bundles, MCP client, approval, skills, hooks, speech-to-text, context) changed only in package versions. Relevant changes: due Schedule reminders are now framed as scheduled user messages; `user-questions` supports timed waits and late replies; the desktop app can install and manage a bundled `dsh` command; the model picker gained fuzzy search and grouping; upstream added `docs/upgrade-guide/<version>/` guides for breaking surface changes, which AIR should read at every sync (current guides: optional schedule bundle, legacy transcript view). The `air` profile composes unchanged on rc.2.
+
 ## 2a. Competitive landscape (note 03)
 
 | Product | Open source | Local models | Linux desktop | Enforced plugin permissions | Relevance |
