@@ -17,11 +17,20 @@ This page orders the work, names each plan, and lists what is still unplanned. T
 | # | Plan | Status | Depends on | Spec |
 |---|---|---|---|---|
 | 00 | [Workspace foundation](2026-09-30-00-workspace-foundation.md): toolchain, lint, smoke, CI | Written | Root build | [spike 01](spikes/01-toolchain.md) |
-| 01 | [File conventions, slice 1](2026-09-30-01-file-conventions-slice1.md): AIR preset, skill roots, instructions, `.mcp.json`, commands | Being written | 00 | [spike 02](spikes/02-file-conventions.md) |
-| 02 | [MCP trust](2026-09-30-02-mcp-trust.md): review hook, lockfile, guard, `air-mcp` CLI profile | Being written | 00 | [spike 03](spikes/03-mcp-trust.md) |
+| 01 | [File conventions, slice 1](2026-09-30-01-file-conventions-slice1.md): AIR preset, skill roots, instructions, `.mcp.json`, commands | Written | 00 | [spike 02](spikes/02-file-conventions.md) |
+| 02 | [MCP trust](2026-09-30-02-mcp-trust.md): review hook, lockfile, guard, `air-mcp` CLI profile | Written | 00 | [spike 03](spikes/03-mcp-trust.md) |
 | 03 | [Permissions](2026-09-30-03-permissions.md): rule store, capability scopes, argument-aware approvals, sudo guard, Always-allow UI | Being written | 00, 01 (tool-name table) | [spike 04](spikes/04-memory-context-permissions.md) §7 |
 | 04 | [Memory core](2026-09-30-04-memory-core.md): Markdown store, FTS5 + vector index, tools, pinned core, auto-recall | Being written | 00 | [spike 04](spikes/04-memory-context-permissions.md) §1–5 |
 | 05 | [Evaluation pilot](2026-09-30-05-eval-pilot.md): AgentDojo banking pilot, RQ1 mini-corpus, token/latency table, LongMemEval smoke | Being written | 00; 02 for full RQ1 | [spike 06](spikes/06-evaluation.md) |
+
+## Cross-plan obligations
+
+- **Plan 01 after plan 02:** every `mcp-client` child that plan 01 mounts from `.mcp.json` must declare `inject: [mcpToolReview]`, so imported servers cannot register tools unreviewed. Plan 02's bundle test checks only static patches; add the inject and a test in whichever plan lands second.
+- **Plan 02 edits a plan 00 file:** its last task adds the `air/bundles/mcp-servers` bundle to `air/scripts/smoke-profile.sh`.
+- **Plan 01 edits a plan 00 file:** it adds `yaml` to `air/package.json` devDependencies.
+- **Plan 03 imports from plan 01:** the Claude-to-dsh tool-name table exported by `@air/dsh-convention-core`.
+- **Plan 02 carried upstream changes:** the review hook in `packages/mcp/mcp-client` and the regenerated cordis catalog docs go into [../UPSTREAM-DELTA.md](../UPSTREAM-DELTA.md).
+- **Plan sizes:** plans 01 and 02 are long (about 6,000 lines each) because every step carries full code. Execute them task by task with a fresh worker per task; the code in them has not been compiled, so the first failing step of each task is where assumptions get corrected.
 
 ## Phase-1 review cut
 
