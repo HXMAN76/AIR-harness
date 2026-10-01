@@ -20,7 +20,7 @@ This page orders the work, names each plan, and lists what is still unplanned. T
 | 01 | [File conventions, slice 1](2026-09-30-01-file-conventions-slice1.md): AIR preset, skill roots, instructions, `.mcp.json`, commands | Written | 00 | [spike 02](spikes/02-file-conventions.md) |
 | 02 | [MCP trust](2026-09-30-02-mcp-trust.md): review hook, lockfile, guard, `air-mcp` CLI profile | Written | 00 | [spike 03](spikes/03-mcp-trust.md) |
 | 03 | [Permissions](2026-09-30-03-permissions.md): `Tool(pattern)` rule store, capability scopes, approval answerer with audit log, `/allow` and `/deny`, sudo guard | Written (Always-allow button and argument detail UI deferred to a follow-up plan) | 00, 01 through Task 2 (`toDshToolName`, `expandHome`, `isRecord`) | [spike 04](spikes/04-memory-context-permissions.md) §7 |
-| 04 | [Memory core](2026-09-30-04-memory-core.md): Markdown store, FTS5 + vector index, tools, pinned core, auto-recall | Being written | 00 | [spike 04](spikes/04-memory-context-permissions.md) §1–5 |
+| 04 | [Memory core](2026-09-30-04-memory-core.md): Markdown store with git history, FTS5 + vector index, embedding seam, four memory tools, pinned core | Written (auto-recall, priors, extraction, consolidation deferred to follow-up plans) | 00; 01 Task 9 when wiring into `preset-air` | [spike 04](spikes/04-memory-context-permissions.md) §1–5 |
 | 05 | [Evaluation pilot](2026-09-30-05-eval-pilot.md): eval bundle and uv project, session-log metrics, RQ1 five-server mini-corpus, token/latency table, LongMemEval 10-question smoke | Written (code run in a scratch copy: 40 tests pass) | 00; 02 for the shared digest golden file | [spike 06](spikes/06-evaluation.md) |
 | 06 | AgentDojo banking pilot: MCP bridge, eval answerer plugin, native vs undefended harness | Not written (design and 4–5 day estimate in plan 05 "Follow-up plans") | 05 | [spike 06](spikes/06-evaluation.md) §1 |
 
@@ -29,6 +29,8 @@ This page orders the work, names each plan, and lists what is still unplanned. T
 - **Plan 01 after plan 02:** every `mcp-client` child that plan 01 mounts from `.mcp.json` must declare `inject: [mcpToolReview]`, so imported servers cannot register tools unreviewed. Plan 02's bundle test checks only static patches; add the inject and a test in whichever plan lands second.
 - **Plan 02 edits a plan 00 file:** its last task adds the `air/bundles/mcp-servers` bundle to `air/scripts/smoke-profile.sh`.
 - **Plan 01 edits a plan 00 file:** it adds `yaml` to `air/package.json` devDependencies.
+- **Plan 04 edits a plan 01 file:** its bundle task updates `air/scripts/tests/preset-air-drift.spec.ts` (expected AIR rows and row-package count).
+- **Eval arm patches (plan 05) disable memory by row id:** host rows `air-memory-store`, `air-embedding`, `air-memory-index`; per-Agent rows `air-tool-memory`, `air-memory-context`. The `sdk-minimal` eval composition has no approval service, so a writing arm sets `confirmTypes: [feedback]`.
 - **Plan 03 imports from plan 01:** the Claude-to-dsh tool-name table exported by `@air/dsh-convention-core`.
 - **Plan 02 carried upstream changes:** the review hook in `packages/mcp/mcp-client` and the regenerated cordis catalog docs go into [../UPSTREAM-DELTA.md](../UPSTREAM-DELTA.md).
 - **Plan sizes:** plans 01 and 02 are long (about 6,000 lines each) because every step carries full code. Execute them task by task with a fresh worker per task; the code in them has not been compiled, so the first failing step of each task is where assumptions get corrected.
@@ -38,7 +40,7 @@ This page orders the work, names each plan, and lists what is still unplanned. T
 Target: a working, honest demo plus early numbers, not the finished system.
 
 - **Must have:** plan 00; plan 01 slice 1 (fixes the stray-skills problem seen with the local model); plan 02 through the lockfile, review hook, and `pin`/`diff` commands; plan 05 (RQ1 mini-corpus, token/latency table, LongMemEval smoke).
-- **Should have:** plan 04 tier-1 memory (explicit writes, `memory_search`, pinned core); plan 06 (AgentDojo banking, labelled "no AIR defences").
+- **Should have:** plan 04 memory core (explicit writes, `memory_search`, pinned core; no auto-recall yet); plan 06 (AgentDojo banking, labelled "no AIR defences").
 - **Demo script:** boot the `air` profile on the local model; show a Claude Code skill and a `.mcp.json` server working unchanged; pin that server, mutate its tool description, show the server quarantined and the diff; remember a fact and recall it in a new session; show the pilot tables.
 
 ## Unplanned work, in intended order
