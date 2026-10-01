@@ -19,7 +19,7 @@ This page orders the work, names each plan, and lists what is still unplanned. T
 | 00 | [Workspace foundation](2026-09-30-00-workspace-foundation.md): toolchain, lint, smoke, CI | Written | Root build | [spike 01](spikes/01-toolchain.md) |
 | 01 | [File conventions, slice 1](2026-09-30-01-file-conventions-slice1.md): AIR preset, skill roots, instructions, `.mcp.json`, commands | Written | 00 | [spike 02](spikes/02-file-conventions.md) |
 | 02 | [MCP trust](2026-09-30-02-mcp-trust.md): review hook, lockfile, guard, `air-mcp` CLI profile | Written | 00 | [spike 03](spikes/03-mcp-trust.md) |
-| 03 | [Permissions](2026-09-30-03-permissions.md): rule store, capability scopes, argument-aware approvals, sudo guard, Always-allow UI | Being written | 00, 01 (tool-name table) | [spike 04](spikes/04-memory-context-permissions.md) §7 |
+| 03 | [Permissions](2026-09-30-03-permissions.md): `Tool(pattern)` rule store, capability scopes, approval answerer with audit log, `/allow` and `/deny`, sudo guard | Written (Always-allow button and argument detail UI deferred to a follow-up plan) | 00, 01 through Task 2 (`toDshToolName`, `expandHome`, `isRecord`) | [spike 04](spikes/04-memory-context-permissions.md) §7 |
 | 04 | [Memory core](2026-09-30-04-memory-core.md): Markdown store, FTS5 + vector index, tools, pinned core, auto-recall | Being written | 00 | [spike 04](spikes/04-memory-context-permissions.md) §1–5 |
 | 05 | [Evaluation pilot](2026-09-30-05-eval-pilot.md): eval bundle and uv project, session-log metrics, RQ1 five-server mini-corpus, token/latency table, LongMemEval 10-question smoke | Written (code run in a scratch copy: 40 tests pass) | 00; 02 for the shared digest golden file | [spike 06](spikes/06-evaluation.md) |
 | 06 | AgentDojo banking pilot: MCP bridge, eval answerer plugin, native vs undefended harness | Not written (design and 4–5 day estimate in plan 05 "Follow-up plans") | 05 | [spike 06](spikes/06-evaluation.md) §1 |
@@ -67,6 +67,8 @@ Each item gets its own plan after the plans above land. The spike section that a
 - **Fork CI hygiene:** decide which inherited upstream workflows to disable in the fork (they need upstream secrets and runners).
 
 ## Open decisions for the project owner
+
+0. Default prompting in the `air` bundle: plan 03 makes `shell.execute` and `fs.write` ask by default, so every bash and write call prompts until rules exist (and is rejected under approval policy `never`). Confirm, or ship starter allow rules for the workspace.
 
 1. Final product name (blocks branding layers 2 and 3).
 2. Department rubric and deadlines (the research roadmap assumes April–May 2027).
