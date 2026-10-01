@@ -21,7 +21,8 @@ This page orders the work, names each plan, and lists what is still unplanned. T
 | 02 | [MCP trust](2026-09-30-02-mcp-trust.md): review hook, lockfile, guard, `air-mcp` CLI profile | Written | 00 | [spike 03](spikes/03-mcp-trust.md) |
 | 03 | [Permissions](2026-09-30-03-permissions.md): rule store, capability scopes, argument-aware approvals, sudo guard, Always-allow UI | Being written | 00, 01 (tool-name table) | [spike 04](spikes/04-memory-context-permissions.md) §7 |
 | 04 | [Memory core](2026-09-30-04-memory-core.md): Markdown store, FTS5 + vector index, tools, pinned core, auto-recall | Being written | 00 | [spike 04](spikes/04-memory-context-permissions.md) §1–5 |
-| 05 | [Evaluation pilot](2026-09-30-05-eval-pilot.md): AgentDojo banking pilot, RQ1 mini-corpus, token/latency table, LongMemEval smoke | Being written | 00; 02 for full RQ1 | [spike 06](spikes/06-evaluation.md) |
+| 05 | [Evaluation pilot](2026-09-30-05-eval-pilot.md): eval bundle and uv project, session-log metrics, RQ1 five-server mini-corpus, token/latency table, LongMemEval 10-question smoke | Written (code run in a scratch copy: 40 tests pass) | 00; 02 for the shared digest golden file | [spike 06](spikes/06-evaluation.md) |
+| 06 | AgentDojo banking pilot: MCP bridge, eval answerer plugin, native vs undefended harness | Not written (design and 4–5 day estimate in plan 05 "Follow-up plans") | 05 | [spike 06](spikes/06-evaluation.md) §1 |
 
 ## Cross-plan obligations
 
@@ -36,8 +37,8 @@ This page orders the work, names each plan, and lists what is still unplanned. T
 
 Target: a working, honest demo plus early numbers, not the finished system.
 
-- **Must have:** plan 00; plan 01 slice 1 (fixes the stray-skills problem seen with the local model); plan 02 through the lockfile, review hook, and `pin`/`diff` commands; plan 05 pilot items 2 and 3 (RQ1 mini-corpus, token/latency table).
-- **Should have:** plan 04 tier-1 memory (explicit writes, `memory_search`, pinned core); plan 05 pilot item 1 (AgentDojo banking, labelled "no AIR defences").
+- **Must have:** plan 00; plan 01 slice 1 (fixes the stray-skills problem seen with the local model); plan 02 through the lockfile, review hook, and `pin`/`diff` commands; plan 05 (RQ1 mini-corpus, token/latency table, LongMemEval smoke).
+- **Should have:** plan 04 tier-1 memory (explicit writes, `memory_search`, pinned core); plan 06 (AgentDojo banking, labelled "no AIR defences").
 - **Demo script:** boot the `air` profile on the local model; show a Claude Code skill and a `.mcp.json` server working unchanged; pin that server, mutate its tool description, show the server quarantined and the diff; remember a fact and recall it in a new session; show the pilot tables.
 
 ## Unplanned work, in intended order
