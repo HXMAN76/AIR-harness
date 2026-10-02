@@ -2,6 +2,8 @@
 
 AIR-owned code for the AIR local-first personal agent, built on a fork of an MIT-licensed upstream agent harness. The plan and its evidence live in [research/research.md](../research/research.md); the development guide is [research/notes/08-dev-contrib-guide.md](../research/notes/08-dev-contrib-guide.md).
 
+New here? Start with [ONBOARDING.md](ONBOARDING.md); coding agents start with [AGENTS.md](AGENTS.md).
+
 ## Layout
 
 ```
