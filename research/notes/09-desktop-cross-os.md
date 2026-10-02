@@ -217,6 +217,8 @@ air/packages/client-quick-entry/   client plugin for the overlay page
 .github/workflows/air-desktop.yml  new file: matrix build, smoke, draft release
 ```
 
+> Update 2026-10-03: the packaging approach was tested; `pnpm deploy` alone does not produce a bootable tree and needs a workspace peer-fill step. See [13-desktop-shell-practice.md](13-desktop-shell-practice.md) section 2 and the plan at `air/plans/2026-10-03-07-desktop-shell.md`.
+
 ## Phased plan
 
 **Phase 1: review demo on Linux (about 2 weeks).**
