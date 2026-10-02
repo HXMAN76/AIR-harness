@@ -79,6 +79,11 @@ Each item gets its own plan after the plans above land. The spike section that a
 | Models for product and research | Use this laptop for local inference where possible (Ryzen AI 9 HX 370, 30 GiB RAM, RTX 4060 Laptop 8 GiB, Ollama 0.32.7) | Model shortlist, runtime settings, and evaluation time estimates come from [research note 10](../../research/notes/10-local-models-rig.md); hosted runs only where local runs are infeasible. The owner pulls the candidate models listed in [../ONBOARDING.md](../ONBOARDING.md) section 7; Ollama context settings may be changed for testing. |
 | Permission defaults | Use what upstream already offers (permission presets, Auto review, access modes) for now | Plan 03's ask-by-default behaviour is not the product default. [Research note 11](../../research/notes/11-upstream-permission-modes.md) lists upstream's modes and which parts of plan 03 are deferred, kept, or opt-in. |
 | Team | Push `air/main` so teammates can work from it; keep all context in the repository | [../AGENTS.md](../AGENTS.md) for agents, [../ONBOARDING.md](../ONBOARDING.md) for people, `.claude/rules/air.md` as the pointer Claude Code loads automatically. |
+| Team size and tracking | The owner plus four teammates; GitHub Issues and a project board come later, after the plan is settled with the team | Until then the roadmap table and the plan checkboxes are the progress record. |
+| Development OS | Teammates develop on native Windows without WSL | Upstream supports native Windows development ([docs/development.md](../../docs/development.md), section "Windows and WSL 2"); WSL is optional. AIR scripts must not assume bash: the profile smoke script in plan 00 needs a PowerShell or Node equivalent before Windows teammates run it. |
+| Installer contents | Do what upstream does | Bundle the full dependency tree in the app and ship the standalone Node, pnpm, and Python-with-Office runtime as a payload installed offline on first use ([research note 09](../../research/notes/09-desktop-cross-os.md) section 1). |
+| Code signing | Sign where it is legal and feasible | Windows: apply to SignPath Foundation (free for open-source projects) or buy an individual code-signing certificate; unsigned builds remain the fallback. macOS is out of scope. |
+| Local and cloud models | Research focus is the local harness; also study local and cloud together | [Research note 12](../../research/notes/12-hybrid-local-cloud.md) covers hybrid routing designs and how to make local, cloud, and hybrid an experimental factor. The owner has hosted-model API keys. |
 | Sequencing | No implementation yet; research in depth first | Plans 00–05 stay unexecuted until the owner starts the build. |
 
 ## Changes the 2026-10-02 research requires in the written plans
@@ -93,7 +98,5 @@ Apply these when the build starts; the plan files are unchanged for now.
 ## Open decisions for the project owner
 
 1. Department rubric and deadlines (owner will supply).
-2. Approve the AIR-owned desktop shell approach from research note 09 (recommended), and whether phase 1 bundles the Python and Office runtime in the installer.
-3. Windows signing: ship unsigned at first (SmartScreen warning) or apply to SignPath Foundation for free open-source signing.
-4. Whether a cheap hosted model may be used for evaluation repeats and ablations (about 100 USD estimated), or everything stays on the laptop with a reduced design.
-5. Team: how many teammates, which lanes (suggested: runtime and security, memory and context, desktop and voice, evaluation), and whether GitHub Issues and a project board should be enabled on the fork.
+2. Desktop shell: approve the AIR-owned Electron shell ([research note 09](../../research/notes/09-desktop-cross-os.md) option b) or choose patching upstream's app in place. Upstream publishes no desktop installers on GitHub and its release workflows publish npm packages only; its installers are built with local scripts that require the vendor's signing hardware and upload to the vendor's servers, so there is no release pipeline for a fork to reuse.
+3. Lanes for the four teammates (suggested: runtime and security, memory and context, desktop and voice, evaluation).

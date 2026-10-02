@@ -10,7 +10,7 @@ Status: research and implementation plans are complete; building has not started
 
 ## 2. Set up
 
-Requirements: Linux or Windows (WSL 2 is fine for development), Node `^22.19` or `>=24`, Git 2.26+, about 10 GB of free disk for the build, and [Ollama](https://ollama.com) for local models.
+Requirements: Linux or native Windows (WSL 2 is optional; if you use it, keep the checkout inside the Linux filesystem), Node `^22.19` or `>=24`, Git 2.26+, about 10 GB of free disk for the build, and [Ollama](https://ollama.com) for local models.
 
 ```sh
 git clone git@github.com:HXMAN76/AIR-harness.git
@@ -21,6 +21,8 @@ corepack enable
 pnpm install
 pnpm run build                      # several minutes
 ```
+
+On native Windows run the commands in PowerShell; replace `$PWD` with the repository path, `cp` with `Copy-Item`, `~/.dsh` with `$HOME\.dsh`, and write the `.env` line with `Add-Content`. The agent's shell tool on Windows is PowerShell, and the command sandbox there has partial enforcement (see `packages/sandbox/sandbox-windows-acl`).
 
 Create the `air` profile (once per machine):
 
