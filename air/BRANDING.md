@@ -1,6 +1,6 @@
 # AIR branding plan
 
-> **Status: placeholders.** The product name, mark, and copy are not final. "AIR" is the working name; implementation uses the placeholder values `{{PRODUCT_NAME}}` ("AIR"), `{{PRODUCT_TAGLINE}}`, and `{{PRODUCT_MARK}}` (a neutral text mark) supplied as Config of the AIR brand plugin, so the final brand is a one-file change. Layer 2 and 3 work below is deferred until the name is decided.
+> **Status: placeholders.** The product name, mark, and copy are not final. "AIR" is the working name; implementation uses the placeholder values `{{PRODUCT_NAME}}` ("AIR"), `{{PRODUCT_TAGLINE}}`, and `{{PRODUCT_MARK}}` (a neutral text mark) supplied as Config of the AIR brand plugin, so the final brand is a one-file change. Layer 2 and 3 work below is deferred until the name is decided. The desktop app's identifiers (app id, URL scheme, `desktopName`, release tag format) are on hold for the same reason: they come from the desktop brand file as placeholders, and no release is published under provisional values.
 
 AIR is a product built on a fork of an MIT-licensed upstream agent harness. The product shows its own name everywhere a user looks; the upstream origin appears only where the license and honesty require it.
 

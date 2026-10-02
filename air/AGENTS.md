@@ -10,13 +10,13 @@ Read in this order:
 
 1. [ONBOARDING.md](ONBOARDING.md): setup, daily workflow, and where things are.
 2. [plans/README.md](plans/README.md): roadmap, owner decisions, plan index, open decisions.
-3. [../research/research.md](../research/research.md): the synthesis of all research; notes 01–11 under `../research/notes/` hold the evidence.
+3. [../research/research.md](../research/research.md): the synthesis of all research; notes 01–13 under `../research/notes/` hold the evidence.
 4. [plans/spikes/](plans/spikes/): exact upstream APIs and verified commands for each feature area.
 5. [UPSTREAM-DELTA.md](UPSTREAM-DELTA.md) and [BRANDING.md](BRANDING.md).
 
 ## Current state
 
-Research and plans are written; **no AIR feature code exists yet**. The owner decided to finish research before building. Do not execute `plans/*.md` until the owner says to start the build.
+Research and plans (00–05 and 07; 06 is not written yet) are done; **no AIR feature code exists yet**. The owner decided to finish research before building. Do not execute `plans/*.md` until the owner says to start the build.
 
 What exists and works: the `air` bundle ([bundles/air](bundles/air)), which turns off upstream-vendor uploads, accounts, and telemetry and makes a local Ollama model the default; and an `air` profile created by the commands in [README.md](README.md).
 
@@ -26,6 +26,9 @@ What exists and works: the `air` bundle ([bundles/air](bundles/air)), which turn
 - **Branches.** `master` mirrors upstream and only fast-forwards to upstream release tags. Work happens on feature branches off `air/main`, merged by pull request into `air/main`. Never push work to `master`.
 - **No custom session event types.** An out-of-tree plugin cannot write event types that older builds may skip; an unknown type makes a session unresumable. Model-visible input enters as injected user messages with an AIR source kind, or as tool results; audit data goes to files under `$DSH_HOME/air/`.
 - **Security is enforced, not advised.** Markdown instructions shape model behavior; pinning, permission rules, approval, and the sandbox enforce.
+- **Product form.** A desktop app for Windows and Linux (Fedora first), built as an AIR-owned Electron shell under `air/apps/` (plan 07); upstream's `apps/desktop` is not modified. macOS is out of scope. Scripts must run on native Windows and Linux: write them in Node or tsx, not bash.
+- **Permissions.** Product defaults are upstream's permission presets; AIR adds only the `sudo` guard, gating of MCP tool calls, and saved rules (plan 03 as amended in the roadmap).
+- **Placeholders.** The product name and the desktop identifiers are on hold; use the placeholders in [BRANDING.md](BRANDING.md).
 - **Local first.** The default model route is local Ollama. Do not add a dependency on a hosted service to a default code path.
 - **Repository text gates scan `air/` and `research/`.** Do not write the banned origin-label word checked by `verify-concrete-terms` (say "source" or "origin"), git commit hashes (cite release tags), or URLs under the upstream working organization. No `as unknown` casts in code.
 - **Documentation is English only** under `air/` and `research/`.

@@ -11,6 +11,8 @@ air/
   pnpm-workspace.yaml     separate pnpm workspace (bundles/*, packages/*)
   bundles/air/            @air/dsh-air-bundle: product defaults as a Cordis patch
   packages/<pkg>/         AIR plugins (added feature by feature)
+  apps/                   AIR desktop app and its Host entry (plan 07; not built yet)
+  plans/                  roadmap, implementation plans, and API spikes
   examples/               profile-patch examples, e.g. the local Ollama route
   UPSTREAM-DELTA.md       every file AIR changes outside air/ and research/
 ```

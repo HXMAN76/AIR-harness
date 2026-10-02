@@ -4,9 +4,9 @@ This page gets a new teammate from a fresh clone to a running local agent, and t
 
 ## 1. What you are joining
 
-AIR (working name) is a local-first personal agent: a desktop app that runs an AI agent on your own machine, extended through plain files and plugins, with security properties that can be checked. It is built on a fork of an open-source, MIT-licensed agent harness, and it is a final-year project with research questions about MCP tool pinning, permission policy, and memory.
+AIR (working name; the final name is on hold) is a local-first personal agent: a desktop app for Windows and Linux that runs an AI agent on your own machine, extended through plain files and plugins, with security properties that can be checked. It is built on a fork of an open-source, MIT-licensed agent harness, and it is a final-year project with research questions about MCP tool pinning, permission policy, and memory.
 
-Status: research and implementation plans are complete; building has not started. See [plans/README.md](plans/README.md) for the roadmap and the owner's decisions.
+Status: research (notes 01–13) and implementation plans (00–05, 07) are complete; building has not started. Today the agent runs in the browser through the `air` profile; the desktop app is plan 07. See [plans/README.md](plans/README.md) for the roadmap and the owner's decisions.
 
 ## 2. Set up
 
@@ -51,9 +51,9 @@ Everything the team needs is in the repository; nothing important lives only in 
 | You want | Read |
 |---|---|
 | The whole picture in one document | [../research/research.md](../research/research.md) |
-| Evidence and sources per topic | `../research/notes/01`–`11` |
+| Evidence and sources per topic | `../research/notes/01`–`13` |
 | What we decided and what is still open | [plans/README.md](plans/README.md), sections "Owner decisions" and "Open decisions" |
-| What to build, step by step | `plans/2026-09-30-0*.md` (one plan per feature, each task has code and tests) |
+| What to build, step by step | `plans/2026-*.md` (one plan per feature, each task has code and tests) |
 | Exact upstream APIs for a feature | [plans/spikes/](plans/spikes/) |
 | Rules for working in this fork | [AGENTS.md](AGENTS.md), then the root `AGENTS.md` for upstream conventions |
 | Which upstream files we changed and why | [UPSTREAM-DELTA.md](UPSTREAM-DELTA.md) |

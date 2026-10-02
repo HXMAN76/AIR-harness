@@ -2,6 +2,8 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+> **Owner decision 2026-10-03: identifiers on hold.** The app id (`io.github.hxman76.air`), URL scheme (`air`), `desktopName`, executable name, and release tag format used in this plan are provisional placeholders until the product name is final. Keep them in the brand file only, and do not publish a release or ask users to install a build under them; changing them later resets user data and the global-hotkey consent.
+
 **Goal:** Ship an AIR-owned Electron desktop app for Windows (NSIS) and Linux (rpm, AppImage) that boots the `air` profile from a bundled production tree and adds close/background policy, tray, global hotkey, quick entry, start at login, updates, and CI artifacts.
 
 **Architecture:** Two out-of-tree workspaces. `air/apps/desktop-host` is a small Node entry that calls `runProfile` from `@deepseek-ai/dsh/profile-boot` and reports `{ type: 'ready', url }` over a Node IPC channel. `air/apps/desktop` is the Electron main process: it spawns the Host with `ELECTRON_RUN_AS_NODE=1` from a staged production tree shipped as `extraResources`, loads the authenticated loopback URL in a sandboxed window locked to that origin, and owns all operating-system integration. Logic lives in Electron-free modules tested with fakes; files under `src/electron/` are thin adapters.

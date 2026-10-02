@@ -87,6 +87,10 @@ Each item gets its own plan after the plans above land. The spike section that a
 | Installer contents | Do what upstream does | Bundle the full dependency tree in the app and ship the standalone Node, pnpm, and Python-with-Office runtime as a payload installed offline on first use ([research note 09](../../research/notes/09-desktop-cross-os.md) section 1). |
 | Code signing | Sign where it is legal and feasible | Windows: apply to SignPath Foundation (free for open-source projects) or buy an individual code-signing certificate; unsigned builds remain the fallback. macOS is out of scope. |
 | Local and cloud models | Research focus is the local harness; also study local and cloud together | [Research note 12](../../research/notes/12-hybrid-local-cloud.md) covers hybrid routing designs and how to make local, cloud, and hybrid an experimental factor. The owner has hosted-model API keys. |
+| Desktop identifiers | On hold until the product name is final | Plan 07 keeps app id, URL scheme, `desktopName`, and release tag format as placeholders read from the brand file; no release is published under provisional identifiers, because changing them later resets user data and the hotkey consent. |
+| Desktop updates on Fedora | rpm builds notify with a download link; Windows and AppImage update automatically | As written in plan 07. |
+| Phase-1 installer contents | Partial parity with upstream is accepted | Full dependency tree in the app; the Node/pnpm/Python runtime payload behind an opt-in flag; Office skills and the LibreOffice engine are a follow-up. |
+| Windows signing order | First release unsigned, then apply to SignPath Foundation | SignPath requires a published release and names SignPath Foundation as publisher. |
 | Sequencing | No implementation yet; research in depth first | Plans 00–05 stay unexecuted until the owner starts the build. |
 
 ## Changes the 2026-10-02 research requires in the written plans
@@ -102,7 +106,4 @@ Apply these when the build starts; the plan files are unchanged for now.
 
 1. Department rubric and deadlines (owner will supply).
 2. Lanes for the four teammates (suggested: runtime and security, memory and context, desktop and voice, evaluation).
-3. Desktop identifiers, which are costly to change later (changing them resets user data and the hotkey consent): app id `io.github.hxman76.air`, URL scheme `air`, release tag format `air-desktop-v<version>`. They are placeholders tied to the working name; confirm or hold until the product name is final.
-4. Fedora rpm updates notify with a download link instead of installing in place (in-place rpm updates need administrator rights); Windows and AppImage update automatically. Confirm.
-5. Phase-1 installer contents: the plan ships the full dependency tree (about 500 MB staged) and mounts the Node/pnpm/Python runtime payload behind an opt-in flag; Office skills and the LibreOffice engine are not wired yet, so "same as upstream" is only partly met in phase 1. Confirm or ask for full parity.
-6. SignPath Foundation: it requires an already-published release, a code-signing policy page, manual approval per release, and names SignPath Foundation as publisher; apply after the first unsigned release.
+3. Final product name; it unblocks branding and the desktop identifiers.
