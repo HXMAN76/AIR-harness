@@ -41,7 +41,7 @@ Target: a working, honest demo plus early numbers, not the finished system.
 
 - **Must have:** plan 00; plan 01 slice 1 (fixes the stray-skills problem seen with the local model); plan 02 through the lockfile, review hook, and `pin`/`diff` commands; plan 05 (RQ1 mini-corpus, token/latency table, LongMemEval smoke).
 - **Should have:** plan 04 memory core (explicit writes, `memory_search`, pinned core; no auto-recall yet); plan 06 (AgentDojo banking, labelled "no AIR defences").
-- **Demo script:** boot the `air` profile on the local model; show a Claude Code skill and a `.mcp.json` server working unchanged; pin that server, mutate its tool description, show the server quarantined and the diff; remember a fact and recall it in a new session; show the pilot tables.
+- **Demo script:** launch the desktop app with the `air` profile on the local model; show a Claude Code skill and a `.mcp.json` server working unchanged; pin that server, mutate its tool description, show the server quarantined and the diff; remember a fact and recall it in a new session; show the pilot tables.
 
 ## Unplanned work, in intended order
 
@@ -54,7 +54,7 @@ Each item gets its own plan after the plans above land. The spike section that a
 5. **OS control:** read/set/verify capabilities with risk tiers over `wpctl` and `busctl`, brightness through logind plus `/sys/class/backlight` ([spike 05](spikes/05-voice-os-triggers-shell.md)).
 6. **Signals, triggers, routines:** local signals through `ctx.webhookRuntime.dispatch`, Markdown routines on `ctx.schedule.create`; add the webhook row to the `air` bundle ([spike 05](spikes/05-voice-os-triggers-shell.md)).
 7. **Secret handoff:** `privileged_run` through `pkexec` or `sudo -A` with a password dialog on the Host; the plain-`sudo` guard ships in plan 03 ([spike 05](spikes/05-voice-os-triggers-shell.md)).
-8. **Desktop shell on Linux:** systemd user service with a fixed port, GNOME custom shortcut opening a quick-entry window, `@air/dsh-client-quick-entry`; tray only with the AppIndicator extension ([spike 05](spikes/05-voice-os-triggers-shell.md)).
+8. **Desktop app on every OS (required by the owner):** an AIR-owned Electron shell in `air/apps/desktop` plus an AIR Host entry, rpm and AppImage on Linux first, then macOS and Windows; packaging spike first ([research note 09](../../research/notes/09-desktop-cross-os.md), which supersedes spike 05's desktop section: upstream's dev launcher does not run on Linux).
 9. **Full evaluation:** AgentDojo v1.2.2 full runs on `deepseek-flash`, MCPTox and MSB attack sets, the 40-server drift corpus, LongMemEval 100-question study with the GPT-4o judge and MemOS arm, statistics ([spike 06](spikes/06-evaluation.md) E-tasks).
 10. **Branding:** brand plugin with `{{PRODUCT_NAME}}` placeholders, `en-x-air` locale variant for brand strings, `air` launcher, page title ([../BRANDING.md](../BRANDING.md)); after the name is final.
 
@@ -68,11 +68,28 @@ Each item gets its own plan after the plans above land. The spike section that a
 - **Upstream sync routine:** a script wrapping fetch, fast-forward `master`, merge into `air/main`, install, clean, build, `graphify update`, smoke, and a reminder to read `docs/upgrade-guide/`.
 - **Fork CI hygiene:** decide which inherited upstream workflows to disable in the fork (they need upstream secrets and runners).
 
+## Owner decisions (2026-10-02)
+
+| Topic | Decision | Effect on the plans |
+|---|---|---|
+| Product name | On hold | Branding stays placeholder-only ([../BRANDING.md](../BRANDING.md)); no brand plugin or carried rename edits yet. |
+| Rubric and deadlines | To be supplied by the owner | The research roadmap keeps its April–May 2027 assumption until then. |
+| Delivery form | A desktop app on every operating system (Linux, macOS, Windows), not Web-only | Upstream does not release its Electron app for Linux and its tray is Windows-only. A cross-OS desktop shell becomes required work; research in [research note 09](../../research/notes/09-desktop-cross-os.md) decides between patching `apps/desktop` and an AIR-owned shell. The phase-1 demo runs in the desktop app on Linux. |
+| Models for product and research | Use this laptop for local inference where possible (Ryzen AI 9 HX 370, 30 GiB RAM, RTX 4060 Laptop 8 GiB, Ollama 0.32.7) | Model shortlist, runtime settings, and evaluation time estimates come from [research note 10](../../research/notes/10-local-models-rig.md); hosted runs only where local runs are infeasible. |
+| Permission defaults | Use what upstream already offers (permission presets, Auto review, access modes) for now | Plan 03's ask-by-default behaviour is not the product default. [Research note 11](../../research/notes/11-upstream-permission-modes.md) lists upstream's modes and which parts of plan 03 are deferred, kept, or opt-in. |
+| Sequencing | No implementation yet; research in depth first | Plans 00–05 stay unexecuted until the owner starts the build. |
+
+## Changes the 2026-10-02 research requires in the written plans
+
+Apply these when the build starts; the plan files are unchanged for now.
+
+- **Plan 03 (permissions):** remove ask-by-default for `shell.execute` and `fs.write`; keep the `sudo` guard and MCP default-ask; aim rules, `/allow`, `/deny`, and the audit file at MCP tools and sandbox escalation prompts; add a listener-order test with Auto review loaded ([research note 11](../../research/notes/11-upstream-permission-modes.md)).
+- **`air` bundle:** optionally pin the default preset to Workspace Write so an ambient `DSH_PERMISSION_MODE` cannot start sessions in Full access; add a startup check that the loaded Ollama context is large enough ([research note 10](../../research/notes/10-local-models-rig.md): the default 4,096-token context silently truncates the harness prompt).
+- **Plan 05 (evaluation pilot):** use the measured local timings and the local/hosted split from research note 10; record the full runtime configuration with every result.
+- **New plan needed:** the desktop shell (item 8 below).
+
 ## Open decisions for the project owner
 
-0. Default prompting in the `air` bundle: plan 03 makes `shell.execute` and `fs.write` ask by default, so every bash and write call prompts until rules exist (and is rejected under approval policy `never`). Confirm, or ship starter allow rules for the workspace.
-
-1. Final product name (blocks branding layers 2 and 3).
-2. Department rubric and deadlines (the research roadmap assumes April–May 2027).
-3. Whether the phase-1 demo uses the Web UI only (recommended) or also the Electron desktop app on Linux, which upstream does not support.
-4. Budget for hosted-model evaluation runs (about $100 estimated in [spike 06](spikes/06-evaluation.md)).
+1. Department rubric and deadlines (owner will supply).
+2. Desktop ([research note 09](../../research/notes/09-desktop-cross-os.md)): approve the AIR-owned shell; app id and protocol scheme (tied to the product name; changing them later resets user data); Linux packages (rpm and AppImage now, deb later); close-button behaviour on GNOME without a tray; whether phase 1 bundles the Python and Office runtime; whether to pay for Apple signing and apply to SignPath; whether macOS and Windows builds are needed for the first review.
+3. Models ([research note 10](../../research/notes/10-local-models-rig.md)): approve changing the Ollama service settings (context 16k, 8-bit KV cache), pulling candidate models to measure (`qwen3.5:9b`, `granite4.2:8b`, `qwen3-embedding:0.6b`), and whether a cheap hosted model is allowed for evaluation repeats.
