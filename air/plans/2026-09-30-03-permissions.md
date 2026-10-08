@@ -2,42 +2,79 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Ship `@air/dsh-permission-rules`, an out-of-tree plugin that decides every tool call from capability scopes and allow/ask/deny rules, answers direct approval requests from rules, records rule grants and human grants in an AIR audit file, adds `/allow` and `/deny`, and rejects plain `sudo` in the bash tool.
+## Revision log
 
-**Architecture:** One host-level Cordis plugin. A prepended `tools/pre-execute` listener calls `next()` first and then combines the downstream decision with its own verdict, so its result does not depend on listener order. A prepended `approval/request` listener answers asks that did not start in the policy listener (sandbox escalation, hooks) when an explicit allow rule covers the correlated call. Rules come from two places: the plugin's static Config and a JSON rules file under the harness home that `/allow` and `/deny` write atomically. A `ctx.tools.guard()` denies bash commands that call `sudo` without a password path that keeps the secret out of the session log. No session event type is added: decisions that leave no approval event are written to an AIR-owned JSONL audit file.
+**2026-10-08.** Redesigned after the owner decision "use what upstream already offers" ([research note 11](../../research/notes/11-upstream-permission-modes.md)) and the sync to upstream `dsh-v0.2.1-alpha.1`. The plan now builds on the upstream presets instead of competing with them.
+
+| Change | Reason |
+|---|---|
+| Every built-in capability default is `allow`; the ask-by-default rows for `fs.write`, `shell.execute`, `net.fetch`, `browser.execute_script`, and `system.device_control` are now an opt-in example, not a default. | Upstream's presets confine and prompt for built-in tools (note 11 section 3.4); a second prompt layer contradicts the owner decision. |
+| The only default that asks is `unscopedMcpDefault` (MCP tools). New `neverPolicyAsk` turns that ask into an allow under approval policy `never` (Full access) and a named denial for an ask that a rule wrote. | Upstream rejects every ask under `never`, which would make all MCP tools unusable in Full access with a generic message. Found by reading `user-approval` (the `never` policy is applied before any answerer). |
+| Removed `ruleAllowSatisfiesAsk` and the allow-over-ask outcome. An AIR allow never replaces another listener's ask. When both sides ask, the other listener's ask is shown. | An allow rule could otherwise override an Auto review denial or a hooks-bridge ask. A listener-order test with the real Auto review plugin (Task 6) covers both orders. |
+| An AIR deny returns without calling `next()`; every other verdict still calls `next()` first. | A deny is final; skipping the listeners below it saves Auto review's model request. Measured in the Task 6 order test (0 versus 1 reviewer requests). |
+| The approval answerer still records human outcomes, but answering asks from allow rules is opt-in (`answerDirectAsks`, default `false`). | An allow rule such as `Bash(git status*)` would otherwise also approve a sandbox escalation to full access for the same command. |
+| Sudo guard: shell dialect per tool (`bash` POSIX, `pwsh` PowerShell), look-through of wrappers and `-c` / `-Command` / `-EncodedCommand`, Windows elevation (`gsudo`, `runas`, `sudo`, `Start-Process -Verb RunAs`) denied. The guard covers every tool whose scope has a command argument, so `sudoGuardTools` is gone. | Teammates use native Windows; the previous splitter treated a backslash as an escape and missed `cd C:\work\; gsudo ls`, and `env -u X sudo`, `timeout 5 sudo`, and `bash -c "sudo id"` passed. Code run in a scratch copy: 80 sudo tests pass. |
+| Rule names accept `mcp__<server>__*` wildcards (MCP tools only). | Saved rules for a whole server; the previous exact-name rule needed one rule per tool. |
+| Every AIR ask and denial names the rule or guard behind it and how to lift it (`/allow <tool>` in asks; `/deny list` and `/deny remove <id>` in rule denials; the Config setting in default denials; "allow rules cannot override it" in guard denials). Research note 14 ranks "explain why blocked" high. Denial text tells the model, and so the user, how to see and remove the rule or setting behind it. A rules file that becomes unreadable keeps the previous rules and appends a note to every AIR ask, denial, and `/allow` listing; `RuleStore.refresh()` now rejects on every call until the file changes. | Previously the warning reached only the log, and the second call after a corrupt edit silently looked healthy. |
+| Path rules compare forward-slash paths and ignore case on Windows; `~\` expands; commands use no bash-only syntax and no `&&`. | Native Windows teammates. Windows behavior is written but not run. |
+| Added the `pwsh` tool scope and a `dialect` field on every tool scope. | Upstream registers `pwsh` beside `bash` (`packages/shell/tool-pwsh`). |
+| Peer ranges are `^0.2.0-rc.1 || ^0.2.1-alpha.1`. | `^0.2.0-rc.1` does not match `0.2.1-alpha.1` under semver prerelease rules (checked with the `semver` package). |
+| Upstream APIs re-verified at `dsh-v0.2.1-alpha.1`: no signature changed (table below); line numbers moved only for `ToolExecution` (now `:393`), `ToolExecutionResult` (`:596`), and `ctx.tools.execute` (`:1369`). Plan code compiled against the current tree in a scratch copy and its tests run: 222 pass, one Windows-only test is skipped on Linux. | The sync removed the invariant packages and touched `user-approval`, `permission-presets`, and `core/tools`; none of the APIs this plan calls changed. |
+
+**Goal:** Ship `@air/dsh-permission-rules`, an out-of-tree plugin that adds to upstream's permission presets: a guard against `sudo` and Windows elevation in the shell tools, an `ask` before MCP tool calls, saved allow/ask/deny rules with `/allow` and `/deny`, and an audit file. Built-in tools keep upstream's behavior unless the user writes a rule.
+
+**Architecture:** One host-level Cordis plugin. A prepended `tools/pre-execute` listener evaluates the rules; an AIR deny returns at once, and every other verdict calls `next()` first and is combined with the downstream decision, so the result does not depend on listener order. A prepended `approval/request` listener records the human outcome of asks that belong to calls the plugin saw (sandbox escalation, hooks) and, when `answerDirectAsks` is on, answers them from an explicit allow rule. Rules come from two places: the plugin's static Config and a JSON rules file under the harness home that `/allow` and `/deny` write atomically. A `ctx.tools.guard()` denies shell commands that need a password, a password on standard input, or a Windows elevation dialog. No session event type is added: decisions that leave no approval event are written to an AIR-owned JSONL audit file.
 
 **Tech Stack:** TypeScript 6 (strict, ESM), Cordis 4, `@deepseek-ai/dsh-tools`, `@deepseek-ai/dsh-user-approval`, `@deepseek-ai/dsh-commands`, `@deepseek-ai/dsh-atomic-write`, `@deepseek-ai/dsh-home-paths`, Schemastery, picomatch 4, Vitest 4.
 
-**Spec:** [spikes/04-memory-context-permissions.md](spikes/04-memory-context-permissions.md) §7 and §8-§10 (permissions rows); [spikes/02-file-conventions.md](spikes/02-file-conventions.md) §8; [spikes/05-voice-os-triggers-shell.md](spikes/05-voice-os-triggers-shell.md) §6 (sudo guard only); [spikes/01-toolchain.md](spikes/01-toolchain.md) (package templates, native Loader test); [research/research.md](../../research/research.md) §5.3; [research/notes/02-air-extraction.md](../../research/notes/02-air-extraction.md) §2.3; [research/notes/04-mcp-security.md](../../research/notes/04-mcp-security.md) §4 rows 3 and 5. Upstream APIs were read at tag `dsh-v0.2.0-rc.2`; line numbers below refer to that tag.
+**Spec:** [spikes/04-memory-context-permissions.md](spikes/04-memory-context-permissions.md) §7 and §8-§10 (permissions rows); [spikes/02-file-conventions.md](spikes/02-file-conventions.md) §8; [spikes/05-voice-os-triggers-shell.md](spikes/05-voice-os-triggers-shell.md) §6 (sudo guard only); [spikes/01-toolchain.md](spikes/01-toolchain.md) (package templates, native Loader test); [research/research.md](../../research/research.md) §5.3; [research/notes/02-air-extraction.md](../../research/notes/02-air-extraction.md) §2.3; [research/notes/04-mcp-security.md](../../research/notes/04-mcp-security.md) §4 rows 3 and 5; [research/notes/11-upstream-permission-modes.md](../../research/notes/11-upstream-permission-modes.md). Upstream APIs were last verified at tag `dsh-v0.2.1-alpha.1`; line numbers below refer to that tag.
 
 ## Global Constraints
 
 - Node `^22.19 || >=24`; pnpm `11.7.0`; ESM only; TypeScript strict.
-- AIR packages live in `air/packages/<pkg>` and are named `@air/dsh-<pkg>`. dsh packages are peers with range `^0.2.0-rc.1` plus `link:../../../packages/<group>/<pkg>` devDependencies (vendor packages: `link:../../../vendor/<pkg>`). `workspace:*` is used only between AIR packages.
-- Plan 00 (assumed done) provides `air/package.json` tools and recursive scripts (`build`, `typecheck`, `lint`, `test`, `smoke`), `air/tsconfig.base.json`, `air/.oxlintrc.json`, `air/.gitignore` (ignores `lib/`, `coverage/`, `.loader-*/`), and `air/scripts/smoke-profile.sh`.
-- Plan 01 (assumed done through its Task 2) provides `@air/dsh-convention-core`. This plan imports `toDshToolName`, `expandHome`, and `isRecord` from it and defines no tool-name table of its own.
+- Every command in this plan runs from the repository root and uses only `pnpm`, `node`, and `git`, so it works in native Windows PowerShell 5.1 and in a POSIX shell. Do not chain commands with `&&`.
+- AIR packages live in `air/packages/<pkg>` and are named `@air/dsh-<pkg>`. dsh packages are peers with range `^0.2.0-rc.1 || ^0.2.1-alpha.1` plus `link:../../../packages/<group>/<pkg>` devDependencies (vendor packages: `link:../../../vendor/<pkg>`). `workspace:*` is used only between AIR packages.
+- Plan 00 (assumed done) provides `air/package.json` tools and recursive scripts (`build`, `typecheck`, `lint`, `test`, `smoke`), `air/tsconfig.base.json`, `air/.oxlintrc.json`, `air/.gitignore` (ignores `lib/`, `coverage/`, `.loader-*/`), and `air/scripts/smoke-profile.ts` (cross-platform Node script).
+- Plan 01 (assumed done through its Task 2) provides `@air/dsh-convention-core`. This plan imports `toDshToolName`, `expandHome`, and `isRecord` from it and defines no tool-name table of its own. The signatures were checked against the Interfaces blocks of plan 01 Tasks 1 and 2: `expandHome(path: string, home?: string): string` (it expands `~` and `~/` only, so this plan rewrites a leading `~\` first), `toDshToolName(claudeName: string): string | undefined` (returns `mcp__*` names unchanged), and `isRecord(value: unknown): value is Record<string, unknown>`.
 - Test command: `pnpm -C air/packages/<pkg> test`. Coverage command: `pnpm -C air/packages/<pkg> exec vitest run --coverage --coverage.include='src/**' --coverage.thresholds.100`.
 - Build order: the root `pnpm run build` must be finished; `pnpm -C air/packages/convention-core build` must run before this package's tests; the native Loader test imports this package's own `lib/`, so run `pnpm -C air/packages/permission-rules build` before it.
-- Registrations are effects (`ctx.on`, `ctx.effect`, registry `register()`/`guard()` return the disposer). Deployment-varying choices are Config fields, not constants. Misconfiguration fails loud. Opaque cross-boundary ids are branded. No `as unknown` casts. Waterfall listeners call `next()`.
+- Registrations are effects (`ctx.on`, `ctx.effect`, registry `register()`/`guard()` return the disposer). Deployment-varying choices are Config fields, not constants. Misconfiguration fails loud. Opaque cross-boundary ids are branded. No `as unknown` casts. Waterfall listeners call `next()` unless they return a final deny.
 - NO new session event types. Audit data goes to files under `dshHomePath('air', ...)`.
 - Client UI copy, when a later plan adds a client, goes through typed locale dictionaries registered with `ctx.locale.register(ns, { zh, en })`. This plan ships no client code; the only localized text is the `displayReason` of an ask, which carries `en` and `zh`.
 - The package has a `README.md` with Summary, Model Experience, and Known Limitations sections (English), and JSDoc on every export.
 - Markdown written by this plan never uses the banned origin-label word from the root `AGENTS.md` ("Ban ..." rule), contains no git commit hashes, and no URLs under the upstream organisation's GitHub path.
 - Any edit outside `air/` and `research/` is recorded in `air/UPSTREAM-DELTA.md`. Goal for this plan: none.
 
+## Behavior this plan produces
+
+Upstream defines the access modes ([research note 11](../../research/notes/11-upstream-permission-modes.md)): Read Only (`read-only` sandbox, approval `ask`), Workspace Write (`workspace-write`, `ask`; the default for new sessions), Full access (`danger-full-access`, `never`), and the optional experimental Auto review (`danger-full-access`, `ask`, a model review before every call). In none of them does a built-in tool ask before it runs; the only upstream prompts are sandbox escalation, Auto review denials, and the hooks bridge. With this plugin loaded and no user rules:
+
+| Call | Read Only | Workspace Write | Full access | Auto review on | Approval policy `never` in any mode |
+|---|---|---|---|---|---|
+| Built-in tool (`bash`, `pwsh`, file tools, web tools) | Upstream behavior | Upstream behavior | Upstream behavior | Upstream behavior (reviewer model decides) | Upstream behavior |
+| Sandbox escalation prompt | Upstream prompt, shown to the user | Same | Not raised | Not raised | Rejected by upstream |
+| MCP tool call | This plugin asks | This plugin asks | Allowed (`neverPolicyAsk: allow`) | Reviewer decides and this plugin asks: one prompt | Allowed; denied with `neverPolicyAsk: deny` |
+| `sudo` without `-A`/`-n`, `sudo -S`, `gsudo`, `runas`, `Start-Process -Verb RunAs` | Denied | Denied | Denied | Denied | Denied |
+
+With user rules: a deny rule denies in every column; an allow rule on an MCP tool removes this plugin's ask and nothing else (Auto review still decides, and a sandbox escalation prompt is answered from the rule only with `answerDirectAsks: true`); an ask rule prompts, and under `never` is denied with a reason that names the policy. The behavior of the built-in tools changes only when the user writes a rule or sets a capability default.
+
 ## Decisions fixed by this plan
 
 1. **Rules live in a file, not in volatile Config.** `/allow` and `/deny` write `dshHomePath('air', 'permissions.json')` under a file lock with an atomic rename. Static rules can also be listed in the plugin's Config. Spike 04 §7.2 proposed a `.volatile()` Config field written through `ctx.remote.settings.mutate`; that path belongs with the Web "Always allow" button and is a follow-up plan.
-2. **The listener always calls `next()` first.** Spike 02 §8.2 sketched an `allow` that returns without `next()`, which would skip later listeners. This plan never does that: an AIR allow can only replace a downstream `ask`, never a downstream `deny` or `cancel`, and `ctx.tools.guard()` checks still run afterwards.
-3. **Combination order is `deny > cancel > ask > allow`**, with one exception: an explicit AIR allow rule satisfies a downstream `ask` (Config `ruleAllowSatisfiesAsk`, default `true`). A capability default of `allow` never satisfies a downstream `ask`.
-4. **Capability table.** `capabilities` maps a capability id to `{ risk, default }`; `tools` maps a tool name to `{ capability, scopeArgKeys, pathKeys, commandKeys }`. `scopeArgKeys` is mandatory and non-empty for every `tools` entry; the plugin fails at load otherwise. AIR's `install_time` confirmation maps to default `allow`, `per_call` to default `ask`. The five rows that research note 02 §2.3 records from AIR are kept by id (`fs.read`, `fs.write`, `shell.execute`, `browser.execute_script`, `system.device_control`); `net.fetch` and `net.search` are added for the harness tools. The rest of AIR's 15-row table is not in this checkout; rows are Config data, so adding them later needs no code.
-5. **Unscoped tools.** A tool with no `tools` entry gets `unscopedDefault` (default `allow`, which is upstream behavior) unless its name starts with `mcp__`, which gets `unscopedMcpDefault` (default `ask`).
+2. **The listener calls `next()` except for its own deny.** Spike 02 §8.2 sketched an `allow` that returns without `next()`, which would skip later listeners. This plan never does that: an AIR allow cannot replace a downstream `ask`, `deny`, or `cancel`, and `ctx.tools.guard()` checks still run afterwards. An AIR deny is final, so it returns without `next()`; this keeps Auto review from spending a model request on a call that is already refused.
+3. **Combination order is `deny > cancel > ask > allow`.** An AIR allow, whatever its source, never satisfies a downstream `ask`. When AIR and a downstream listener both ask, the downstream ask is kept, so the user sees one prompt.
+4. **Capability table.** `capabilities` maps a capability id to `{ risk, default }`; `tools` maps a tool name to `{ capability, scopeArgKeys, pathKeys, commandKeys, dialect }`. `scopeArgKeys` is mandatory and non-empty for every `tools` entry; the plugin fails at load otherwise. Every default decision is `allow`: the risk class labels audit records and capability rules, and a stricter default is an opt-in Config override (the README shows it, and the Task 5 tests use it). The five rows that research note 02 §2.3 records from AIR are kept by id (`fs.read`, `fs.write`, `shell.execute`, `browser.execute_script`, `system.device_control`); `net.fetch` and `net.search` are added for the harness tools. The rest of AIR's 15-row table is not in this checkout; rows are Config data, so adding them later needs no code.
+5. **Unscoped tools.** A tool with no `tools` entry gets `unscopedDefault` (default `allow`, which is upstream behavior) unless its name starts with `mcp__`, which gets `unscopedMcpDefault` (default `ask`). This is the one default that prompts.
 6. **Unknown tool names in `tools` are not rejected at load.** Tools register per Agent (inside the agent preset) and MCP tools arrive later, so a host-level row cannot know the full set when it loads. The entry is inert until a tool with that name is called.
-7. **Rule matching.** A rule names exactly one of `tool` or `capability`, plus an optional `match` map from argument name to pattern. Patterns on a `pathKeys` argument are globs (picomatch, `dot: true`) compared after both sides are resolved against the session `cwd`. Patterns on other arguments use `*` as "any characters"; a pattern starting with `domain:` compares the URL host. For a `commandKeys` argument the command line is split into segments: a `deny` or `ask` rule matches when the whole line or any segment matches; an `allow` rule matches only when every segment matches, so `git status*` does not allow `git status && rm -rf /`.
-8. **`Tool(pattern)` syntax** is accepted by `/allow` and `/deny`. The tool name is translated with `toDshToolName` from `@air/dsh-convention-core`; a lowercase dsh name is accepted as is. The pattern binds to the tool's first `scopeArgKeys` entry. A trailing `:*` (Claude Code prefix form) becomes `*`.
+7. **Rule matching and precedence.** A rule names exactly one of `tool` or `capability`, plus an optional `match` map from argument name to pattern. A `tool` name may contain `*` only when it starts with `mcp__`. Evaluation order is fixed: every `deny` rule, then every `ask` rule, then every `allow` rule, first match within one decision; Config rules and file rules rank alike, so a deny can never be overridden by an allow, and the rules file cannot loosen what the configuration denies. Patterns on a `pathKeys` argument are globs (picomatch, `dot: true`) compared after both sides are resolved against the session `cwd` and written with forward slashes (case is ignored on Windows). Patterns on other arguments use `*` as "any characters"; a pattern starting with `domain:` compares the URL host. For a `commandKeys` argument the command line is split into segments in the tool's `dialect`: a `deny` or `ask` rule matches when the whole line or any segment matches; an `allow` rule matches only when every segment matches, so `git status*` does not allow `git status && rm -rf /`.
+8. **`Tool(pattern)` syntax** is accepted by `/allow` and `/deny`. The tool name is translated with `toDshToolName` from `@air/dsh-convention-core`; a lowercase dsh name is accepted as is. The pattern binds to the tool's first `scopeArgKeys` entry. A trailing `:*` (Claude Code prefix form) becomes `*`. `mcp__<server>__*` is accepted without a pattern in parentheses.
 9. **The audit file records** every AIR deny, every AIR ask, every rule grant, and the human outcome of every approval request whose call the plugin saw. Capability-default allows are recorded only with `auditDefaultAllows: true`. Arguments are not written; a SHA-256 digest of the canonical arguments is.
-10. **A rule grant that cannot be audited is not applied.** If the audit append fails, an allow-over-ask or a rule answer to a direct ask falls back to the downstream ask or the human answerer.
-11. **The sudo check is a guard, not a rule.** Guards run after the waterfall and cannot be overridden, so an allow rule for `bash` cannot re-enable `sudo`. `sudo -A`, `sudo --askpass`, and `sudo -n` pass; anything else that starts a segment with `sudo` is denied. `pkexec` and the `privileged_run` tool are a later plan.
+10. **A rule grant that cannot be audited is not applied.** If the audit append fails, a rule answer to a direct ask falls back to the human answerer. An AIR deny is enforced even when its audit record cannot be written.
+11. **The elevation check is a guard, not a rule.** Guards run after the waterfall and cannot be overridden, so an allow rule for `bash` cannot re-enable `sudo`. POSIX: `sudo -A`, `sudo --askpass`, and `sudo -n` pass; any other `sudo` is denied, and `sudo -S` is denied with its own message. PowerShell tools (and every tool, for these words): `gsudo`, `runas`, `sudo`, and `-Verb RunAs` are denied. The decision is block, not ask: Windows opens its consent dialog on a secure desktop that the agent cannot drive and that stalls an unattended turn, and a later `privileged_run` plan owns an approved path. The guard covers every tool whose scope has a `commandKeys` entry, uses that tool's dialect, and looks through wrappers and nested interpreters (Task 4).
+12. **Under approval policy `never` the plugin never emits a bare ask.** Upstream rejects every ask under `never` with a generic message. A default-sourced ask follows `neverPolicyAsk` (default `allow`, so MCP tools work in Full access); an ask written by a rule becomes a denial that names the policy (`AIR_APPROVAL_NEVER`).
+13. **Rule answers to asks raised inside a tool call are opt-in.** `answerDirectAsks` defaults to `false`. When on, an explicit allow rule that matches the call answers its sandbox escalation prompt; the human outcome of every such ask is recorded either way.
+14. **A corrupt rules file keeps the last good rules.** Startup with an invalid file fails loud (misconfiguration convention). At run time an invalid edit leaves the previous policy in force, the logger warns once, and every AIR ask, denial, and `/allow` listing carries a note until the file is fixed.
+15. **Interplay with plan 02's trust guard.** Plan 02 withholds or quarantines tools of unapproved MCP servers and denies their calls through `ctx.tools.guard()`, which runs after this plugin. An allow rule here never approves a server; a call to an unapproved server may show this plugin's ask first and then be denied by the guard, and the guard's reason is what the model sees. Server approval (plan 02) and call approval (this plan) stay separate decisions.
 
 ## File Structure
 
@@ -51,15 +88,15 @@ air/packages/permission-rules/
   README.md
   src/
     types.ts          Branded RuleId, Decision, Risk, table and rule types, Verdict
-    match.ts          Wildcard, domain, and path matchers; shell command splitter
+    match.ts          Wildcard, domain, and path matchers; shell command splitter and word splitter (POSIX and PowerShell)
     taxonomy.ts       Default capability table and default tool scopes (data)
     rule-syntax.ts    Tool(pattern) parser and rule formatter
-    policy.ts         compilePolicy, evaluate, combine
+    policy.ts         compilePolicy, evaluate, combine, adaptToApprovalPolicy
     rule-store.ts     permissions.json reader/writer (lock + atomic write)
     policy-source.ts  Merges Config rules and file rules; recompiles on file change
     audit.ts          AuditRecord, AuditLog (serialized JSONL append), argsDigest
-    sudo.ts           sudo detection and guard reason
-    reason.ts         Deny/ask reason text
+    sudo.ts           sudo and Windows elevation detection, guard reason
+    reason.ts         Deny/ask reason text, rules-file note
     pending.ts        Bounded callId -> call facts map shared by both listeners
     config.ts         Config schema, Config type, resolveConfig
     commands.ts       /allow and /deny command definitions
@@ -77,6 +114,7 @@ air/packages/permission-rules/
     harness.ts        Shared in-process composition for plugin tests
     plugin.spec.ts
     answerer.spec.ts
+    auto-review-order.spec.ts   Listener order with upstream Auto review loaded
     commands.spec.ts
     native-loader.spec.ts
 air/bundles/air/package.json        (modified: dependency)
@@ -84,24 +122,26 @@ air/bundles/air/cordis.patch.yml    (modified: host row)
 air/README.md                       (modified: permissions paragraph)
 ```
 
-Upstream APIs this plan calls (all at `dsh-v0.2.0-rc.2`):
+Upstream APIs this plan calls (re-verified at `dsh-v0.2.1-alpha.1`; no signature changed since `dsh-v0.2.0-rc.2`):
 
 | API | Location |
 |---|---|
 | `'tools/pre-execute'(exec: ToolExecution, next: () => Promise<PreToolDecision>): Promise<PreToolDecision>`, waterfall | `packages/core/tools/src/index.ts:153` |
 | `PreToolDecision = { kind: 'allow' } \| { kind: 'deny'; reason: string; info?: ToolErrorInfo } \| { kind: 'cancel' } \| { kind: 'ask'; reason?: string; displayReason?: { readonly en: string; readonly [locale: string]: string } }` | same file, `:607` |
-| `ToolExecution` fields `callId`, `name`, `arguments: unknown`, `agent?`, `signal` | same file, `:326-398` |
+| `ToolExecution` (extends `ToolExecutionInput`) fields `callId`, `name`, `arguments: unknown`, `agent?`, `signal` | same file, `:327-351`, `:393` |
 | `ToolErrorInfo { name: string; code: string; reason?: string }` | same file, `:489` |
-| `ctx.tools.guard(guard: (execution: Readonly<ToolExecution>) => string \| undefined): () => void` | same file, `:1136` |
+| `ctx.tools.guard(guard: ToolGuard): () => void`, `ToolGuard = (execution: Readonly<ToolExecution>) => string \| undefined`; guards run after `tools/pre-execute` and cannot be overridden | same file, `:731`, `:1136` |
 | `'tools/result'(exec, result): undefined`, emit | same file, `:198` |
-| `ctx.tools.execute({ name, arguments, callId, agent?, signal })` returning `ToolExecutionResult` (`isError`, `content`, `error?.info`) | same file, `:572-593` |
+| `ctx.tools.execute({ name, arguments, callId, agent?, signal })` returning `ToolExecutionResult` (`isError`, `content`, `error?.info`) | same file, `:1369`, `:572-596` |
 | `defineContentToolFixture({ name, description, parameters, execute })` (test fixture) | `packages/core/tools/src/testing.ts:27` |
-| `'approval/request'(req: ApprovalRequestEvent, next: () => Promise<ApprovalOutcome>): Promise<ApprovalOutcome>`, waterfall; `ApprovalOutcome = 'allowed-once' \| 'rejected' \| 'cancelled' \| 'unavailable'` | `packages/interaction/user-approval/src/types.ts:32-91` |
-| `ctx.approval.request({ agent, toolName, callId?, reason?, signal? })`; requires an open turn | `packages/interaction/user-approval/src/index.ts:215` |
+| `'approval/request'(req: ApprovalRequestEvent, next: () => Promise<ApprovalOutcome>): Promise<ApprovalOutcome>`, waterfall; `ApprovalRequestEvent` fields `agent`, `toolName`, `callId?`, `reason?`, `displayReason?`, `signal?`; `ApprovalOutcome = 'allowed-once' \| 'rejected' \| 'cancelled' \| 'unavailable'` | `packages/interaction/user-approval/src/types.ts:32-91` |
+| `ctx.approval.request({ agent, toolName, callId?, reason?, signal? })`; requires an open turn. `ctx.approval.overrideOf(session)` and `ctx.approval.config.policy` give the effective policy (`ask` or `never`); under `never` the service rejects before any answerer runs | `packages/interaction/user-approval/src/index.ts:215`, `:252`, `:275` |
 | `ctx.commands.register(definition: CommandDefinition): () => void`; `ctx.commands.execute(agent, text, attachments, signal)`; `CommandResult = { kind: 'success'; text?: string } \| { kind: 'error'; text: string }` | `packages/interaction/commands/src/index.ts:285,361`, `src/types.ts:34` |
 | `writeFileAtomic(filename, content, { mode, dirMode? }): Promise<void>`; `withFileLock(filename, operation, options?): Promise<T>` | `packages/util/atomic-write/src/index.ts:79,235` |
 | `dshHomePath(...segments: string[]): string` | `packages/util/home-paths/src/index.ts:98` |
-| `agent.session.header.cwd?: string`, `agent.session.id` | `packages/core/session/src/types.ts:105`, `src/index.ts:463` |
+| `agent.session.header.cwd?: string` (an absolute path), `agent.session.id` | `packages/core/session/src/types.ts:105`, `src/index.ts:463` |
+| Auto review: a prepended `tools/pre-execute` listener that acts only for sessions on the `auto` preset, classifies the call with a model request, then calls `next()` and turns a reviewer denial into an `ask` only when everything downstream allows | `packages/experimental/auto-review/src/index.ts:686-716` |
+| Shell tool names and command argument: `bash`, `pwsh`, each with a `command` string | `packages/shell/tool-bash/src/index.ts:375`, `packages/shell/tool-pwsh/src/index.ts:385` |
 
 ---
 
@@ -119,11 +159,11 @@ Upstream APIs this plan calls (all at `dsh-v0.2.0-rc.2`):
 - Test: `air/packages/permission-rules/tests/match.spec.ts`
 
 **Interfaces:**
-- Consumes from `@air/dsh-convention-core` (plan 01 Task 1): `expandHome(path: string, home?: string): string`. From upstream: `Branded<B>` (`@deepseek-ai/dsh-brand`).
+- Consumes from `@air/dsh-convention-core` (plan 01 Task 1): `expandHome(path: string, home?: string): string` (expands `~` and `~/` only; `resolveScopePath` rewrites a leading `~\` first). From upstream: `Branded<B>` (`@deepseek-ai/dsh-brand`).
 - Produces:
-  - `types.ts`: `type RuleId = Branded<'AirPermissionRuleId'>`, `RuleId(id: string): RuleId`, `type Decision = 'allow' | 'ask' | 'deny'`, `type Risk = 'low' | 'medium' | 'high'`, `interface CapabilitySpec { readonly risk: Risk; readonly default: Decision }`, `interface ToolScope { readonly capability: string; readonly scopeArgKeys: readonly string[]; readonly pathKeys: readonly string[]; readonly commandKeys: readonly string[] }`, `interface RuleInput { readonly id: string; readonly decision: Decision; readonly tool?: string | undefined; readonly capability?: string | undefined; readonly match?: Readonly<Record<string, string>> | undefined }`, `interface PolicyTables { readonly capabilities: Readonly<Record<string, CapabilitySpec>>; readonly tools: Readonly<Record<string, ToolScope>>; readonly unscopedDefault: Decision; readonly unscopedMcpDefault: Decision }`, `interface CallFacts { readonly tool: string; readonly args: Readonly<Record<string, unknown>>; readonly cwd: string | undefined }`, `interface Verdict { readonly decision: Decision; readonly source: 'rule' | 'capability-default' | 'unscoped-default'; readonly ruleId?: RuleId; readonly scope?: { readonly capability: string; readonly risk: Risk } }`.
-  - `taxonomy.ts`: `defaultCapabilities(): Record<string, CapabilitySpec>`, `defaultToolScopes(): Record<string, ToolScope>`.
-  - `match.ts`: `wildcardToRegExp(pattern: string): RegExp`, `matchDomain(domain: string, value: string): boolean`, `matchText(pattern: string, value: string): boolean`, `resolveScopePath(value: string, cwd: string | undefined, home?: string): string | undefined`, `matchPath(pattern: string, value: string, cwd: string | undefined, home?: string): boolean`, `splitCommand(command: string): string[]`.
+  - `types.ts`: `type RuleId = Branded<'AirPermissionRuleId'>`, `RuleId(id: string): RuleId`, `type Decision = 'allow' | 'ask' | 'deny'`, `type Risk = 'low' | 'medium' | 'high'`, `interface CapabilitySpec { readonly risk: Risk; readonly default: Decision }`, `interface ToolScope { readonly capability: string; readonly scopeArgKeys: readonly string[]; readonly pathKeys: readonly string[]; readonly commandKeys: readonly string[]; readonly dialect: ShellDialect }`, `interface RuleInput { readonly id: string; readonly decision: Decision; readonly tool?: string | undefined; readonly capability?: string | undefined; readonly match?: Readonly<Record<string, string>> | undefined }`, `interface PolicyTables { readonly capabilities: Readonly<Record<string, CapabilitySpec>>; readonly tools: Readonly<Record<string, ToolScope>>; readonly unscopedDefault: Decision; readonly unscopedMcpDefault: Decision }`, `interface CallFacts { readonly tool: string; readonly args: Readonly<Record<string, unknown>>; readonly cwd: string | undefined }`, `interface Verdict { readonly decision: Decision; readonly source: 'rule' | 'capability-default' | 'unscoped-default'; readonly ruleId?: RuleId; readonly scope?: { readonly capability: string; readonly risk: Risk }; readonly blockedBy?: 'approval-never' }`.
+  - `taxonomy.ts`: `defaultCapabilities(): Record<string, CapabilitySpec>`, `type MutableToolScope` (a `ToolScope` with mutable arrays, the form a Schemastery default accepts), `defaultToolScopes(): Record<string, MutableToolScope>`.
+  - `match.ts`: `wildcardToRegExp(pattern: string): RegExp`, `matchDomain(domain: string, value: string): boolean`, `matchText(pattern: string, value: string): boolean`, `resolveScopePath(value: string, cwd: string | undefined, home?: string): string | undefined` (forward-slash result), `matchPath(pattern: string, value: string, cwd: string | undefined, home?: string): boolean`, `type ShellDialect = 'posix' | 'powershell'`, `splitCommand(command: string, dialect?: ShellDialect): string[]`, `shellWords(segment: string, dialect?: ShellDialect): string[]`.
 
 - [ ] **Step 1: Create the package scaffold**
 
@@ -162,14 +202,14 @@ Upstream APIs this plan calls (all at `dsh-v0.2.0-rc.2`):
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.4",
-    "@deepseek-ai/dsh-agent": "^0.2.0-rc.1",
-    "@deepseek-ai/dsh-atomic-write": "^0.2.0-rc.1",
-    "@deepseek-ai/dsh-brand": "^0.2.0-rc.1",
-    "@deepseek-ai/dsh-commands": "^0.2.0-rc.1",
-    "@deepseek-ai/dsh-home-paths": "^0.2.0-rc.1",
-    "@deepseek-ai/dsh-session": "^0.2.0-rc.1",
-    "@deepseek-ai/dsh-tools": "^0.2.0-rc.1",
-    "@deepseek-ai/dsh-user-approval": "^0.2.0-rc.1"
+    "@deepseek-ai/dsh-agent": "^0.2.0-rc.1 || ^0.2.1-alpha.1",
+    "@deepseek-ai/dsh-atomic-write": "^0.2.0-rc.1 || ^0.2.1-alpha.1",
+    "@deepseek-ai/dsh-brand": "^0.2.0-rc.1 || ^0.2.1-alpha.1",
+    "@deepseek-ai/dsh-commands": "^0.2.0-rc.1 || ^0.2.1-alpha.1",
+    "@deepseek-ai/dsh-home-paths": "^0.2.0-rc.1 || ^0.2.1-alpha.1",
+    "@deepseek-ai/dsh-session": "^0.2.0-rc.1 || ^0.2.1-alpha.1",
+    "@deepseek-ai/dsh-tools": "^0.2.0-rc.1 || ^0.2.1-alpha.1",
+    "@deepseek-ai/dsh-user-approval": "^0.2.0-rc.1 || ^0.2.1-alpha.1"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "link:../../../vendor/cordis",
@@ -179,9 +219,13 @@ Upstream APIs this plan calls (all at `dsh-v0.2.0-rc.2`):
     "@deepseek-ai/dsh-atomic-write": "link:../../../packages/util/atomic-write",
     "@deepseek-ai/dsh-brand": "link:../../../packages/util/brand",
     "@deepseek-ai/dsh-commands": "link:../../../packages/interaction/commands",
+    "@deepseek-ai/dsh-experimental-auto-review": "link:../../../packages/experimental/auto-review",
     "@deepseek-ai/dsh-home-paths": "link:../../../packages/util/home-paths",
     "@deepseek-ai/dsh-llm": "link:../../../packages/llm/llm",
+    "@deepseek-ai/dsh-permission-presets": "link:../../../packages/interaction/permission-presets",
     "@deepseek-ai/dsh-session": "link:../../../packages/core/session",
+    "@deepseek-ai/dsh-session-projection": "link:../../../packages/session/session-projection",
+    "@deepseek-ai/dsh-shell": "link:../../../packages/shell/shell",
     "@deepseek-ai/dsh-system-prompt": "link:../../../packages/core/system-prompt",
     "@deepseek-ai/dsh-tools": "link:../../../packages/core/tools",
     "@deepseek-ai/dsh-user-approval": "link:../../../packages/interaction/user-approval",
@@ -241,7 +285,9 @@ export default defineConfig({
 })
 ```
 
-Run: `pnpm -C /home/hxman/AIR-harness/air install && pnpm -C /home/hxman/AIR-harness/air/packages/convention-core build`
+Run: `pnpm -C air install`
+
+Run: `pnpm -C air/packages/convention-core build`
 Expected: both exit 0; `air/packages/permission-rules/node_modules/picomatch/package.json` and `air/packages/convention-core/lib/index.js` exist.
 
 - [ ] **Step 2: Write the types and the default tables**
@@ -251,6 +297,7 @@ Expected: both exit 0; `air/packages/permission-rules/node_modules/picomatch/pac
 ```ts
 /** Shared types of the AIR permission policy. */
 import type { Branded } from '@deepseek-ai/dsh-brand'
+import type { ShellDialect } from './match.ts'
 
 /** Identity of one permission rule, unique across the Config rules and the rules file. */
 export type RuleId = Branded<'AirPermissionRuleId'>
@@ -286,13 +333,15 @@ export interface ToolScope {
   readonly pathKeys: readonly string[]
   /** Members of `scopeArgKeys` that hold shell command lines. */
   readonly commandKeys: readonly string[]
+  /** Shell syntax of the `commandKeys` arguments; `posix` for a tool without command arguments. */
+  readonly dialect: ShellDialect
 }
 
 /** One rule as written in Config or in the rules file. */
 export interface RuleInput {
   readonly id: string
   readonly decision: Decision
-  /** dsh tool name; exactly one of `tool` and `capability` is set. */
+  /** dsh tool name, or an `mcp__<server>__*` wildcard name; exactly one of `tool` and `capability` is set. */
   readonly tool?: string | undefined
   /** Capability id; exactly one of `tool` and `capability` is set. */
   readonly capability?: string | undefined
@@ -326,6 +375,8 @@ export interface Verdict {
   readonly ruleId?: RuleId
   /** Capability and risk of the tool, when it has a `tools` entry. */
   readonly scope?: { readonly capability: string; readonly risk: Risk }
+  /** Set when an `ask` was turned into a `deny` because the session's approval policy is `never`. */
+  readonly blockedBy?: 'approval-never'
 }
 ```
 
@@ -338,36 +389,42 @@ import type { CapabilitySpec, ToolScope } from './types.ts'
 /**
  * Default capability table. `fs.read`, `fs.write`, `shell.execute`,
  * `browser.execute_script`, and `system.device_control` keep the ids and risk
- * classes of the earlier AIR project; its `install_time` confirmation maps to
- * `allow` and `per_call` to `ask`.
+ * classes of the earlier AIR project. Every default decision is `allow`: the
+ * built-in tools keep the behavior of the upstream permission presets, and the
+ * risk class only labels audit records and capability rules. Stricter
+ * defaults are opt-in through the `capabilities` Config field.
  * @returns a fresh mutable table.
  */
 export function defaultCapabilities(): Record<string, CapabilitySpec> {
   return {
     'fs.read': { risk: 'low', default: 'allow' },
-    'fs.write': { risk: 'medium', default: 'ask' },
-    'shell.execute': { risk: 'high', default: 'ask' },
-    'net.fetch': { risk: 'medium', default: 'ask' },
+    'fs.write': { risk: 'medium', default: 'allow' },
+    'shell.execute': { risk: 'high', default: 'allow' },
+    'net.fetch': { risk: 'medium', default: 'allow' },
     'net.search': { risk: 'low', default: 'allow' },
-    'browser.execute_script': { risk: 'high', default: 'ask' },
-    'system.device_control': { risk: 'medium', default: 'ask' },
+    'browser.execute_script': { risk: 'high', default: 'allow' },
+    'system.device_control': { risk: 'medium', default: 'allow' },
   }
 }
+
+/** A {@link ToolScope} with mutable arrays, the form a Schemastery default accepts. */
+export type MutableToolScope = { -readonly [K in keyof ToolScope]: ToolScope[K] extends readonly (infer E)[] ? E[] : ToolScope[K] }
 
 /**
  * Default scopes of the harness tools, keyed by dsh tool name.
  * @returns a fresh mutable table.
  */
-export function defaultToolScopes(): Record<string, ToolScope> {
+export function defaultToolScopes(): Record<string, MutableToolScope> {
   return {
-    bash: { capability: 'shell.execute', scopeArgKeys: ['command'], pathKeys: [], commandKeys: ['command'] },
-    read: { capability: 'fs.read', scopeArgKeys: ['file_path'], pathKeys: ['file_path'], commandKeys: [] },
-    write: { capability: 'fs.write', scopeArgKeys: ['file_path'], pathKeys: ['file_path'], commandKeys: [] },
-    edit: { capability: 'fs.write', scopeArgKeys: ['file_path'], pathKeys: ['file_path'], commandKeys: [] },
-    glob: { capability: 'fs.read', scopeArgKeys: ['path'], pathKeys: ['path'], commandKeys: [] },
-    grep: { capability: 'fs.read', scopeArgKeys: ['path'], pathKeys: ['path'], commandKeys: [] },
-    web_fetch: { capability: 'net.fetch', scopeArgKeys: ['url'], pathKeys: [], commandKeys: [] },
-    web_search: { capability: 'net.search', scopeArgKeys: ['query'], pathKeys: [], commandKeys: [] },
+    bash: { capability: 'shell.execute', scopeArgKeys: ['command'], pathKeys: [], commandKeys: ['command'], dialect: 'posix' },
+    pwsh: { capability: 'shell.execute', scopeArgKeys: ['command'], pathKeys: [], commandKeys: ['command'], dialect: 'powershell' },
+    read: { capability: 'fs.read', scopeArgKeys: ['file_path'], pathKeys: ['file_path'], commandKeys: [], dialect: 'posix' },
+    write: { capability: 'fs.write', scopeArgKeys: ['file_path'], pathKeys: ['file_path'], commandKeys: [], dialect: 'posix' },
+    edit: { capability: 'fs.write', scopeArgKeys: ['file_path'], pathKeys: ['file_path'], commandKeys: [], dialect: 'posix' },
+    glob: { capability: 'fs.read', scopeArgKeys: ['path'], pathKeys: ['path'], commandKeys: [], dialect: 'posix' },
+    grep: { capability: 'fs.read', scopeArgKeys: ['path'], pathKeys: ['path'], commandKeys: [], dialect: 'posix' },
+    web_fetch: { capability: 'net.fetch', scopeArgKeys: ['url'], pathKeys: [], commandKeys: [], dialect: 'posix' },
+    web_search: { capability: 'net.search', scopeArgKeys: ['query'], pathKeys: [], commandKeys: [], dialect: 'posix' },
   }
 }
 ```
@@ -378,14 +435,21 @@ export function defaultToolScopes(): Record<string, ToolScope> {
 
 ```ts
 import { describe, expect, it } from 'vitest'
+import { resolve } from 'node:path'
 import {
   matchDomain,
   matchPath,
   matchText,
   resolveScopePath,
+  shellWords,
   splitCommand,
   wildcardToRegExp,
 } from '../src/match.ts'
+
+/** Expected form of a resolved path on this platform: forward slashes, drive letter kept on Windows. */
+function resolved(...parts: string[]): string {
+  return resolve(...parts).replaceAll('\\', '/')
+}
 
 describe('wildcardToRegExp', () => {
   it('treats * as any characters, including slashes and newlines', () => {
@@ -427,13 +491,15 @@ describe('matchText', () => {
 })
 
 describe('resolveScopePath', () => {
-  it('normalizes absolute paths and expands the home directory', () => {
-    expect(resolveScopePath('/ws/a/../b', undefined)).toBe('/ws/b')
-    expect(resolveScopePath('~/notes', undefined, '/home/u')).toBe('/home/u/notes')
+  it('normalizes absolute paths, expands the home directory, and uses forward slashes', () => {
+    expect(resolveScopePath('/ws/a/../b', undefined)).toBe(resolved('/ws/b'))
+    expect(resolveScopePath('~/notes', undefined, '/home/u')).toBe(resolved('/home/u/notes'))
+    expect(resolveScopePath('~\\notes', undefined, '/home/u')).toBe(resolved('/home/u/notes'))
+    expect(resolveScopePath('/ws/a', undefined)).not.toContain('\\')
   })
 
   it('resolves a relative path against cwd and returns undefined without one', () => {
-    expect(resolveScopePath('src/a.ts', '/ws')).toBe('/ws/src/a.ts')
+    expect(resolveScopePath('src/a.ts', '/ws')).toBe(resolved('/ws/src/a.ts'))
     expect(resolveScopePath('src/a.ts', undefined)).toBeUndefined()
   })
 })
@@ -451,9 +517,45 @@ describe('matchPath', () => {
     expect(matchPath('./src/**', 'src/../../etc/passwd', '/ws')).toBe(false)
   })
 
+  it.runIf(process.platform === 'win32')('matches backslash paths and ignores case on Windows', () => {
+    expect(matchPath('C:\\ws\\src\\**', 'c:\\WS\\src\\a\\b.ts', undefined)).toBe(true)
+    expect(matchPath('.\\src\\**', 'src\\a.ts', 'C:\\ws')).toBe(true)
+    expect(matchPath('C:\\ws\\src\\**', 'C:\\ws\\other\\a.ts', undefined)).toBe(false)
+  })
+
   it('does not match when either side cannot be resolved', () => {
     expect(matchPath('src/**', '/ws/src/a.ts', undefined)).toBe(false)
     expect(matchPath('/ws/**', 'src/a.ts', undefined)).toBe(false)
+  })
+})
+
+describe('splitCommand (PowerShell)', () => {
+  it('splits on separators, braces, and subexpressions', () => {
+    expect(splitCommand('a; b | c', 'powershell')).toEqual(['a', 'b', 'c'])
+    expect(splitCommand('if ($x) { gsudo ls }', 'powershell')).toEqual(['if', '$x', 'gsudo ls'])
+    expect(splitCommand('echo $(gsudo id)', 'powershell')).toEqual(['echo', 'gsudo id'])
+  })
+
+  it('treats a backslash as a path character and a backquote as the escape', () => {
+    expect(splitCommand('cd C:\\work\\; gsudo ls', 'powershell')).toEqual(['cd C:\\work\\', 'gsudo ls'])
+    expect(splitCommand('echo a`;b', 'powershell')).toEqual(['echo a`;b'])
+    expect(splitCommand('echo `', 'powershell')).toEqual(['echo `'])
+  })
+
+  it('keeps separators inside quotes', () => {
+    expect(splitCommand('echo "a; b" ; \'c | d\'', 'powershell')).toEqual(['echo "a; b"', '\'c | d\''])
+  })
+})
+
+describe('shellWords', () => {
+  it('splits on whitespace outside quotes and removes quotes', () => {
+    expect(shellWords('bash -c "sudo id"')).toEqual(['bash', '-c', 'sudo id'])
+    expect(shellWords("echo 'a b' c\\ d")).toEqual(['echo', 'a b', 'c d'])
+    expect(shellWords('  ')).toEqual([])
+  })
+
+  it('uses the backquote escape in PowerShell and keeps backslashes', () => {
+    expect(shellWords('Get-ChildItem C:\\Users\\x `"y', 'powershell')).toEqual(['Get-ChildItem', 'C:\\Users\\x', '"y'])
   })
 })
 
@@ -467,7 +569,7 @@ describe('splitCommand', () => {
   it('keeps separators inside quotes and after a backslash', () => {
     expect(splitCommand('echo "a; b" | wc -l')).toEqual(['echo "a; b"', 'wc -l'])
     expect(splitCommand('echo \'x && y\'')).toEqual(['echo \'x && y\''])
-    expect(splitCommand('echo a\;b')).toEqual(['echo a\;b'])
+    expect(splitCommand('echo a\\;b')).toEqual(['echo a\\;b'])
     expect(splitCommand('echo a\\')).toEqual(['echo a\\'])
   })
 
@@ -491,7 +593,7 @@ describe('splitCommand', () => {
 
 - [ ] **Step 4: Run the tests to verify they fail**
 
-Run: `pnpm -C /home/hxman/AIR-harness/air/packages/permission-rules test`
+Run: `pnpm -C air/packages/permission-rules test`
 Expected: FAIL; Vitest reports that `../src/match.ts` cannot be resolved.
 
 - [ ] **Step 5: Write the matchers**
@@ -504,9 +606,13 @@ import { isAbsolute, resolve } from 'node:path'
 import picomatch from 'picomatch'
 import { expandHome } from '@air/dsh-convention-core'
 
+/** Shell syntax a command line is written in. */
+export type ShellDialect = 'posix' | 'powershell'
+
 const DOMAIN_PREFIX = 'domain:'
 const REGEXP_SPECIAL = /[.+?^${}()|[\]\\]/
-const SEPARATORS = ';&|()\n'
+const SEPARATORS: Record<ShellDialect, string> = { posix: ';&|()\n', powershell: ';&|(){}\n' }
+const ESCAPES: Record<ShellDialect, string> = { posix: '\\', powershell: '`' }
 
 /**
  * Compile a wildcard pattern in which `*` matches any run of characters.
@@ -548,15 +654,15 @@ export function matchText(pattern: string, value: string): boolean {
 
 /**
  * Resolve a path or path pattern lexically. Symbolic links are not followed.
- * @param value - absolute, `~`-prefixed, or relative path.
+ * @param value - absolute, `~`-prefixed (`~/` or `~\`), or relative path.
  * @param cwd - session working directory for relative paths.
  * @param home - home directory override for tests.
- * @returns the normalized absolute path, or undefined for a relative path without `cwd`.
+ * @returns the normalized absolute path with forward slashes (a Windows path keeps its drive letter, for example `C:/ws/a.ts`), or undefined for a relative path without `cwd`.
  */
 export function resolveScopePath(value: string, cwd: string | undefined, home?: string): string | undefined {
-  const expanded = expandHome(value, home)
-  if (isAbsolute(expanded)) return resolve(expanded)
-  return cwd === undefined ? undefined : resolve(cwd, expanded)
+  const expanded = expandHome(value.replace(/^~\\/, '~/'), home)
+  const absolute = isAbsolute(expanded) ? resolve(expanded) : cwd === undefined ? undefined : resolve(cwd, expanded)
+  return absolute?.replaceAll('\\', '/')
 }
 
 /**
@@ -565,28 +671,33 @@ export function resolveScopePath(value: string, cwd: string | undefined, home?: 
  * @param value - the path argument of a call.
  * @param cwd - session working directory.
  * @param home - home directory override for tests.
- * @returns whether the resolved value matches the resolved glob; false when either side cannot be resolved.
+ * @returns whether the resolved value matches the resolved glob; false when either side cannot be resolved. Comparison ignores case on Windows.
  */
 export function matchPath(pattern: string, value: string, cwd: string | undefined, home?: string): boolean {
   const absolutePattern = resolveScopePath(pattern, cwd, home)
   const absoluteValue = resolveScopePath(value, cwd, home)
   if (absolutePattern === undefined || absoluteValue === undefined) return false
-  return picomatch(absolutePattern, { dot: true })(absoluteValue)
+  return picomatch(absolutePattern, { dot: true, nocase: process.platform === 'win32' })(absoluteValue)
 }
 
 /**
  * Split a shell command line into simple-command segments. Separators are
- * `;`, `&`, `|`, parentheses, and newlines outside quotes; a command
- * substitution (`$(` or a backquote) starts a segment anywhere outside single
- * quotes. The split is conservative: it may cut a segment that a shell would
- * keep whole, which makes an allow rule stricter, never looser.
+ * `;`, `&`, `|`, parentheses, and newlines outside quotes (PowerShell also
+ * braces); a command substitution (`$(` anywhere outside single quotes, and a
+ * backquote in the POSIX dialect) starts a segment. The escape character is a
+ * backslash in the POSIX dialect and a backquote in PowerShell, where a
+ * backslash is an ordinary path character. The split is conservative: it may
+ * cut a segment that a shell would keep whole, which makes an allow rule
+ * stricter, never looser.
  * @param command - the command line.
+ * @param dialect - shell syntax; defaults to POSIX.
  * @returns trimmed non-empty segments in source order.
  */
-export function splitCommand(command: string): string[] {
+export function splitCommand(command: string, dialect: ShellDialect = 'posix'): string[] {
   const segments: string[] = []
   let current = ''
   let quote: '"' | '\'' | undefined
+  const escape = ESCAPES[dialect]
   const flush = (): void => {
     const trimmed = current.trim()
     if (trimmed !== '') segments.push(trimmed)
@@ -598,10 +709,10 @@ export function splitCommand(command: string): string[] {
     if (quote === '\'') {
       if (char === '\'') quote = undefined
       current += char
-    } else if (char === '\\' && next !== '') {
+    } else if (char === escape && next !== '') {
       current += char + next
       index += 1
-    } else if (char === '`' || (char === '$' && next === '(')) {
+    } else if ((dialect === 'posix' && char === '`') || (char === '$' && next === '(')) {
       flush()
       if (char === '$') index += 1
     } else if (quote === '"') {
@@ -612,7 +723,7 @@ export function splitCommand(command: string): string[] {
       current += char
     } else if (char === '&' && (current.endsWith('>') || next === '>')) {
       current += char
-    } else if (SEPARATORS.includes(char)) {
+    } else if (SEPARATORS[dialect].includes(char)) {
       flush()
     } else {
       current += char
@@ -621,22 +732,57 @@ export function splitCommand(command: string): string[] {
   flush()
   return segments
 }
+
+/**
+ * Split one command segment into words: whitespace outside quotes separates
+ * words, quotes are removed, and the dialect's escape character keeps the next
+ * character literally (outside single quotes).
+ * @param segment - one segment from {@link splitCommand}.
+ * @param dialect - shell syntax; defaults to POSIX.
+ * @returns the words in order; quoted empty strings yield no word.
+ */
+export function shellWords(segment: string, dialect: ShellDialect = 'posix'): string[] {
+  const words: string[] = []
+  let current = ''
+  let quote: '"' | '\'' | undefined
+  const escape = ESCAPES[dialect]
+  for (let index = 0; index < segment.length; index += 1) {
+    const char = segment.charAt(index)
+    if (quote === '\'') {
+      if (char === '\'') quote = undefined
+      else current += char
+    } else if (char === escape && index + 1 < segment.length) {
+      index += 1
+      current += segment.charAt(index)
+    } else if (char === quote) {
+      quote = undefined
+    } else if (quote === undefined && (char === '"' || char === '\'')) {
+      quote = char
+    } else if (quote === undefined && /\s/.test(char)) {
+      if (current !== '') words.push(current)
+      current = ''
+    } else {
+      current += char
+    }
+  }
+  if (current !== '') words.push(current)
+  return words
+}
 ```
 
 - [ ] **Step 6: Run the tests to verify they pass**
 
-Run: `pnpm -C /home/hxman/AIR-harness/air/packages/permission-rules test`
+Run: `pnpm -C air/packages/permission-rules test`
 Expected: `Test Files 1 passed (1)`.
 
 - [ ] **Step 7: Typecheck**
 
-Run: `pnpm -C /home/hxman/AIR-harness/air/packages/permission-rules typecheck`
+Run: `pnpm -C air/packages/permission-rules typecheck`
 Expected: exit 0, no output from `tsc`.
 
 - [ ] **Step 8: Commit**
 
 ```bash
-cd /home/hxman/AIR-harness
 git add air/pnpm-lock.yaml air/packages/permission-rules
 git commit -m "feat(air): scaffold permission-rules with scope tables and argument matchers"
 ```
@@ -652,10 +798,10 @@ git commit -m "feat(air): scaffold permission-rules with scope tables and argume
 - Test: `air/packages/permission-rules/tests/policy.spec.ts`
 
 **Interfaces:**
-- Consumes from Task 1: every type in `types.ts`; `matchText`, `matchPath`, `splitCommand`. From `@air/dsh-convention-core` (plan 01 Task 1): `toDshToolName(claudeName: string): string | undefined` (returns `mcp__*` names unchanged, `undefined` for names outside its table).
+- Consumes from Task 1: every type in `types.ts`; `matchText`, `matchPath`, `splitCommand`, `wildcardToRegExp`, `ShellDialect`. From `@air/dsh-convention-core` (plan 01 Task 1): `toDshToolName(claudeName: string): string | undefined` (returns `mcp__*` names unchanged, `undefined` for names outside its table).
 - Produces:
-  - `rule-syntax.ts`: `interface ParsedRuleSpec { readonly tool: string; readonly match?: Record<string, string> }`, `parseRuleSpec(spec: string, tools: Readonly<Record<string, ToolScope>>): ParsedRuleSpec` (throws `Error` with a user-facing message), `formatRule(rule: RuleInput): string`.
-  - `policy.ts`: `interface CompiledRule`, `interface CompiledPolicy { readonly tables: PolicyTables; readonly scopes: ReadonlyMap<string, { readonly scope: ToolScope; readonly spec: CapabilitySpec }>; readonly rules: readonly CompiledRule[] }`, `compilePolicy(tables: PolicyTables, rules: readonly RuleInput[]): { policy: CompiledPolicy; problems: string[] }`, `evaluate(policy: CompiledPolicy, call: CallFacts, home?: string): Verdict`, `type DownstreamKind = 'allow' | 'deny' | 'cancel' | 'ask'`, `type CombineOutcome = 'air-deny' | 'air-ask' | 'rule-allow-over-ask' | 'downstream'`, `combine(verdict: Verdict, downstream: DownstreamKind, options: { readonly ruleAllowSatisfiesAsk: boolean }): CombineOutcome`.
+  - `rule-syntax.ts`: `interface ParsedRuleSpec { readonly tool: string; readonly match?: Record<string, string> }`, `parseRuleSpec(spec: string, tools: Readonly<Record<string, ToolScope>>): ParsedRuleSpec` (throws `Error` with a user-facing message; accepts `mcp__<server>__*`), `formatRule(rule: RuleInput): string`.
+  - `policy.ts`: `interface CompiledRule`, `interface CompiledPolicy { readonly tables: PolicyTables; readonly scopes: ReadonlyMap<string, { readonly scope: ToolScope; readonly spec: CapabilitySpec }>; readonly rules: readonly CompiledRule[] }`, `compilePolicy(tables: PolicyTables, rules: readonly RuleInput[]): { policy: CompiledPolicy; problems: string[] }`, `evaluate(policy: CompiledPolicy, call: CallFacts, home?: string): Verdict`, `type DownstreamKind = 'allow' | 'deny' | 'cancel' | 'ask'`, `type CombineOutcome = 'air-deny' | 'air-ask' | 'downstream'`, `combine(verdict: Verdict, downstream: DownstreamKind): CombineOutcome`, `adaptToApprovalPolicy(verdict: Verdict, approvalPolicy: 'ask' | 'never', neverPolicyAsk: 'allow' | 'deny'): Verdict`.
 
 - [ ] **Step 1: Write the failing rule-syntax tests**
 
@@ -725,7 +871,7 @@ describe('formatRule', () => {
 
 ```ts
 import { describe, expect, it } from 'vitest'
-import { combine, compilePolicy, evaluate, type CompiledPolicy } from '../src/policy.ts'
+import { adaptToApprovalPolicy, combine, compilePolicy, evaluate, type CompiledPolicy } from '../src/policy.ts'
 import { defaultCapabilities, defaultToolScopes } from '../src/taxonomy.ts'
 import type { CallFacts, PolicyTables, RuleInput, Verdict } from '../src/types.ts'
 
@@ -742,17 +888,24 @@ function policyOf(rules: readonly RuleInput[], overrides: Partial<PolicyTables> 
   return compiled.policy
 }
 
-function call(tool: string, args: Record<string, unknown>, cwd: string | undefined = '/ws'): CallFacts {
-  return { tool, args, cwd }
+function call(tool: string, args: Record<string, unknown>): CallFacts {
+  return { tool, args, cwd: '/ws' }
+}
+
+function callWithoutCwd(tool: string, args: Record<string, unknown>): CallFacts {
+  return { tool, args, cwd: undefined }
 }
 
 describe('evaluate defaults', () => {
   const policy = policyOf([])
 
-  it('uses the capability default of a scoped tool', () => {
+  it('uses the capability default of a scoped tool, which is allow for every built-in capability', () => {
     expect(evaluate(policy, call('bash', { command: 'ls' }))).toEqual({
-      decision: 'ask', source: 'capability-default', scope: { capability: 'shell.execute', risk: 'high' },
+      decision: 'allow', source: 'capability-default', scope: { capability: 'shell.execute', risk: 'high' },
     })
+    expect(evaluate(policy, call('pwsh', { command: 'ls' })).decision).toBe('allow')
+    expect(evaluate(policy, call('write', { file_path: 'a.ts' })).decision).toBe('allow')
+    expect(evaluate(policy, call('web_fetch', { url: 'https://example.com' })).decision).toBe('allow')
     expect(evaluate(policy, call('read', { file_path: 'a.ts' }))).toEqual({
       decision: 'allow', source: 'capability-default', scope: { capability: 'fs.read', risk: 'low' },
     })
@@ -804,7 +957,7 @@ describe('evaluate rules', () => {
     expect(evaluate(policy, call('write', { file_path: '/ws/docs/a.md' }), '/home/u').ruleId).toBe('docs')
     expect(evaluate(policy, call('write', { file_path: 'docs/../../etc/passwd' }), '/home/u').source).toBe('capability-default')
     expect(evaluate(policy, call('write', { file_path: '/home/u/notes/a.md' }), '/home/u').ruleId).toBe('notes')
-    expect(evaluate(policy, call('write', { file_path: 'docs/a.md' }, undefined), '/home/u').source).toBe('capability-default')
+    expect(evaluate(policy, callWithoutCwd('write', { file_path: 'docs/a.md' }), '/home/u').source).toBe('capability-default')
   })
 
   it('applies capability rules to every tool with that capability', () => {
@@ -821,6 +974,23 @@ describe('evaluate rules', () => {
     expect(evaluate(policy, call('todo_write', { repo: 'me/site' })).source).toBe('unscoped-default')
   })
 
+  it('matches an mcp__ wildcard tool name and lets a narrower deny win', () => {
+    const policy = policyOf([
+      { id: 'github', decision: 'allow', tool: 'mcp__github__*' },
+      { id: 'no-delete', decision: 'deny', tool: 'mcp__github__delete_*' },
+    ])
+    expect(evaluate(policy, call('mcp__github__create_issue', {}))).toEqual({ decision: 'allow', source: 'rule', ruleId: 'github' })
+    expect(evaluate(policy, call('mcp__github__delete_repo', {}))).toMatchObject({ decision: 'deny', ruleId: 'no-delete' })
+    expect(evaluate(policy, call('mcp__gitlab__create_issue', {})).source).toBe('unscoped-default')
+    expect(evaluate(policy, call('mcp__github', {})).source).toBe('unscoped-default')
+  })
+
+  it('splits a pwsh command with the PowerShell dialect', () => {
+    const policy = policyOf([{ id: 'ls', decision: 'allow', tool: 'pwsh', match: { command: 'Get-ChildItem*' } }])
+    expect(evaluate(policy, call('pwsh', { command: 'Get-ChildItem C:\\ws' })).ruleId).toBe('ls')
+    expect(evaluate(policy, call('pwsh', { command: 'Get-ChildItem C:\\ws\\; Remove-Item x' })).source).toBe('capability-default')
+  })
+
   it('does not match a missing or non-string argument', () => {
     const policy = policyOf([{ id: 'r', decision: 'allow', tool: 'bash', match: { command: '*' } }])
     expect(evaluate(policy, call('bash', {})).source).toBe('capability-default')
@@ -833,9 +1003,9 @@ describe('compilePolicy problems', () => {
     const compiled = compilePolicy({
       ...tables,
       tools: {
-        a: { capability: 'missing', scopeArgKeys: ['x'], pathKeys: [], commandKeys: [] },
-        b: { capability: 'fs.read', scopeArgKeys: [], pathKeys: [], commandKeys: [] },
-        c: { capability: 'fs.read', scopeArgKeys: ['x'], pathKeys: ['y'], commandKeys: ['z'] },
+        a: { capability: 'missing', scopeArgKeys: ['x'], pathKeys: [], commandKeys: [], dialect: 'posix' },
+        b: { capability: 'fs.read', scopeArgKeys: [], pathKeys: [], commandKeys: [], dialect: 'posix' },
+        c: { capability: 'fs.read', scopeArgKeys: ['x'], pathKeys: ['y'], commandKeys: ['z'], dialect: 'posix' },
       },
     }, [])
     expect(compiled.problems).toEqual([
@@ -856,6 +1026,7 @@ describe('compilePolicy problems', () => {
       { id: 'cap', decision: 'deny', capability: 'nope' },
       { id: 'empty', decision: 'allow', tool: 'bash', match: { command: '' } },
       { id: 'key', decision: 'deny', capability: 'fs.read', match: { url: 'x' } },
+      { id: 'wild', decision: 'allow', tool: 'ba*' },
     ])
     expect(compiled.problems).toEqual([
       'a rule has an empty id',
@@ -865,6 +1036,7 @@ describe('compilePolicy problems', () => {
       'rule "cap": unknown capability "nope"',
       'rule "empty": empty pattern for argument "command"',
       'rule "key": argument "url" is not a scope argument of any tool with capability "fs.read"',
+      'rule "wild": a wildcard is allowed only in an mcp__ tool name',
     ])
   })
 })
@@ -872,40 +1044,58 @@ describe('compilePolicy problems', () => {
 describe('combine', () => {
   const rule = (decision: Verdict['decision']): Verdict => ({ decision, source: 'rule' })
   const fallback = (decision: Verdict['decision']): Verdict => ({ decision, source: 'capability-default' })
-  const on = { ruleAllowSatisfiesAsk: true }
 
   it('lets an AIR deny win over every downstream decision', () => {
     for (const downstream of ['allow', 'deny', 'cancel', 'ask'] as const) {
-      expect(combine(rule('deny'), downstream, on)).toBe('air-deny')
+      expect(combine(rule('deny'), downstream)).toBe('air-deny')
     }
   })
 
-  it('keeps a downstream deny or cancel', () => {
-    expect(combine(rule('allow'), 'deny', on)).toBe('downstream')
-    expect(combine(rule('ask'), 'cancel', on)).toBe('downstream')
+  it('keeps a downstream deny, cancel, or ask', () => {
+    expect(combine(rule('allow'), 'deny')).toBe('downstream')
+    expect(combine(rule('ask'), 'cancel')).toBe('downstream')
+    expect(combine(rule('ask'), 'ask')).toBe('downstream')
+    expect(combine(fallback('ask'), 'ask')).toBe('downstream')
   })
 
-  it('asks when AIR asks and downstream allows or asks', () => {
-    expect(combine(fallback('ask'), 'allow', on)).toBe('air-ask')
-    expect(combine(rule('ask'), 'ask', on)).toBe('air-ask')
+  it('asks when AIR asks and downstream allows', () => {
+    expect(combine(fallback('ask'), 'allow')).toBe('air-ask')
+    expect(combine(rule('ask'), 'allow')).toBe('air-ask')
   })
 
-  it('lets only an explicit allow rule satisfy a downstream ask', () => {
-    expect(combine(rule('allow'), 'ask', on)).toBe('rule-allow-over-ask')
-    expect(combine(fallback('allow'), 'ask', on)).toBe('downstream')
-    expect(combine(rule('allow'), 'ask', { ruleAllowSatisfiesAsk: false })).toBe('downstream')
+  it('never lets an AIR allow replace a downstream ask', () => {
+    expect(combine(rule('allow'), 'ask')).toBe('downstream')
+    expect(combine(fallback('allow'), 'ask')).toBe('downstream')
+    expect(combine(rule('allow'), 'allow')).toBe('downstream')
+  })
+})
+
+describe('adaptToApprovalPolicy', () => {
+  const ask: Verdict = { decision: 'ask', source: 'unscoped-default' }
+  const ruleAsk: Verdict = { decision: 'ask', source: 'rule' }
+
+  it('leaves every verdict alone under the ask policy and leaves non-asks alone under never', () => {
+    expect(adaptToApprovalPolicy(ask, 'ask', 'allow')).toBe(ask)
+    const allow: Verdict = { decision: 'allow', source: 'rule' }
+    expect(adaptToApprovalPolicy(allow, 'never', 'deny')).toBe(allow)
+    const deny: Verdict = { decision: 'deny', source: 'rule' }
+    expect(adaptToApprovalPolicy(deny, 'never', 'allow')).toBe(deny)
   })
 
-  it('returns downstream when both allow', () => {
-    expect(combine(rule('allow'), 'allow', on)).toBe('downstream')
-    expect(combine(fallback('allow'), 'allow', on)).toBe('downstream')
+  it('turns a default-sourced ask into the configured decision under never', () => {
+    expect(adaptToApprovalPolicy(ask, 'never', 'allow')).toEqual({ decision: 'allow', source: 'unscoped-default' })
+    expect(adaptToApprovalPolicy(ask, 'never', 'deny')).toEqual({ decision: 'deny', source: 'unscoped-default', blockedBy: 'approval-never' })
+  })
+
+  it('denies an ask that a rule wrote under never', () => {
+    expect(adaptToApprovalPolicy(ruleAsk, 'never', 'allow')).toEqual({ decision: 'deny', source: 'rule', blockedBy: 'approval-never' })
   })
 })
 ```
 
 - [ ] **Step 3: Run the tests to verify they fail**
 
-Run: `pnpm -C /home/hxman/AIR-harness/air/packages/permission-rules test`
+Run: `pnpm -C air/packages/permission-rules test`
 Expected: FAIL; `../src/rule-syntax.ts` and `../src/policy.ts` cannot be resolved; `match.spec.ts` still passes.
 
 - [ ] **Step 4: Write the rule syntax module**
@@ -917,7 +1107,8 @@ Expected: FAIL; `../src/rule-syntax.ts` and `../src/policy.ts` cannot be resolve
 import { toDshToolName } from '@air/dsh-convention-core'
 import type { RuleInput, ToolScope } from './types.ts'
 
-const TOOL_NAME = /^[A-Za-z_][\w-]*$/
+const TOOL_NAME = /^[A-Za-z_][\w*-]*$/
+const MCP_PREFIX = 'mcp__'
 const DSH_NAME = /^[a-z][a-z0-9_]*$/
 const CLAUDE_PREFIX_SUFFIX = ':*'
 
@@ -931,7 +1122,7 @@ export interface ParsedRuleSpec {
 
 /**
  * Parse one `Tool` or `Tool(pattern)` spec.
- * @param spec - text typed by the user, for example `Bash(git status*)`.
+ * @param spec - text typed by the user, for example `Bash(git status*)` or `mcp__github__*`.
  * @param tools - current tool scope table; supplies the argument a pattern binds to.
  * @returns the dsh tool name and the match entry.
  * @throws Error with a user-facing message for a malformed spec, an unknown tool name, an empty pattern, or a pattern on a tool without a scope entry.
@@ -942,6 +1133,9 @@ export function parseRuleSpec(spec: string, tools: Readonly<Record<string, ToolS
   const rawName = open < 0 ? text : text.slice(0, open)
   if (!TOOL_NAME.test(rawName) || (open >= 0 && !text.endsWith(')'))) {
     throw new Error(`rule "${spec}" is not in Tool or Tool(pattern) form`)
+  }
+  if (rawName.includes('*') && !rawName.startsWith(MCP_PREFIX)) {
+    throw new Error(`rule "${spec}" uses a wildcard in "${rawName}"; wildcards are allowed only in ${MCP_PREFIX} tool names such as ${MCP_PREFIX}github__*`)
   }
   const tool = toDshToolName(rawName) ?? (DSH_NAME.test(rawName) ? rawName : undefined)
   if (tool === undefined) throw new Error(`rule "${spec}" names an unknown tool "${rawName}"`)
@@ -975,7 +1169,7 @@ export function formatRule(rule: RuleInput): string {
 
 ```ts
 /** Policy compilation, evaluation of one call, and combination with the downstream pre-execute decision. */
-import { matchPath, matchText, splitCommand } from './match.ts'
+import { matchPath, matchText, splitCommand, wildcardToRegExp, type ShellDialect } from './match.ts'
 import {
   RuleId,
   type CallFacts,
@@ -1007,7 +1201,7 @@ export interface CompiledPolicy {
 export type DownstreamKind = 'allow' | 'deny' | 'cancel' | 'ask'
 
 /** What the policy listener does after combining its verdict with the downstream decision. */
-export type CombineOutcome = 'air-deny' | 'air-ask' | 'rule-allow-over-ask' | 'downstream'
+export type CombineOutcome = 'air-deny' | 'air-ask' | 'downstream'
 
 const DECISION_ORDER: readonly Decision[] = ['deny', 'ask', 'allow']
 const MCP_PREFIX = 'mcp__'
@@ -1029,6 +1223,9 @@ function ruleProblems(rule: RuleInput, tables: PolicyTables, seen: Set<string>):
   if ((rule.tool === undefined) === (rule.capability === undefined)) {
     problems.push(`${label}: must name exactly one of tool or capability`)
     return problems
+  }
+  if (rule.tool?.includes('*') === true && !rule.tool.startsWith(MCP_PREFIX)) {
+    problems.push(`${label}: a wildcard is allowed only in an ${MCP_PREFIX} tool name`)
   }
   if (rule.capability !== undefined && !Object.hasOwn(tables.capabilities, rule.capability)) {
     problems.push(`${label}: unknown capability "${rule.capability}"`)
@@ -1079,8 +1276,12 @@ export function compilePolicy(tables: PolicyTables, rules: readonly RuleInput[])
   return { policy: { tables, scopes, rules: compiled }, problems }
 }
 
-function commandMatches(decision: Decision, pattern: string, command: string): boolean {
-  const segments = splitCommand(command)
+function toolMatches(ruleTool: string, tool: string): boolean {
+  return ruleTool.includes('*') ? wildcardToRegExp(ruleTool).test(tool) : ruleTool === tool
+}
+
+function commandMatches(decision: Decision, pattern: string, command: string, dialect: ShellDialect): boolean {
+  const segments = splitCommand(command, dialect)
   if (decision === 'allow') return segments.length > 0 && segments.every(segment => matchText(pattern, segment))
   return matchText(pattern, command) || segments.some(segment => matchText(pattern, segment))
 }
@@ -1090,7 +1291,7 @@ function ruleMatches(rule: CompiledRule, call: CallFacts, scope: ToolScope | und
     const value = call.args[key]
     if (typeof value !== 'string') return false
     if (scope?.pathKeys.includes(key) === true) return matchPath(pattern, value, call.cwd, home)
-    if (scope?.commandKeys.includes(key) === true) return commandMatches(rule.decision, pattern, value)
+    if (scope?.commandKeys.includes(key) === true) return commandMatches(rule.decision, pattern, value, scope.dialect ?? 'posix')
     return matchText(pattern, value)
   })
 }
@@ -1111,7 +1312,7 @@ export function evaluate(policy: CompiledPolicy, call: CallFacts, home?: string)
   for (const decision of DECISION_ORDER) {
     for (const rule of policy.rules) {
       if (rule.decision !== decision) continue
-      if (rule.tool !== call.tool && (entry === undefined || rule.capability !== entry.scope.capability)) continue
+      if (rule.tool !== undefined ? !toolMatches(rule.tool, call.tool) : entry?.scope.capability !== rule.capability) continue
       if (ruleMatches(rule, call, entry?.scope, home)) return { decision, source: 'rule', ruleId: rule.id, ...scope }
     }
   }
@@ -1122,37 +1323,50 @@ export function evaluate(policy: CompiledPolicy, call: CallFacts, home?: string)
 
 /**
  * Combine the AIR verdict with the downstream decision. Order: deny, cancel,
- * ask, allow; an explicit allow rule may replace a downstream ask.
+ * ask, allow. When both sides ask, the downstream ask is kept, so the user
+ * sees one prompt; an AIR allow never replaces a downstream ask.
  * @param verdict - the AIR verdict for the call.
  * @param downstream - kind of the decision `next()` returned.
- * @param options - `ruleAllowSatisfiesAsk` enables the allow-over-ask exception.
  * @returns which decision the listener returns.
  */
-export function combine(
-  verdict: Verdict,
-  downstream: DownstreamKind,
-  options: { readonly ruleAllowSatisfiesAsk: boolean },
-): CombineOutcome {
+export function combine(verdict: Verdict, downstream: DownstreamKind): CombineOutcome {
   if (verdict.decision === 'deny') return 'air-deny'
-  if (downstream === 'deny' || downstream === 'cancel') return 'downstream'
-  if (verdict.decision === 'ask') return 'air-ask'
-  if (downstream === 'ask' && verdict.source === 'rule' && options.ruleAllowSatisfiesAsk) return 'rule-allow-over-ask'
-  return 'downstream'
+  if (downstream !== 'allow') return 'downstream'
+  return verdict.decision === 'ask' ? 'air-ask' : 'downstream'
+}
+
+/**
+ * Adapt an AIR verdict to the session's approval policy. Under `never` the
+ * approval service rejects every ask without showing it, so an `ask` verdict
+ * would fail with a generic rejection. A default-sourced ask follows
+ * `neverPolicyAsk`; an ask that a rule wrote is denied with its own reason.
+ * @param verdict - the AIR verdict.
+ * @param approvalPolicy - the session's effective approval policy.
+ * @param neverPolicyAsk - what a default-sourced ask becomes under `never`.
+ * @returns the verdict unchanged unless it is an ask under `never`.
+ */
+export function adaptToApprovalPolicy(
+  verdict: Verdict,
+  approvalPolicy: 'ask' | 'never',
+  neverPolicyAsk: 'allow' | 'deny',
+): Verdict {
+  if (verdict.decision !== 'ask' || approvalPolicy === 'ask') return verdict
+  if (verdict.source !== 'rule' && neverPolicyAsk === 'allow') return { ...verdict, decision: 'allow' }
+  return { ...verdict, decision: 'deny', blockedBy: 'approval-never' }
 }
 ```
 
 - [ ] **Step 6: Run the tests to verify they pass**
 
-Run: `pnpm -C /home/hxman/AIR-harness/air/packages/permission-rules test`
+Run: `pnpm -C air/packages/permission-rules test`
 Expected: `Test Files 3 passed (3)`.
 
 - [ ] **Step 7: Typecheck and commit**
 
-Run: `pnpm -C /home/hxman/AIR-harness/air/packages/permission-rules typecheck`
+Run: `pnpm -C air/packages/permission-rules typecheck`
 Expected: exit 0.
 
 ```bash
-cd /home/hxman/AIR-harness
 git add air/packages/permission-rules
 git commit -m "feat(air): add permission rule syntax and policy evaluation"
 ```
@@ -1173,7 +1387,7 @@ git commit -m "feat(air): add permission rule syntax and policy evaluation"
 - Consumes from Tasks 1-2: `RuleInput`, `Decision`, `Risk`, `PolicyTables`, `compilePolicy`, `CompiledPolicy`. From `@air/dsh-convention-core` (plan 01 Task 2): `isRecord(value: unknown): value is Record<string, unknown>`. From upstream `@deepseek-ai/dsh-atomic-write`: `writeFileAtomic(filename: string, content: string, options: { mode: number; dirMode?: number }): Promise<void>`, `withFileLock<T>(filename: string, operation: () => Promise<T>): Promise<T>` (the parent directory must exist).
 - Produces:
   - `rule-store.ts`: `parseRulesFile(text: string, path: string): RuleInput[]` (throws), `class RuleStore { constructor(path: string); readonly path: string; list(): readonly RuleInput[]; refresh(): Promise<boolean>; update(change: (rules: readonly RuleInput[]) => readonly RuleInput[]): Promise<void> }`. File format: `{ "version": 1, "rules": RuleInput[] }`, mode `0600`, directory mode `0700`.
-  - `policy-source.ts`: `class PolicySource { constructor(tables: PolicyTables, configRules: readonly RuleInput[], store: RuleStore, report: (message: string) => void); readonly tables: PolicyTables; load(): Promise<void>; current(): Promise<CompiledPolicy>; rules(): readonly RuleInput[]; add(rule: RuleInput): Promise<void>; remove(id: string): Promise<boolean> }`.
+  - `policy-source.ts`: `class PolicySource { constructor(tables: PolicyTables, configRules: readonly RuleInput[], store: RuleStore, report: (message: string) => void); readonly tables: PolicyTables; load(): Promise<void>; current(): Promise<CompiledPolicy>; rules(): readonly RuleInput[]; notice(): string | undefined; add(rule: RuleInput): Promise<void>; remove(id: string): Promise<boolean> }`. `notice()` returns the sentence about an ignored rules file or change until it is fixed.
   - `audit.ts`: `interface AuditRecord`, `class AuditLog { constructor(path: string); append(record: AuditRecord): Promise<void> }`, `argsDigest(args: Readonly<Record<string, unknown>>): string`.
 
 - [ ] **Step 1: Write the failing rule-store tests**
@@ -1254,18 +1468,20 @@ describe('RuleStore', () => {
     expect(store.list()).toEqual([])
   })
 
-  it('reports an invalid file once per file version and keeps the previous rules', async () => {
+  it('rejects on every refresh until the file changes and keeps the previous rules', async () => {
     const path = join(await tempDir(), 'permissions.json')
     await writeFile(path, VALID)
     const store = new RuleStore(path)
     await store.refresh()
     await writeFile(path, '{ broken')
     await expect(store.refresh()).rejects.toThrow(/not valid JSON/)
-    expect(await store.refresh()).toBe(false)
+    await expect(store.refresh()).rejects.toThrow(/not valid JSON/)
     expect(store.list().map(rule => rule.id)).toEqual(['r1', 'r2'])
+    await writeFile(path, VALID)
+    expect(await store.refresh()).toBe(true)
   })
 
-  it('rethrows a stat failure other than a missing file', async () => {
+  it.skipIf(process.platform === 'win32')('rethrows a stat failure other than a missing file', async () => {
     const dir = await tempDir()
     await writeFile(join(dir, 'plain'), 'x')
     const store = new RuleStore(join(dir, 'plain', 'permissions.json'))
@@ -1277,7 +1493,7 @@ describe('RuleStore', () => {
     const store = new RuleStore(path)
     await store.update(rules => [...rules, { id: 'r1', decision: 'allow', tool: 'bash' }])
     expect(JSON.parse(await readFile(path, 'utf8'))).toEqual({ version: 1, rules: [{ id: 'r1', decision: 'allow', tool: 'bash' }] })
-    expect((await stat(path)).mode & 0o777).toBe(0o600)
+    if (process.platform !== 'win32') expect((await stat(path)).mode & 0o777).toBe(0o600)
     expect(store.list()).toEqual([{ id: 'r1', decision: 'allow', tool: 'bash' }])
     expect(await store.refresh()).toBe(false)
   })
@@ -1324,7 +1540,8 @@ import { defaultCapabilities, defaultToolScopes } from '../src/taxonomy.ts'
 import type { PolicyTables, RuleInput } from '../src/types.ts'
 
 const tables: PolicyTables = {
-  capabilities: defaultCapabilities(),
+  // Strict opt-in table: the built-in default for shell.execute is allow.
+  capabilities: { ...defaultCapabilities(), 'shell.execute': { risk: 'high', default: 'ask' } },
   tools: defaultToolScopes(),
   unscopedDefault: 'allow',
   unscopedMcpDefault: 'ask',
@@ -1400,6 +1617,19 @@ describe('PolicySource.current', () => {
     expect(await decisionFor(source, 'ls')).toBe('allow')
     expect(reports).toHaveLength(1)
     expect(reports[0]).toMatch(/^rules file ignored until it is fixed: .*not valid JSON/)
+    expect(source.notice()).toBe(reports[0])
+  })
+
+  it('clears the notice once the file is fixed', async () => {
+    const { source, path } = await setup([], fileOf([{ id: 'f1', decision: 'allow', tool: 'bash' }]))
+    await source.load()
+    expect(source.notice()).toBeUndefined()
+    await writeFile(path, '{ broken')
+    await source.current()
+    expect(source.notice()).toBeDefined()
+    await writeFile(path, fileOf([{ id: 'f2', decision: 'deny', tool: 'bash' }]))
+    expect(await decisionFor(source, 'ls')).toBe('deny')
+    expect(source.notice()).toBeUndefined()
   })
 
   it('keeps the previous policy when the new rules do not validate', async () => {
@@ -1408,6 +1638,7 @@ describe('PolicySource.current', () => {
     await writeFile(path, fileOf([{ id: 'c1', decision: 'deny', tool: 'bash' }]))
     expect(await decisionFor(source, 'ls')).toBe('allow')
     expect(reports).toEqual(['rules change ignored:\nrule "c1": duplicate id'])
+    expect(source.notice()).toBe(reports[0])
   })
 })
 
@@ -1490,14 +1721,14 @@ describe('AuditLog', () => {
     const lines = (await readFile(path, 'utf8')).trimEnd().split('\n').map(line => JSON.parse(line) as AuditRecord)
     expect(lines.map(line => line.callId)).toEqual(['c1', 'c2', 'c3', 'c4'])
     expect(lines[0]).toEqual(record('c1'))
-    expect((await stat(path)).mode & 0o777).toBe(0o600)
+    if (process.platform !== 'win32') expect((await stat(path)).mode & 0o777).toBe(0o600)
   })
 
   it('rejects the failed append and still accepts later ones', async () => {
     const dir = await tempDir()
     const blocked = new AuditLog(dir)
-    await expect(blocked.append(record('c1'))).rejects.toThrow(/EISDIR/)
-    await expect(blocked.append(record('c2'))).rejects.toThrow(/EISDIR/)
+    await expect(blocked.append(record('c1'))).rejects.toThrow(/EISDIR|EPERM|EACCES/)
+    await expect(blocked.append(record('c2'))).rejects.toThrow(/EISDIR|EPERM|EACCES/)
   })
 })
 
@@ -1517,7 +1748,7 @@ describe('argsDigest', () => {
 
 - [ ] **Step 4: Run the tests to verify they fail**
 
-Run: `pnpm -C /home/hxman/AIR-harness/air/packages/permission-rules test`
+Run: `pnpm -C air/packages/permission-rules test`
 Expected: FAIL; `../src/rule-store.ts`, `../src/policy-source.ts`, and `../src/audit.ts` cannot be resolved; the three earlier files pass.
 
 - [ ] **Step 5: Write the rule store**
@@ -1611,6 +1842,7 @@ async function stampOf(path: string): Promise<string> {
 export class RuleStore {
   private rules: readonly RuleInput[] = []
   private stamp = UNREAD
+  private failure: Error | undefined
 
   /** @param path - absolute path of the rules file; it and its directory are created on the first write. */
   constructor(readonly path: string) {}
@@ -1623,13 +1855,22 @@ export class RuleStore {
   /**
    * Re-read the file when its modification time or size changed.
    * @returns whether the rule list was replaced.
-   * @throws when the file is invalid. The previous list stays, and the same file version is not parsed again.
+   * @throws when the file is invalid, and again on every call until the file changes. The previous list stays, and the same file version is not parsed twice.
    */
   async refresh(): Promise<boolean> {
     const stamp = await stampOf(this.path)
-    if (stamp === this.stamp) return false
+    if (stamp === this.stamp) {
+      if (this.failure !== undefined) throw this.failure
+      return false
+    }
     this.stamp = stamp
-    this.rules = stamp === MISSING ? [] : parseRulesFile(await readFile(this.path, 'utf8'), this.path)
+    this.failure = undefined
+    try {
+      this.rules = stamp === MISSING ? [] : parseRulesFile(await readFile(this.path, 'utf8'), this.path)
+    } catch (error: unknown) {
+      this.failure = error instanceof Error ? error : new Error(String(error))
+      throw this.failure
+    }
     return true
   }
 
@@ -1667,6 +1908,7 @@ import type { PolicyTables, RuleInput } from './types.ts'
 /** Owns the compiled policy and every change to the rules file. */
 export class PolicySource {
   private policy: CompiledPolicy
+  private ignored: string | undefined
 
   /**
    * @param tables - capability table, tool scopes, and unscoped defaults from Config.
@@ -1681,6 +1923,11 @@ export class PolicySource {
     private readonly report: (message: string) => void,
   ) {
     this.policy = compilePolicy(tables, []).policy
+  }
+
+  /** @returns a sentence describing the rules change or file that is being ignored, or undefined while the live rules are in use. */
+  notice(): string | undefined {
+    return this.ignored
   }
 
   /** @returns Config rules followed by file rules. */
@@ -1703,7 +1950,7 @@ export class PolicySource {
 
   /**
    * The policy for the next decision. A changed rules file is read first; an
-   * invalid file or invalid rules are reported once and the previous policy stays.
+   * invalid file or invalid rules are reported once, kept as {@link notice}, and the previous policy stays.
    * @returns the current compiled policy.
    */
   async current(): Promise<CompiledPolicy> {
@@ -1711,7 +1958,9 @@ export class PolicySource {
     try {
       changed = await this.store.refresh()
     } catch (error: unknown) {
-      this.report(`rules file ignored until it is fixed: ${String(error)}`)
+      const text = `rules file ignored until it is fixed: ${String(error)}`
+      if (text !== this.ignored) this.report(text)
+      this.ignored = text
       return this.policy
     }
     if (changed) this.adopt()
@@ -1752,10 +2001,12 @@ export class PolicySource {
   private adopt(): void {
     const next = compilePolicy(this.tables, this.rules())
     if (next.problems.length > 0) {
-      this.report(`rules change ignored:\n${next.problems.join('\n')}`)
+      this.ignored = `rules change ignored:\n${next.problems.join('\n')}`
+      this.report(this.ignored)
       return
     }
     this.policy = next.policy
+    this.ignored = undefined
   }
 }
 ```
@@ -1839,16 +2090,15 @@ export class AuditLog {
 
 - [ ] **Step 8: Run the tests to verify they pass**
 
-Run: `pnpm -C /home/hxman/AIR-harness/air/packages/permission-rules test`
+Run: `pnpm -C air/packages/permission-rules test`
 Expected: `Test Files 6 passed (6)`.
 
 - [ ] **Step 9: Typecheck and commit**
 
-Run: `pnpm -C /home/hxman/AIR-harness/air/packages/permission-rules typecheck`
+Run: `pnpm -C air/packages/permission-rules typecheck`
 Expected: exit 0.
 
 ```bash
-cd /home/hxman/AIR-harness
 git add air/packages/permission-rules
 git commit -m "feat(air): add the permission rules file, live policy source, and audit log"
 ```
@@ -1866,10 +2116,10 @@ git commit -m "feat(air): add the permission rules file, live policy source, and
 - Test: `air/packages/permission-rules/tests/pending.spec.ts`
 
 **Interfaces:**
-- Consumes from Task 1: `splitCommand`, `CallFacts`, `Verdict`, `Risk`. From `@air/dsh-convention-core`: `isRecord`.
+- Consumes from Task 1: `splitCommand`, `shellWords`, `ShellDialect`, `CallFacts`, `Verdict`, `Risk`. From `@air/dsh-convention-core`: `isRecord`.
 - Produces:
-  - `sudo.ts`: `type SudoViolation = 'plain' | 'stdin'`, `findSudoViolation(command: string): SudoViolation | undefined`, `interface SudoGuardConfig { readonly enabled: boolean; readonly tools: Readonly<Record<string, string>>; readonly hint: string }`, `sudoGuardReason(config: SudoGuardConfig, tool: string, args: unknown): string | undefined`.
-  - `reason.ts`: `messageOf(error: unknown): string`, `summarizeArguments(args: Readonly<Record<string, unknown>>, maxChars: number): string`, `askReason(call: CallFacts, verdict: Verdict, maxChars: number): string`, `askDisplayReason(call: CallFacts, verdict: Verdict): { readonly en: string; readonly zh: string }`, `denyReason(call: CallFacts, verdict: Verdict): string`.
+  - `sudo.ts`: `type SudoViolation = 'plain' | 'stdin' | 'elevate'`, `findSudoViolation(command: string, dialect?: ShellDialect, depth?: number): SudoViolation | undefined`, `interface SudoGuardConfig { readonly enabled: boolean; readonly hint: string }`, `sudoGuardReason(config: SudoGuardConfig, shell: { readonly argument: string; readonly dialect: ShellDialect } | undefined, args: unknown): string | undefined`.
+  - `reason.ts`: `messageOf(error: unknown): string`, `summarizeArguments(args: Readonly<Record<string, unknown>>, maxChars: number): string`, `askReason(call: CallFacts, verdict: Verdict, maxChars: number): string`, `askDisplayReason(call: CallFacts, verdict: Verdict): { readonly en: string; readonly zh: string }`, `denyReason(call: CallFacts, verdict: Verdict): string`, `withNotice(reason: string, notice: string | undefined): string`.
   - `pending.ts`: `interface PendingCall { readonly call: CallFacts; readonly sessionId: string | null; chainAsked: boolean }`, `class PendingCalls { constructor(max: number); remember(callId: string, entry: PendingCall): void; get(callId: string): PendingCall | undefined; forget(callId: string): void }`.
 
 - [ ] **Step 1: Write the failing tests**
@@ -1880,7 +2130,7 @@ git commit -m "feat(air): add the permission rules file, live policy source, and
 import { describe, expect, it } from 'vitest'
 import { findSudoViolation, sudoGuardReason, type SudoGuardConfig } from '../src/sudo.ts'
 
-describe('findSudoViolation', () => {
+describe('findSudoViolation (POSIX)', () => {
   it.each([
     'sudo apt install x',
     'sudo',
@@ -1894,6 +2144,23 @@ describe('findSudoViolation', () => {
     'sudo --user root id',
     'sudo -- id',
     'echo "$(sudo id)"',
+    'env -u HOME sudo id',
+    'env -i FOO=1 sudo id',
+    'nice -n 5 sudo id',
+    'timeout 5 sudo id',
+    'timeout -s KILL 5 sudo id',
+    'stdbuf -o L sudo id',
+    'echo x | xargs sudo rm',
+    'find . -exec sudo rm {} ;',
+    'if true; then sudo id; fi',
+    'time sudo id',
+    'bash -c "sudo id"',
+    "sh -c 'ls; sudo id'",
+    'bash -lc "sudo id"',
+    'bash -c "bash -c \'sudo id\'"',
+    "env -S 'sudo id'",
+    '(sudo id)',
+    '{ sudo id; }',
   ])('reports plain sudo in %j', (command) => {
     expect(findSudoViolation(command)).toBe('plain')
   })
@@ -1904,6 +2171,7 @@ describe('findSudoViolation', () => {
     'sudo -kS id',
     'sudo a; sudo -S b',
     'sudo -S b; sudo a',
+    'bash -c "echo pw | sudo -S id"',
   ])('reports a password on standard input in %j', (command) => {
     expect(findSudoViolation(command)).toBe('stdin')
   })
@@ -1917,26 +2185,88 @@ describe('findSudoViolation', () => {
     'echo sudo',
     'man sudo',
     'sudoedit /etc/hosts',
+    'git log --grep sudo',
+    'grep sudo /etc/hosts',
     'env',
+    'env FOO=1 ls',
+    'bash -c "ls -la"',
+    'command -v sudo',
     '',
   ])('accepts %j', (command) => {
     expect(findSudoViolation(command)).toBeUndefined()
   })
+
+  it('treats nesting deeper than four interpreters as plain sudo', () => {
+    const wrap = (inner: string): string => `bash -c ${JSON.stringify(inner)}`
+    let command = 'ls'
+    for (let level = 0; level < 6; level += 1) command = wrap(command)
+    expect(findSudoViolation(command)).toBe('plain')
+    expect(findSudoViolation(wrap(wrap('ls')))).toBeUndefined()
+  })
+})
+
+describe('findSudoViolation (PowerShell)', () => {
+  const encoded = Buffer.from('gsudo ls', 'utf16le').toString('base64')
+
+  it.each([
+    'Start-Process pwsh -Verb RunAs',
+    'Start-Process -FilePath cmd.exe -Verb:RunAs -ArgumentList "/c dir"',
+    "saps notepad -verb 'runas'",
+    '$p = Start-Process cmd -Verb RunAs',
+    '$psi.Verb = "runas"',
+    'gsudo ls',
+    'gsudo.exe ls',
+    'runas /user:Administrator cmd',
+    'sudo ls',
+    'C:\\Windows\\System32\\sudo.exe ls',
+    'cd C:\\work\\; gsudo ls',
+    'ls | gsudo cat',
+    'pwsh -Command "gsudo ls"',
+    'pwsh -NoProfile -c "Write-Host hi; sudo ls"',
+    'powershell -EncodedCommand ' + encoded,
+    'powershell -ec ' + encoded,
+    'if ($true) { gsudo ls }',
+    'timeout 5 gsudo ls',
+  ])('reports an elevation in %j', (command) => {
+    expect(findSudoViolation(command, 'powershell')).toBe('elevate')
+  })
+
+  it.each([
+    'Get-Help runas',
+    'Write-Host gsudo',
+    'Get-ChildItem C:\\Users\\sudo',
+    'pwsh -Command "Write-Host hi"',
+    'git status',
+    'Start-Process notepad',
+    'Start-Process notepad -Verb Open',
+    '',
+  ])('accepts %j', (command) => {
+    expect(findSudoViolation(command, 'powershell')).toBeUndefined()
+  })
+
+  it('also finds Windows elevators in a POSIX tool', () => {
+    expect(findSudoViolation('gsudo ls')).toBe('elevate')
+    expect(findSudoViolation('runas /user:a b')).toBe('elevate')
+  })
 })
 
 describe('sudoGuardReason', () => {
-  const config: SudoGuardConfig = { enabled: true, tools: { bash: 'command' }, hint: 'Ask the user.' }
+  const config: SudoGuardConfig = { enabled: true, hint: 'Ask the user.' }
+  const bash = { argument: 'command', dialect: 'posix' } as const
+  const pwsh = { argument: 'command', dialect: 'powershell' } as const
 
   it('returns a reason that ends with the configured hint', () => {
-    expect(sudoGuardReason(config, 'bash', { command: 'sudo id' })).toMatch(/^sudo cannot ask for a password here.* Ask the user\.$/)
-    expect(sudoGuardReason(config, 'bash', { command: 'sudo -S id' })).toMatch(/^sudo -S reads the password from standard input.* Ask the user\.$/)
+    expect(sudoGuardReason(config, bash, { command: 'sudo id' })).toMatch(/^AIR elevation guard .*sudo cannot ask for a password here.* Ask the user\.$/)
+    expect(sudoGuardReason(config, bash, { command: 'sudo -S id' })).toMatch(/^AIR elevation guard .*sudo -S reads the password from standard input.* Ask the user\.$/)
+    expect(sudoGuardReason(config, pwsh, { command: 'gsudo id' })).toMatch(/^AIR elevation guard .*administrator elevation .* Ask the user\.$/)
   })
 
-  it('ignores other tools, other argument shapes, and clean commands', () => {
-    expect(sudoGuardReason(config, 'write', { command: 'sudo id' })).toBeUndefined()
-    expect(sudoGuardReason(config, 'bash', 'sudo id')).toBeUndefined()
-    expect(sudoGuardReason(config, 'bash', { command: 7 })).toBeUndefined()
-    expect(sudoGuardReason(config, 'bash', { command: 'ls' })).toBeUndefined()
+  it('ignores other tools, other argument shapes, clean commands, and a disabled guard', () => {
+    expect(sudoGuardReason(config, undefined, { command: 'sudo id' })).toBeUndefined()
+    expect(sudoGuardReason(config, bash, 'sudo id')).toBeUndefined()
+    expect(sudoGuardReason(config, bash, { command: 7 })).toBeUndefined()
+    expect(sudoGuardReason(config, bash, { command: 'ls' })).toBeUndefined()
+    expect(sudoGuardReason({ ...config, enabled: false }, bash, { command: 'sudo id' })).toBeUndefined()
   })
 })
 ```
@@ -1945,7 +2275,7 @@ describe('sudoGuardReason', () => {
 
 ```ts
 import { describe, expect, it } from 'vitest'
-import { askDisplayReason, askReason, denyReason, messageOf, summarizeArguments } from '../src/reason.ts'
+import { askDisplayReason, askReason, denyReason, messageOf, summarizeArguments, withNotice } from '../src/reason.ts'
 import { RuleId, type CallFacts, type Verdict } from '../src/types.ts'
 
 const call: CallFacts = { tool: 'bash', args: { command: 'rm -rf build' }, cwd: '/ws' }
@@ -1973,7 +2303,7 @@ describe('summarizeArguments', () => {
 describe('askReason', () => {
   it('names the tool, the scope, the cause, and the arguments', () => {
     expect(askReason(call, byDefault, 400)).toBe(
-      'AIR permission rules: tool "bash" needs approval (capability shell.execute, risk high; no rule allows it). Arguments: {"command":"rm -rf build"}',
+      'AIR permission rules: tool "bash" needs approval (capability shell.execute, risk high; no rule allows it). Arguments: {"command":"rm -rf build"}. To stop asking, the user can run /allow bash.',
     )
     expect(askReason(call, byRule, 400)).toContain('; rule "r1" asks)')
     expect(askReason({ ...call, tool: 'mcp__x__y' }, unscoped, 400)).toContain('(no capability scope; no rule allows it)')
@@ -1994,13 +2324,22 @@ describe('askDisplayReason', () => {
 })
 
 describe('denyReason', () => {
-  it('names the rule, the capability, or the missing scope', () => {
+  it('names the rule, the capability, the missing scope, or the approval policy, each with the way to change it', () => {
     expect(denyReason(call, { decision: 'deny', source: 'rule', ruleId: RuleId('no-rm'), scope }))
-      .toBe('AIR permission rule "no-rm" denies tool "bash"; its body was not executed')
+      .toBe('AIR permission rule "no-rm" denies tool "bash"; its body was not executed. If the user did not expect this, /deny list shows the rule and /deny remove no-rm deletes it when it was added by command.')
     expect(denyReason(call, { decision: 'deny', source: 'capability-default', scope }))
-      .toBe('AIR permission policy denies capability shell.execute for tool "bash"; its body was not executed')
+      .toBe('AIR permission policy denies capability shell.execute for tool "bash"; its body was not executed. The capability default is set in the air-permission-rules row of the profile.')
     expect(denyReason(call, { decision: 'deny', source: 'unscoped-default' }))
-      .toBe('AIR permission policy denies tool "bash" because it has no capability scope; its body was not executed')
+      .toBe('AIR permission policy denies tool "bash" because it has no capability scope; its body was not executed. The unscopedDefault and unscopedMcpDefault settings of the air-permission-rules row control this.')
+    expect(denyReason(call, { decision: 'deny', source: 'rule', blockedBy: 'approval-never' }))
+      .toBe('AIR permission rules: tool "bash" needs approval, but this session\'s approval policy is never, so nothing can be asked; its body was not executed. The user can allow it with /allow bash or switch the access mode.')
+  })
+})
+
+describe('withNotice', () => {
+  it('appends the note only when there is one', () => {
+    expect(withNotice('reason', undefined)).toBe('reason')
+    expect(withNotice('reason', 'rules file ignored')).toBe('reason\nNote: rules file ignored')
   })
 })
 ```
@@ -2040,7 +2379,7 @@ describe('PendingCalls', () => {
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `pnpm -C /home/hxman/AIR-harness/air/packages/permission-rules test`
+Run: `pnpm -C air/packages/permission-rules test`
 Expected: FAIL; `../src/sudo.ts`, `../src/reason.ts`, and `../src/pending.ts` cannot be resolved.
 
 - [ ] **Step 3: Write the three modules**
@@ -2048,37 +2387,67 @@ Expected: FAIL; `../src/sudo.ts`, `../src/reason.ts`, and `../src/pending.ts` ca
 `air/packages/permission-rules/src/sudo.ts`:
 
 ```ts
-/** Detection of `sudo` invocations that would need a password the bash tool cannot supply safely. */
-import { basename } from 'node:path'
+/** Detection of privilege elevation that needs a password or a consent dialog the shell tools cannot answer. */
 import { isRecord } from '@air/dsh-convention-core'
-import { splitCommand } from './match.ts'
+import { shellWords, splitCommand, type ShellDialect } from './match.ts'
 
-/** `plain`: sudo would prompt on a terminal that does not exist. `stdin`: the password would travel through the command line or a pipe. */
-export type SudoViolation = 'plain' | 'stdin'
+/**
+ * `plain`: sudo would prompt on a terminal that does not exist.
+ * `stdin`: the password would travel through the command line or a pipe.
+ * `elevate`: a Windows elevation request (consent dialog or password prompt) or a Windows `sudo`.
+ */
+export type SudoViolation = 'plain' | 'stdin' | 'elevate'
 
 /** Config of the sudo guard. */
 export interface SudoGuardConfig {
   readonly enabled: boolean
-  /** Tool name to the argument that holds its command line. */
-  readonly tools: Readonly<Record<string, string>>
   /** Sentence appended to every denial; tells the model what to do instead. */
   readonly hint: string
 }
 
 const ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=/
-const WRAPPERS = new Set(['env', 'command', 'exec', 'nohup', 'time', 'builtin'])
+const MAX_DEPTH = 4
 /** sudo short options that take a value (sudo 1.9 manual). */
 const VALUE_FLAGS = 'CDghpRrTtUu'
+const WINDOWS_ELEVATORS = new Set(['gsudo', 'runas'])
+const POSIX_SHELLS = new Set(['bash', 'sh', 'zsh', 'dash', 'ksh', 'fish', 'ash'])
+const POWERSHELLS = new Set(['pwsh', 'powershell'])
+/** Shell keywords that precede a command without being one. */
+const KEYWORDS = new Set(['if', 'then', 'else', 'elif', 'do', 'while', 'until', '!', '{', '}', 'time', 'builtin', 'exec', 'nohup', 'setsid', 'eval'])
+/** `-Verb RunAs` of `Start-Process`, or a `.Verb = "runas"` assignment on a process start info. */
+const RUNAS_VERB = /(?:-verb[\s:=]+|\.verb\s*=\s*)['"]?runas\b/i
 
-const MESSAGES: Record<SudoViolation, string> = {
-  plain: 'sudo cannot ask for a password here: this command has no terminal, and the sandbox blocks privilege elevation. Do not retry with sudo.',
-  stdin: 'sudo -S reads the password from standard input, which would put a secret into the command and the session log. Never pass a password through a command.',
+interface Wrapper {
+  /** Options that consume the next word. */
+  readonly valueFlags: readonly string[]
+  /** Positional words consumed before the wrapped command. */
+  readonly positionals: number
 }
 
-function commandWords(segment: string): string[] {
-  const words = segment.split(/\s+/).filter(word => word !== '').map(word => word.replace(/^["']|["']$/g, ''))
-  const start = words.findIndex(word => !ASSIGNMENT.test(word) && !WRAPPERS.has(word) && !word.startsWith('-'))
-  return start < 0 ? [] : words.slice(start)
+const WRAPPERS: Readonly<Record<string, Wrapper>> = {
+  env: { valueFlags: ['-u', '-C', '--unset', '--chdir'], positionals: 0 },
+  nice: { valueFlags: ['-n', '--adjustment'], positionals: 0 },
+  ionice: { valueFlags: ['-c', '-n', '-p', '--class', '--classdata'], positionals: 0 },
+  timeout: { valueFlags: ['-s', '-k', '--signal', '--kill-after'], positionals: 1 },
+  stdbuf: { valueFlags: ['-i', '-o', '-e'], positionals: 0 },
+  xargs: { valueFlags: ['-I', '-n', '-P', '-d', '-E', '-L', '-s', '-a', '--max-args', '--max-procs', '--delimiter'], positionals: 0 },
+}
+
+const MESSAGES: Record<SudoViolation, string> = {
+  plain: 'AIR elevation guard (allow rules cannot override it): sudo cannot ask for a password here: this command has no terminal, and the sandbox blocks privilege elevation. Do not retry with sudo.',
+  stdin: 'AIR elevation guard (allow rules cannot override it): sudo -S reads the password from standard input, which would put a secret into the command and the session log. Never pass a password through a command.',
+  elevate: 'AIR elevation guard (allow rules cannot override it): administrator elevation (sudo, gsudo, runas, or Start-Process -Verb RunAs) opens a consent dialog or password prompt that cannot be answered here. Do not retry with elevation.',
+}
+
+function baseName(word: string): string {
+  const last = word.split(/[\\/]/).pop() ?? word
+  return last.toLowerCase().replace(/\.(exe|cmd|bat|com)$/, '')
+}
+
+function isAbbreviation(word: string, full: string, minimum: number): boolean {
+  if (!word.startsWith('-')) return false
+  const rest = word.slice(1).toLowerCase()
+  return rest.length >= minimum && full.startsWith(rest)
 }
 
 function sudoFlags(args: readonly string[]): { askpass: boolean; stdin: boolean; nonInteractive: boolean } {
@@ -2107,38 +2476,127 @@ function sudoFlags(args: readonly string[]): { askpass: boolean; stdin: boolean;
   return flags
 }
 
-/**
- * Find a `sudo` invocation that cannot work or would expose a password.
- * `sudo -A`/`--askpass` (password through a helper program) and
- * `sudo -n`/`--non-interactive` (never prompts) are accepted.
- * @param command - a shell command line.
- * @returns `'stdin'` when any segment uses `-S`/`--stdin`, else `'plain'` when any segment starts sudo without an accepted flag, else undefined.
- */
-export function findSudoViolation(command: string): SudoViolation | undefined {
-  let plain = false
-  for (const segment of splitCommand(command)) {
-    const [head, ...rest] = commandWords(segment)
-    if (head === undefined || basename(head) !== 'sudo') continue
-    const flags = sudoFlags(rest)
-    if (flags.stdin) return 'stdin'
-    if (!flags.askpass && !flags.nonInteractive) plain = true
+function rank(violation: SudoViolation | undefined): number {
+  return violation === 'stdin' ? 3 : violation === 'elevate' ? 2 : violation === 'plain' ? 1 : 0
+}
+
+function worse(first: SudoViolation | undefined, second: SudoViolation | undefined): SudoViolation | undefined {
+  return rank(second) > rank(first) ? second : first
+}
+
+/** Index of the first word that is not an assignment, a keyword that precedes a command, or an option of such a keyword. */
+function commandStart(words: readonly string[], dialect: ShellDialect): number {
+  let afterKeyword = false
+  for (const [index, word] of words.entries()) {
+    if (KEYWORDS.has(word)) afterKeyword = true
+    else if (!(dialect === 'posix' && ASSIGNMENT.test(word)) && !(afterKeyword && word.startsWith('-'))) return index
   }
-  return plain ? 'plain' : undefined
+  return -1
+}
+
+/** Text of the nested command an interpreter runs, when the segment starts one. */
+function nestedCommands(name: string, rest: readonly string[]): string[] {
+  const nested: string[] = []
+  if (POSIX_SHELLS.has(name)) {
+    const at = rest.findIndex(word => /^-[A-Za-z]*c[A-Za-z]*$/.test(word))
+    const body = at < 0 ? undefined : rest[at + 1]
+    if (body !== undefined) nested.push(body)
+  } else if (POWERSHELLS.has(name)) {
+    rest.forEach((word, index) => {
+      const value = rest[index + 1]
+      if (value === undefined) return
+      if (isAbbreviation(word, 'command', 1) || isAbbreviation(word, 'commandwithargs', 8)) nested.push(rest.slice(index + 1).join(' '))
+      else if (word.toLowerCase() === '-e' || word.toLowerCase() === '-ec' || isAbbreviation(word, 'encodedcommand', 2)) {
+        nested.push(Buffer.from(value, 'base64').toString('utf16le'))
+      }
+    })
+  } else if (name === 'env') {
+    const at = rest.findIndex(word => word === '-S' || word === '--split-string')
+    const body = at < 0 ? undefined : rest[at + 1]
+    if (body !== undefined) nested.push(body)
+  }
+  return nested
+}
+
+function scanWords(words: readonly string[], dialect: ShellDialect, depth: number): SudoViolation | undefined {
+  let result: SudoViolation | undefined
+  const execAt = words.findIndex(word => ['-exec', '-execdir', '-ok', '-okdir'].includes(word))
+  if (execAt >= 0) result = scanWords(words.slice(execAt + 1), dialect, depth)
+  const start = commandStart(words, dialect)
+  if (start < 0) return result
+  const name = baseName(words[start] ?? '')
+  const rest = words.slice(start + 1)
+  if (name === 'sudo') {
+    if (dialect === 'powershell') return worse(result, 'elevate')
+    const flags = sudoFlags(rest)
+    if (flags.stdin) return worse(result, 'stdin')
+    return flags.askpass || flags.nonInteractive ? result : worse(result, 'plain')
+  }
+  if (WINDOWS_ELEVATORS.has(name)) return worse(result, 'elevate')
+  if (name === 'command') {
+    if (rest.some(word => word === '-v' || word === '-V')) return result
+    return worse(result, scanWords(rest.filter(word => !word.startsWith('-')), dialect, depth))
+  }
+  for (const nested of nestedCommands(name, rest)) {
+    result = worse(result, findSudoViolation(nested, POWERSHELLS.has(name) ? 'powershell' : 'posix', depth + 1))
+  }
+  const wrapper = Object.hasOwn(WRAPPERS, name) ? WRAPPERS[name] : undefined
+  if (wrapper === undefined) return result
+  let index = 0
+  let positionals = wrapper.positionals
+  while (index < rest.length) {
+    const word = rest[index] ?? ''
+    if (wrapper.valueFlags.includes(word)) index += 2
+    else if (word.startsWith('-') || (dialect === 'posix' && ASSIGNMENT.test(word))) index += 1
+    else if (positionals > 0) {
+      positionals -= 1
+      index += 1
+    } else break
+  }
+  return worse(result, scanWords(rest.slice(index), dialect, depth))
+}
+
+/**
+ * Find an elevation request that cannot work or would expose a password.
+ * POSIX: `sudo -A`/`--askpass` (password through a helper program) and
+ * `sudo -n`/`--non-interactive` (never prompts) are accepted. Look-through
+ * covers `env`, `nice`, `ionice`, `timeout`, `stdbuf`, `xargs`, `find -exec`,
+ * shell keywords, `bash -c` and the other POSIX shells, and `pwsh`/`powershell`
+ * `-Command` and `-EncodedCommand`, to a depth of four nested interpreters.
+ * Windows: any `sudo`, `gsudo`, or `runas` in the PowerShell dialect, and
+ * `-Verb RunAs` anywhere in the command text.
+ * Not covered: elevation hidden by variable expansion or an obfuscated string,
+ * `su`, `doas`, `pkexec`, and `sudo` inside a script file.
+ * @param command - a shell command line.
+ * @param dialect - shell syntax of the tool that received it; defaults to POSIX.
+ * @param depth - nesting depth of interpreters already unwrapped; callers omit it.
+ * @returns `'stdin'` when any segment uses `-S`/`--stdin`, else `'elevate'` for a Windows elevation, else `'plain'` when a segment starts sudo without an accepted flag, else undefined. Nesting deeper than four interpreters is reported as `'plain'`.
+ */
+export function findSudoViolation(command: string, dialect: ShellDialect = 'posix', depth = 0): SudoViolation | undefined {
+  if (depth > MAX_DEPTH) return 'plain'
+  let result: SudoViolation | undefined = RUNAS_VERB.test(command) ? 'elevate' : undefined
+  for (const segment of splitCommand(command, dialect)) {
+    result = worse(result, scanWords(shellWords(segment, dialect), dialect, depth))
+  }
+  return result
 }
 
 /**
  * Guard reason for one tool call.
- * @param config - guarded tools and the hint sentence.
- * @param tool - tool name of the call.
+ * @param config - enabled flag and the hint sentence.
+ * @param shell - dialect and command argument of the called tool, or undefined for a tool that is not a shell tool.
  * @param args - parsed arguments of the call.
- * @returns the denial text, or undefined when the call is not a guarded tool or its command is acceptable.
+ * @returns the denial text, or undefined when the call is not a shell tool or its command is acceptable.
  */
-export function sudoGuardReason(config: SudoGuardConfig, tool: string, args: unknown): string | undefined {
-  const key = Object.hasOwn(config.tools, tool) ? config.tools[tool] : undefined
-  if (key === undefined || !isRecord(args)) return undefined
-  const command = args[key]
+export function sudoGuardReason(
+  config: SudoGuardConfig,
+  shell: { readonly argument: string; readonly dialect: ShellDialect } | undefined,
+  args: unknown,
+): string | undefined {
+  if (!config.enabled || shell === undefined || !isRecord(args)) return undefined
+  const command = args[shell.argument]
   if (typeof command !== 'string') return undefined
-  const violation = findSudoViolation(command)
+  const violation = findSudoViolation(command, shell.dialect)
   return violation === undefined ? undefined : `${MESSAGES[violation]} ${config.hint}`
 }
 ```
@@ -2186,7 +2644,7 @@ function scopeText(verdict: Verdict): string {
  */
 export function askReason(call: CallFacts, verdict: Verdict, maxChars: number): string {
   const cause = verdict.ruleId === undefined ? 'no rule allows it' : `rule "${verdict.ruleId}" asks`
-  return `AIR permission rules: tool "${call.tool}" needs approval (${scopeText(verdict)}; ${cause}). Arguments: ${summarizeArguments(call.args, maxChars)}`
+  return `AIR permission rules: tool "${call.tool}" needs approval (${scopeText(verdict)}; ${cause}). Arguments: ${summarizeArguments(call.args, maxChars)}. To stop asking, the user can run /allow ${call.tool}.`
 }
 
 /**
@@ -2210,19 +2668,33 @@ export function askDisplayReason(call: CallFacts, verdict: Verdict): { readonly 
 }
 
 /**
- * Model-facing reason of an AIR denial.
+ * Model-facing reason of an AIR denial. The text also tells the model how the
+ * user can lift the denial, so a surprised user can be pointed at the rule.
  * @param call - the denied call.
  * @param verdict - the AIR verdict.
- * @returns text naming the rule, the capability, or the missing scope.
+ * @returns text naming the rule, the capability, the approval policy, or the missing scope, and the way to change it.
  */
 export function denyReason(call: CallFacts, verdict: Verdict): string {
+  if (verdict.blockedBy === 'approval-never') {
+    return `AIR permission rules: tool "${call.tool}" needs approval, but this session's approval policy is never, so nothing can be asked; its body was not executed. The user can allow it with /allow ${call.tool} or switch the access mode.`
+  }
   if (verdict.ruleId !== undefined) {
-    return `AIR permission rule "${verdict.ruleId}" denies tool "${call.tool}"; its body was not executed`
+    return `AIR permission rule "${verdict.ruleId}" denies tool "${call.tool}"; its body was not executed. If the user did not expect this, /deny list shows the rule and /deny remove ${verdict.ruleId} deletes it when it was added by command.`
   }
   if (verdict.scope !== undefined) {
-    return `AIR permission policy denies capability ${verdict.scope.capability} for tool "${call.tool}"; its body was not executed`
+    return `AIR permission policy denies capability ${verdict.scope.capability} for tool "${call.tool}"; its body was not executed. The capability default is set in the air-permission-rules row of the profile.`
   }
-  return `AIR permission policy denies tool "${call.tool}" because it has no capability scope; its body was not executed`
+  return `AIR permission policy denies tool "${call.tool}" because it has no capability scope; its body was not executed. The unscopedDefault and unscopedMcpDefault settings of the air-permission-rules row control this.`
+}
+
+/**
+ * Append the note about an ignored rules file to a reason.
+ * @param reason - an AIR ask or deny reason.
+ * @param notice - `PolicySource.notice()`.
+ * @returns the reason, followed by the note when there is one.
+ */
+export function withNotice(reason: string, notice: string | undefined): string {
+  return notice === undefined ? reason : `${reason}\nNote: ${notice}`
 }
 ```
 
@@ -2279,16 +2751,15 @@ export class PendingCalls {
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `pnpm -C /home/hxman/AIR-harness/air/packages/permission-rules test`
+Run: `pnpm -C air/packages/permission-rules test`
 Expected: `Test Files 9 passed (9)`.
 
 - [ ] **Step 5: Typecheck and commit**
 
-Run: `pnpm -C /home/hxman/AIR-harness/air/packages/permission-rules typecheck`
+Run: `pnpm -C air/packages/permission-rules typecheck`
 Expected: exit 0.
 
 ```bash
-cd /home/hxman/AIR-harness
 git add air/packages/permission-rules
 git commit -m "feat(air): add sudo detection, permission reason text, and the pending-call map"
 ```
@@ -2304,12 +2775,12 @@ git commit -m "feat(air): add sudo detection, permission reason text, and the pe
 - Test: `air/packages/permission-rules/tests/plugin.spec.ts`
 
 **Interfaces:**
-- Consumes from Tasks 1-4: `defaultCapabilities`, `defaultToolScopes`, `PolicySource`, `RuleStore`, `AuditLog`, `AuditRecord`, `argsDigest`, `PendingCalls`, `PendingCall`, `evaluate`, `combine`, `CombineOutcome`, `askReason`, `askDisplayReason`, `denyReason`, `sudoGuardReason`. From upstream: `ctx.on('tools/pre-execute', listener, { prepend: true })`, `ctx.on('tools/result', listener)`, `ctx.tools.guard(guard)`, `dshHomePath`, `ctx.logger.warn(message)`.
+- Consumes from Tasks 1-4: `defaultCapabilities`, `defaultToolScopes`, `PolicySource`, `RuleStore`, `AuditLog`, `AuditRecord`, `argsDigest`, `PendingCalls`, `PendingCall`, `evaluate`, `combine`, `adaptToApprovalPolicy`, `CombineOutcome`, `askReason`, `askDisplayReason`, `denyReason`, `withNotice`, `sudoGuardReason`. From upstream: `ctx.on('tools/pre-execute', listener, { prepend: true })`, `ctx.on('tools/result', listener)`, `ctx.tools.guard(guard)`, `dshHomePath`, `ctx.logger.warn(message)`.
 - Produces:
-  - Cordis plugin module `@air/dsh-permission-rules`: `name = 'air-permission-rules'`, `inject = ['tools']`, `Config` (schema and type), `apply(ctx, config): Promise<void>`.
-  - `Config` fields and defaults: `capabilities` (`defaultCapabilities()`), `tools` (`defaultToolScopes()`), `unscopedDefault` (`'allow'`), `unscopedMcpDefault` (`'ask'`), `rules` (`[]`), `rulesPath` (unset: `dshHomePath('air', 'permissions.json')`), `auditPath` (unset: `dshHomePath('air', 'permissions', 'audit.jsonl')`), `auditDefaultAllows` (`false`), `ruleAllowSatisfiesAsk` (`true`), `answerDirectAsks` (`true`, used in Task 6), `reasonMaxChars` (`400`), `pendingCallsMax` (`1000`), `sudoGuardEnabled` (`true`), `sudoGuardTools` (`{ bash: 'command' }`), `sudoGuardHint`.
+  - Cordis plugin module `@air/dsh-permission-rules`: `name = 'air-permission-rules'`, `inject = ['tools']` (`approval` and `commands` are picked up through nested `ctx.inject` when mounted), `Config` (schema and type), `apply(ctx, config): Promise<void>`.
+  - `Config` fields and defaults: `capabilities` (`defaultCapabilities()`, every default `allow`), `tools` (`defaultToolScopes()`), `unscopedDefault` (`'allow'`), `unscopedMcpDefault` (`'ask'`), `neverPolicyAsk` (`'allow'`), `rules` (`[]`), `rulesPath` (unset: `dshHomePath('air', 'permissions.json')`), `auditPath` (unset: `dshHomePath('air', 'permissions', 'audit.jsonl')`), `auditDefaultAllows` (`false`), `answerDirectAsks` (`false`, used in Task 6), `reasonMaxChars` (`400`), `pendingCallsMax` (`1000`), `sudoGuardEnabled` (`true`), `sudoGuardHint`.
   - `resolveConfig(config: Config): { rulesPath: string; auditPath: string; tables: PolicyTables }`.
-  - Denial error info: `{ name: 'AirRuleDenied', code: 'AIR_RULE_DENIED' }` for a rule, `{ name: 'AirScopeDenied', code: 'AIR_SCOPE_DENIED' }` for a default.
+  - Denial error info: `{ name: 'AirRuleDenied', code: 'AIR_RULE_DENIED' }` for a rule, `{ name: 'AirScopeDenied', code: 'AIR_SCOPE_DENIED' }` for a default, `{ name: 'AirApprovalNever', code: 'AIR_APPROVAL_NEVER' }` for an ask that approval policy `never` cannot show.
   - `tests/harness.ts`: `mount(input?, hooks?): Promise<Harness>`, `textOf(result)`, `codeOf(result)`; used by Tasks 5-7.
   - Bundle row used in Task 8: `{ id: air-permission-rules, name: '@air/dsh-permission-rules' }`.
 
@@ -2342,6 +2813,8 @@ export interface Hooks {
   before?(ctx: Context): void
   /** Runs after the plugin mounts: a prepended listener registered here is upstream of the plugin's. */
   after?(ctx: Context): void
+  /** Default approval policy of the mounted approval service; defaults to `ask`. */
+  approvalPolicy?: 'ask' | 'never'
 }
 
 /** One mounted composition: tools runtime, approval service, commands, the plugin, one session with an open turn. */
@@ -2362,11 +2835,13 @@ export interface Harness {
 
 const TOOL_PARAMETERS = {
   bash: { command: { type: 'string' } },
+  pwsh: { command: { type: 'string' } },
   read: { file_path: { type: 'string' } },
   write: { file_path: { type: 'string' } },
   web_fetch: { url: { type: 'string' } },
   todo_write: { note: { type: 'string' } },
   mcp__demo__echo: { text: { type: 'string' } },
+  mcp__demo__other: { text: { type: 'string' } },
 } as const
 
 /**
@@ -2386,7 +2861,7 @@ export async function mount(input: ConfigInput = {}, hooks: Hooks = {}): Promise
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRuntime)
   await ctx.plugin(CommandRuntime)
-  await ctx.plugin(ApprovalService, { policy: 'ask' })
+  await ctx.plugin(ApprovalService, { policy: hooks.approvalPolicy ?? 'ask' })
 
   const rulesPath = join(dir, 'permissions.json')
   const auditPath = join(dir, 'audit.jsonl')
@@ -2484,6 +2959,7 @@ export function codeOf(result: ToolExecutionResult): string | undefined {
 
 ```ts
 import { writeFile } from 'node:fs/promises'
+import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import type { PreToolDecision } from '@deepseek-ai/dsh-tools'
@@ -2496,32 +2972,70 @@ async function policyRecords(harness: Harness): Promise<AuditRecord[]> {
   return (await harness.audit()).filter(record => record.origin === 'pre-execute')
 }
 
+/** Opt-in strict table: shell commands and file writes ask, as in the earlier AIR project. */
+const STRICT = {
+  ...defaultCapabilities(),
+  'fs.write': { risk: 'medium', default: 'ask' },
+  'shell.execute': { risk: 'high', default: 'ask' },
+} as const
+
 const ALLOW_TODO = { id: 'todo', decision: 'allow', tool: 'todo_write' } as const
+const MCP = 'mcp__demo__echo'
 
 describe('resolveConfig', () => {
   it('places the rules file and the audit file under the harness home by default', () => {
     const resolved = resolveConfig(Config({}))
-    expect(resolved.rulesPath.endsWith('/air/permissions.json')).toBe(true)
-    expect(resolved.auditPath.endsWith('/air/permissions/audit.jsonl')).toBe(true)
+    expect(resolved.rulesPath.endsWith(join('air', 'permissions.json'))).toBe(true)
+    expect(resolved.auditPath.endsWith(join('air', 'permissions', 'audit.jsonl'))).toBe(true)
     expect(resolved.tables.unscopedMcpDefault).toBe('ask')
+    expect(resolved.tables.unscopedDefault).toBe('allow')
   })
 
   it('keeps explicit paths', () => {
     const resolved = resolveConfig(Config({ rulesPath: '/x/rules.json', auditPath: '/x/audit.jsonl' }))
     expect(resolved).toMatchObject({ rulesPath: '/x/rules.json', auditPath: '/x/audit.jsonl' })
   })
+
+  it('defaults to upstream behavior: no ask for built-in tools, rule answers off', () => {
+    const config = Config({})
+    expect(Object.values(config.capabilities).map(spec => spec.default)).toEqual(Array(7).fill('allow'))
+    expect(config.answerDirectAsks).toBe(false)
+    expect(config.neverPolicyAsk).toBe('allow')
+    expect(config.tools.pwsh?.dialect).toBe('powershell')
+  })
 })
 
-describe('capability defaults', () => {
-  it('asks for a shell command and runs it after a human grant', async () => {
+describe('built-in tools keep upstream behavior', () => {
+  it('runs shell, write, fetch, and read calls without asking or writing audit records', async () => {
     const h = await mount()
+    for (const [name, args] of [
+      ['bash', { command: 'rm -rf build' }],
+      ['pwsh', { command: 'Remove-Item build' }],
+      ['write', { file_path: 'a.ts' }],
+      ['web_fetch', { url: 'https://example.com' }],
+      ['read', { file_path: 'a.ts' }],
+    ] as const) {
+      expect((await h.call(name, args)).isError).toBe(false)
+    }
+    expect(h.asked).toEqual([])
+    expect(await h.audit()).toEqual([])
+  })
+
+  it('records default allows only with auditDefaultAllows', async () => {
+    const h = await mount({ auditDefaultAllows: true })
+    await h.call('read', { file_path: 'a.ts' })
+    expect(await policyRecords(h)).toMatchObject([{ decision: 'allow', grantedBy: 'default', capability: 'fs.read' }])
+  })
+})
+
+describe('opt-in capability defaults', () => {
+  it('asks for a shell command and runs it after a human grant', async () => {
+    const h = await mount({ capabilities: STRICT })
     const result = await h.call('bash', { command: 'ls' }, 'c1')
     expect(result.isError).toBe(false)
-    expect(h.runs.get('bash')).toBe(1)
-    expect(h.asked).toHaveLength(1)
     expect(h.asked[0]).toMatchObject({ toolName: 'bash', callId: 'c1' })
     expect(h.asked[0]?.reason).toBe(
-      'AIR permission rules: tool "bash" needs approval (capability shell.execute, risk high; no rule allows it). Arguments: {"command":"ls"}',
+      'AIR permission rules: tool "bash" needs approval (capability shell.execute, risk high; no rule allows it). Arguments: {"command":"ls"}. To stop asking, the user can run /allow bash.',
     )
     expect(await policyRecords(h)).toMatchObject([{
       sessionId: 's1', callId: 'c1', tool: 'bash', decision: 'ask', grantedBy: null, ruleId: null,
@@ -2530,22 +3044,10 @@ describe('capability defaults', () => {
   })
 
   it('does not run the tool when the human rejects', async () => {
-    const h = await mount()
+    const h = await mount({ capabilities: STRICT })
     h.answer.outcome = 'rejected'
-    const result = await h.call('bash', { command: 'ls' })
-    expect(result.isError).toBe(true)
-    expect(h.runs.get('bash')).toBeUndefined()
-  })
-
-  it('allows a read without asking and records it only with auditDefaultAllows', async () => {
-    const quiet = await mount()
-    expect((await quiet.call('read', { file_path: 'a.ts' })).isError).toBe(false)
-    expect(quiet.asked).toEqual([])
-    expect(await quiet.audit()).toEqual([])
-
-    const loud = await mount({ auditDefaultAllows: true })
-    await loud.call('read', { file_path: 'a.ts' })
-    expect(await policyRecords(loud)).toMatchObject([{ decision: 'allow', grantedBy: 'default', capability: 'fs.read' }])
+    expect((await h.call('write', { file_path: 'a.ts' })).isError).toBe(true)
+    expect(h.runs.get('write')).toBeUndefined()
   })
 
   it('denies a capability whose default is deny', async () => {
@@ -2556,22 +3058,75 @@ describe('capability defaults', () => {
     expect(h.asked).toEqual([])
     expect(h.runs.get('write')).toBeUndefined()
   })
+})
 
-  it('asks for an MCP tool without a scope entry and ignores non-object arguments', async () => {
+describe('MCP tools', () => {
+  it('ask by default and run after a human grant', async () => {
     const h = await mount()
-    await h.call('mcp__demo__echo', { text: 'hi' })
-    expect(h.asked.map(request => request.toolName)).toEqual(['mcp__demo__echo'])
+    expect((await h.call(MCP, { text: 'hi' })).isError).toBe(false)
+    expect(h.asked.map(request => request.toolName)).toEqual([MCP])
     await h.call('todo_write', 'not an object')
     expect(h.asked).toHaveLength(1)
+  })
+
+  it('run without asking under an allow rule with a server wildcard, and a narrower deny still wins', async () => {
+    const h = await mount({ rules: [
+      { id: 'demo', decision: 'allow', tool: 'mcp__demo__*' },
+      { id: 'no-echo', decision: 'deny', tool: 'mcp__demo__echo', match: { text: 'secret*' } },
+    ] })
+    expect((await h.call(MCP, { text: 'hi' })).isError).toBe(false)
+    expect(h.asked).toEqual([])
+    expect(codeOf(await h.call(MCP, { text: 'secret plan' }))).toBe('AIR_RULE_DENIED')
+    expect(await policyRecords(h)).toMatchObject([
+      { decision: 'allow', grantedBy: 'rule', ruleId: 'demo' },
+      { decision: 'deny', ruleId: 'no-echo' },
+    ])
+  })
+
+  it('follow unscopedMcpDefault', async () => {
+    const open = await mount({ unscopedMcpDefault: 'allow' })
+    await open.call(MCP, { text: 'hi' })
+    expect(open.asked).toEqual([])
+    const closed = await mount({ unscopedMcpDefault: 'deny' })
+    expect(codeOf(await closed.call(MCP, { text: 'hi' }))).toBe('AIR_SCOPE_DENIED')
+  })
+})
+
+describe('approval policy never', () => {
+  it('lets a default-sourced MCP ask through, as in Full access', async () => {
+    const h = await mount({}, { approvalPolicy: 'never' })
+    expect((await h.call(MCP, { text: 'hi' })).isError).toBe(false)
+    expect(h.asked).toEqual([])
+  })
+
+  it('denies it with a reason that names the policy when neverPolicyAsk is deny', async () => {
+    const h = await mount({ neverPolicyAsk: 'deny' }, { approvalPolicy: 'never' })
+    const result = await h.call(MCP, { text: 'hi' })
+    expect(codeOf(result)).toBe('AIR_APPROVAL_NEVER')
+    expect(textOf(result)).toContain("this session's approval policy is never")
+    expect(textOf(result)).toContain(`/allow ${MCP}`)
+  })
+
+  it('denies an ask that a rule wrote, whatever neverPolicyAsk says', async () => {
+    const h = await mount({ rules: [{ id: 'ask-mcp', decision: 'ask', tool: MCP }] }, { approvalPolicy: 'never' })
+    expect(codeOf(await h.call(MCP, { text: 'hi' }))).toBe('AIR_APPROVAL_NEVER')
+  })
+
+  it('still applies deny rules and the sudo guard', async () => {
+    const h = await mount({ rules: [{ id: 'no-fetch', decision: 'deny', tool: 'web_fetch' }] }, { approvalPolicy: 'never' })
+    expect(codeOf(await h.call('web_fetch', { url: 'https://example.com' }))).toBe('AIR_RULE_DENIED')
+    expect((await h.call('bash', { command: 'sudo id' })).isError).toBe(true)
   })
 })
 
 describe('rules', () => {
   it('allows by rule without asking and records a rule grant', async () => {
-    const h = await mount({ rules: [{ id: 'status', decision: 'allow', tool: 'bash', match: { command: 'git status*' } }] })
+    const h = await mount({
+      capabilities: STRICT,
+      rules: [{ id: 'status', decision: 'allow', tool: 'bash', match: { command: 'git status*' } }],
+    })
     expect((await h.call('bash', { command: 'git status -s' })).isError).toBe(false)
     expect(h.asked).toEqual([])
-    expect(h.runs.get('bash')).toBe(1)
     expect(await policyRecords(h)).toMatchObject([{ decision: 'allow', grantedBy: 'rule', ruleId: 'status' }])
     await h.call('bash', { command: 'git status && rm -rf /' })
     expect(h.asked).toHaveLength(1)
@@ -2581,19 +3136,24 @@ describe('rules', () => {
     const h = await mount({ rules: [{ id: 'no-rm', decision: 'deny', tool: 'bash', match: { command: 'rm -rf*' } }] })
     const result = await h.call('bash', { command: 'ls; rm -rf /' })
     expect(codeOf(result)).toBe('AIR_RULE_DENIED')
-    expect(textOf(result)).toBe('Error: AIR permission rule "no-rm" denies tool "bash"; its body was not executed')
+    expect(textOf(result)).toContain('Error: AIR permission rule "no-rm" denies tool "bash"; its body was not executed.')
+    expect(textOf(result)).toContain('/deny remove no-rm')
     expect(h.asked).toEqual([])
     expect(h.runs.get('bash')).toBeUndefined()
     expect(await policyRecords(h)).toMatchObject([{ decision: 'deny', grantedBy: null, ruleId: 'no-rm' }])
   })
 
+  it('denies a PowerShell command by segment under the PowerShell dialect', async () => {
+    const h = await mount({ rules: [{ id: 'no-rm', decision: 'deny', tool: 'pwsh', match: { command: 'Remove-Item*' } }] })
+    expect(codeOf(await h.call('pwsh', { command: 'cd C:\\ws\\; Remove-Item x' }))).toBe('AIR_RULE_DENIED')
+    expect((await h.call('pwsh', { command: 'Get-ChildItem' })).isError).toBe(false)
+  })
+
   it('resolves path rules against the session working directory', async () => {
-    const h = await mount({ rules: [{ id: 'docs', decision: 'allow', tool: 'write', match: { file_path: './docs/**' } }] })
-    await h.call('write', { file_path: 'docs/a.md' })
-    await h.call('write', { file_path: '/workspace/docs/b.md' })
-    expect(h.asked).toEqual([])
-    await h.call('write', { file_path: '/etc/hosts' })
-    expect(h.asked).toHaveLength(1)
+    const h = await mount({ rules: [{ id: 'secrets', decision: 'deny', tool: 'write', match: { file_path: './secrets/**' } }] })
+    expect(codeOf(await h.call('write', { file_path: 'secrets/a.env' }))).toBe('AIR_RULE_DENIED')
+    expect(codeOf(await h.call('write', { file_path: '/workspace/secrets/b.env' }))).toBe('AIR_RULE_DENIED')
+    expect((await h.call('write', { file_path: 'docs/c.md' })).isError).toBe(false)
   })
 
   it('records a null session for a call without an agent', async () => {
@@ -2605,50 +3165,58 @@ describe('rules', () => {
     expect(await policyRecords(h)).toMatchObject([{ sessionId: null, callId: 'bare' }])
   })
 
-  it('reads the rules file live and keeps the previous policy when the file breaks', async () => {
+  it('reads the rules file live and keeps the previous rules, with a note, when the file breaks', async () => {
     const h = await mount()
     const warn = vi.spyOn(h.ctx.logger, 'warn').mockImplementation(() => {})
-    await writeFile(h.rulesPath, JSON.stringify({ version: 1, rules: [{ id: 'f1', decision: 'allow', tool: 'bash' }] }))
-    await h.call('bash', { command: 'ls' })
+    await writeFile(h.rulesPath, JSON.stringify({ version: 1, rules: [{ id: 'f1', decision: 'allow', tool: MCP }] }))
+    await h.call(MCP, { text: 'hi' })
     expect(h.asked).toEqual([])
     await writeFile(h.rulesPath, '{ broken')
-    await h.call('bash', { command: 'ls' })
+    await h.call(MCP, { text: 'hi' })
     expect(h.asked).toEqual([])
-    expect(h.runs.get('bash')).toBe(2)
+    await h.call('mcp__demo__other', { text: 'hi' })
+    expect(h.asked).toHaveLength(1)
+    expect(h.asked[0]?.reason).toContain('Note: rules file ignored until it is fixed')
     warn.mockRestore()
   })
 })
 
 describe('combination with other listeners', () => {
-  const downstream = (decision: PreToolDecision) => ({
+  const downstream = (decision: PreToolDecision, seen?: { calls: number }) => ({
     before(ctx: Harness['ctx']) {
-      ctx.on('tools/pre-execute', () => Promise.resolve(decision), { prepend: true })
+      ctx.on('tools/pre-execute', () => {
+        if (seen !== undefined) seen.calls += 1
+        return Promise.resolve(decision)
+      }, { prepend: true })
     },
   })
 
-  it('lets an allow rule satisfy a downstream ask and records the rule grant', async () => {
+  it('keeps a downstream ask even when an allow rule matches', async () => {
     const h = await mount({ rules: [ALLOW_TODO] }, downstream({ kind: 'ask', reason: 'hook asks' }))
     expect((await h.call('todo_write', {})).isError).toBe(false)
-    expect(h.asked).toEqual([])
-    expect(h.runs.get('todo_write')).toBe(1)
-    expect(await policyRecords(h)).toMatchObject([{ decision: 'allow', grantedBy: 'rule', ruleId: 'todo' }])
+    expect(h.asked.map(request => request.reason)).toEqual(['hook asks'])
+    expect(await policyRecords(h)).toEqual([])
   })
 
-  it('keeps a downstream ask without a rule, and with ruleAllowSatisfiesAsk off', async () => {
-    const plain = await mount({}, downstream({ kind: 'ask', reason: 'hook asks' }))
-    await plain.call('todo_write', {})
-    expect(plain.asked.map(request => request.reason)).toEqual(['hook asks'])
-
-    const off = await mount({ rules: [ALLOW_TODO], ruleAllowSatisfiesAsk: false }, downstream({ kind: 'ask', reason: 'hook asks' }))
-    await off.call('todo_write', {})
-    expect(off.asked.map(request => request.reason)).toEqual(['hook asks'])
+  it('shows one prompt, the downstream one, when both sides ask', async () => {
+    const h = await mount({}, downstream({ kind: 'ask', reason: 'hook asks' }))
+    await h.call(MCP, { text: 'hi' })
+    expect(h.asked.map(request => request.reason)).toEqual(['hook asks'])
   })
 
   it('keeps a downstream deny even with an allow rule', async () => {
     const h = await mount({ rules: [ALLOW_TODO] }, downstream({ kind: 'deny', reason: 'blocked downstream' }))
-    const result = await h.call('todo_write', {})
-    expect(textOf(result)).toBe('Error: blocked downstream')
+    expect(textOf(await h.call('todo_write', {}))).toBe('Error: blocked downstream')
     expect(h.runs.get('todo_write')).toBeUndefined()
+  })
+
+  it('returns an AIR deny without calling the listeners below it', async () => {
+    const seen = { calls: 0 }
+    const h = await mount({ rules: [{ id: 'no-todo', decision: 'deny', tool: 'todo_write' }] }, downstream({ kind: 'allow' }, seen))
+    expect(codeOf(await h.call('todo_write', {}))).toBe('AIR_RULE_DENIED')
+    expect(seen.calls).toBe(0)
+    await h.call('read', { file_path: 'a.ts' })
+    expect(seen.calls).toBe(1)
   })
 
   it('gives the same result under an outer listener that delegates', async () => {
@@ -2660,21 +3228,13 @@ describe('combination with other listeners', () => {
     expect(codeOf(await h.call('todo_write', {}))).toBe('AIR_RULE_DENIED')
   })
 
-  it('does not apply a rule grant that cannot be audited', async () => {
-    const hooks = downstream({ kind: 'ask', reason: 'hook asks' })
-    const h = await mount({ rules: [ALLOW_TODO, { id: 'no-fetch', decision: 'deny', tool: 'web_fetch' }], auditPath: tmpDirOf() }, hooks)
+  it('still denies when the audit file cannot be written', async () => {
+    const h = await mount({ rules: [{ id: 'no-fetch', decision: 'deny', tool: 'web_fetch' }], auditPath: import.meta.dirname })
     const warn = vi.spyOn(h.ctx.logger, 'warn').mockImplementation(() => {})
-    await h.call('todo_write', {})
-    expect(h.asked.map(request => request.reason)).toEqual(['hook asks'])
     expect(codeOf(await h.call('web_fetch', { url: 'https://example.com' }))).toBe('AIR_RULE_DENIED')
     warn.mockRestore()
   })
 })
-
-/** A path that exists as a directory, so appending to it fails with EISDIR. */
-function tmpDirOf(): string {
-  return import.meta.dirname
-}
 
 describe('sudo guard', () => {
   const ALLOW_BASH = { id: 'all-bash', decision: 'allow', tool: 'bash' } as const
@@ -2693,23 +3253,35 @@ describe('sudo guard', () => {
     })
   })
 
+  it('denies sudo hidden in a nested shell and Windows elevation in pwsh', async () => {
+    const h = await mount({ rules: [ALLOW_BASH, { id: 'all-pwsh', decision: 'allow', tool: 'pwsh' }] })
+    expect(textOf(await h.call('bash', { command: 'bash -c "env FOO=1 sudo id"' }))).toContain('sudo cannot ask for a password here')
+    expect(textOf(await h.call('pwsh', { command: 'Start-Process cmd -Verb RunAs' }))).toContain('administrator elevation')
+    expect(textOf(await h.call('pwsh', { command: 'gsudo ls' }))).toContain('administrator elevation')
+    expect(h.runs.get('bash')).toBeUndefined()
+    expect(h.runs.get('pwsh')).toBeUndefined()
+  })
+
   it('lets sudo with an askpass helper and ordinary commands through', async () => {
     const h = await mount({ rules: [ALLOW_BASH] })
     expect((await h.call('bash', { command: 'sudo -A dnf install -y jq' })).isError).toBe(false)
     expect((await h.call('bash', { command: 'ls' })).isError).toBe(false)
+    expect((await h.call('pwsh', { command: 'Get-ChildItem' })).isError).toBe(false)
     expect(h.runs.get('bash')).toBe(2)
   })
 
-  it('is off with sudoGuardEnabled false', async () => {
-    const h = await mount({ rules: [ALLOW_BASH], sudoGuardEnabled: false })
+  it('ignores tools without a command argument and is off with sudoGuardEnabled false', async () => {
+    const h = await mount({ sudoGuardEnabled: false })
     expect((await h.call('bash', { command: 'sudo id' })).isError).toBe(false)
+    const on = await mount()
+    expect((await on.call('read', { file_path: 'sudo id' })).isError).toBe(false)
   })
 })
 ```
 
 - [ ] **Step 3: Run the tests to verify they fail**
 
-Run: `pnpm -C /home/hxman/AIR-harness/air/packages/permission-rules test`
+Run: `pnpm -C air/packages/permission-rules test`
 Expected: FAIL; `../src/index.ts` cannot be resolved by `harness.ts`.
 
 - [ ] **Step 4: Write the Config module**
@@ -2723,7 +3295,7 @@ import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
 import { defaultCapabilities, defaultToolScopes } from './taxonomy.ts'
 import type { PolicyTables } from './types.ts'
 
-const DEFAULT_SUDO_HINT = 'Tell the user which command needs root and ask them to run it in their own terminal.'
+const DEFAULT_SUDO_HINT = 'Tell the user which command needs administrator rights and ask them to run it in their own terminal.'
 
 /** Plugin configuration schema. Every field has a default; see the README table. */
 export const Config = z.object({
@@ -2736,11 +3308,14 @@ export const Config = z.object({
     scopeArgKeys: z.array(z.string()).required(),
     pathKeys: z.array(z.string()).default([]),
     commandKeys: z.array(z.string()).default([]),
+    dialect: z.union(['posix', 'powershell'] as const).default('posix'),
   })).default(defaultToolScopes()).description('Tool name to capability and the arguments that define its scope.'),
   unscopedDefault: z.union(['allow', 'ask', 'deny'] as const).default('allow')
     .description('Decision for a tool without a tools entry.'),
   unscopedMcpDefault: z.union(['allow', 'ask', 'deny'] as const).default('ask')
-    .description('Decision for an mcp__* tool without a tools entry.'),
+    .description('Decision for an mcp__* tool without a tools entry. This is the only default that asks.'),
+  neverPolicyAsk: z.union(['allow', 'deny'] as const).default('allow')
+    .description('What an ask that comes from a default (not from a rule) becomes when the session approval policy is never, as in Full access.'),
   rules: z.array(z.object({
     id: z.string().required(),
     decision: z.union(['allow', 'ask', 'deny'] as const).required(),
@@ -2751,12 +3326,10 @@ export const Config = z.object({
   rulesPath: z.string().description('Rules file written by /allow and /deny. Default: <harness home>/air/permissions.json.'),
   auditPath: z.string().description('Audit JSONL file. Default: <harness home>/air/permissions/audit.jsonl.'),
   auditDefaultAllows: z.boolean().default(false).description('Also record allows that come from a capability default.'),
-  ruleAllowSatisfiesAsk: z.boolean().default(true).description('An allow rule replaces an ask from another pre-execute listener.'),
-  answerDirectAsks: z.boolean().default(true).description('An allow rule answers approval requests raised inside a tool call.'),
+  answerDirectAsks: z.boolean().default(false).description('An allow rule answers approval requests raised inside a tool call, such as a sandbox escalation. Off by default: an allow rule then also approves the wider access.'),
   reasonMaxChars: z.number().min(40).default(400).description('Largest argument summary in an approval reason.'),
   pendingCallsMax: z.number().min(1).default(1000).description('Largest number of in-flight calls remembered for the approval answerer.'),
-  sudoGuardEnabled: z.boolean().default(true).description('Deny sudo without an askpass helper in the guarded tools.'),
-  sudoGuardTools: z.dict(z.string()).default({ bash: 'command' }).description('Guarded tool name to its command-line argument.'),
+  sudoGuardEnabled: z.boolean().default(true).description('Deny sudo without an askpass helper and Windows elevation in every tool whose scope has a command argument.'),
   sudoGuardHint: z.string().default(DEFAULT_SUDO_HINT).description('Sentence appended to a sudo denial.'),
 })
 
@@ -2789,18 +3362,21 @@ export function resolveConfig(config: Config): { rulesPath: string; auditPath: s
 ```ts
 /**
  * AIR permission rules: capability scopes and allow/ask/deny rules on
- * `tools/pre-execute`, a sudo guard for the bash tool, and a JSONL audit file.
+ * `tools/pre-execute`, a sudo and Windows-elevation guard for the shell tools,
+ * and a JSONL audit file.
  * @module @air/dsh-permission-rules
  */
 import type { Context } from '@deepseek-ai/cordis'
 import type { PreToolDecision, ToolExecution } from '@deepseek-ai/dsh-tools'
+import type { Session } from '@deepseek-ai/dsh-session'
+import type { ApprovalService } from '@deepseek-ai/dsh-user-approval'
 import { isRecord } from '@air/dsh-convention-core'
 import { argsDigest, AuditLog, type AuditRecord } from './audit.ts'
 import { resolveConfig, type Config } from './config.ts'
 import { PendingCalls, type PendingCall } from './pending.ts'
-import { combine, evaluate, type CombineOutcome } from './policy.ts'
+import { adaptToApprovalPolicy, combine, evaluate, type CombineOutcome } from './policy.ts'
 import { PolicySource } from './policy-source.ts'
-import { askDisplayReason, askReason, denyReason } from './reason.ts'
+import { askDisplayReason, askReason, denyReason, withNotice } from './reason.ts'
 import { RuleStore } from './rule-store.ts'
 import { sudoGuardReason } from './sudo.ts'
 import type { Verdict } from './types.ts'
@@ -2815,6 +3391,7 @@ export const inject = ['tools']
 
 const RULE_DENIED = { name: 'AirRuleDenied', code: 'AIR_RULE_DENIED' }
 const SCOPE_DENIED = { name: 'AirScopeDenied', code: 'AIR_SCOPE_DENIED' }
+const APPROVAL_NEVER = { name: 'AirApprovalNever', code: 'AIR_APPROVAL_NEVER' }
 
 function entryOf(exec: Readonly<ToolExecution>): PendingCall {
   return {
@@ -2849,6 +3426,11 @@ function recordOf(
   }
 }
 
+function denialInfo(verdict: Verdict): { name: string; code: string } {
+  if (verdict.blockedBy === 'approval-never') return { ...APPROVAL_NEVER }
+  return verdict.source === 'rule' ? { ...RULE_DENIED } : { ...SCOPE_DENIED }
+}
+
 /**
  * Mount the policy listener and the sudo guard.
  * @param ctx - plugin context with the `tools` service injected.
@@ -2863,6 +3445,16 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   await source.load()
   const audit = new AuditLog(resolved.auditPath)
   const pending = new PendingCalls(config.pendingCallsMax)
+  // `approval` is an optional service: without it every ask fails closed in the tool runtime.
+  let approval: ApprovalService | undefined
+  ctx.inject(['approval'], (child) => {
+    child.effect(function* () {
+      approval = child.approval
+      yield () => {
+        approval = undefined
+      }
+    })
+  })
 
   const tryAudit = async (record: AuditRecord): Promise<boolean> => {
     try {
@@ -2874,38 +3466,40 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     return true
   }
 
-  // Prepended and order-independent: the downstream decision is taken first,
-  // then combined. This listener never returns without calling next().
+  const approvalPolicyOf = (session: Session | undefined): 'ask' | 'never' =>
+    session === undefined ? 'ask' : approval?.overrideOf(session) ?? approval?.config.policy ?? 'ask'
+
+  // Prepended. An AIR deny is final, so it returns without next(): the
+  // listeners further down (Auto review's model request, hooks) cannot change
+  // it. Every other verdict calls next() first and is combined with the
+  // downstream decision, which makes the result independent of listener order.
   ctx.on('tools/pre-execute', async (exec, next): Promise<PreToolDecision> => {
-    const downstream = await next()
     const entry = entryOf(exec)
     pending.remember(exec.callId, entry)
-    const verdict = evaluate(await source.current(), entry.call)
+    const verdict = adaptToApprovalPolicy(
+      evaluate(await source.current(), entry.call),
+      approvalPolicyOf(exec.agent?.session),
+      config.neverPolicyAsk,
+    )
+    const notice = source.notice()
     const record = (fields: Pick<AuditRecord, 'decision' | 'grantedBy' | 'outcome'>): AuditRecord =>
       recordOf('pre-execute', exec.callId, entry, verdict, fields)
+    const deny = async (): Promise<PreToolDecision> => {
+      await tryAudit(record({ decision: 'deny', grantedBy: null, outcome: null }))
+      return { kind: 'deny', reason: withNotice(denyReason(entry.call, verdict), notice), info: denialInfo(verdict) }
+    }
+    if (verdict.decision === 'deny') return deny()
+    const downstream = await next()
     const handlers: Record<CombineOutcome, () => Promise<PreToolDecision>> = {
-      'air-deny': async () => {
-        await tryAudit(record({ decision: 'deny', grantedBy: null, outcome: null }))
-        return {
-          kind: 'deny',
-          reason: denyReason(entry.call, verdict),
-          info: verdict.source === 'rule' ? { ...RULE_DENIED } : { ...SCOPE_DENIED },
-        }
-      },
+      'air-deny': deny,
       'air-ask': async () => {
         entry.chainAsked = true
         await tryAudit(record({ decision: 'ask', grantedBy: null, outcome: null }))
         return {
           kind: 'ask',
-          reason: askReason(entry.call, verdict, config.reasonMaxChars),
+          reason: withNotice(askReason(entry.call, verdict, config.reasonMaxChars), notice),
           displayReason: askDisplayReason(entry.call, verdict),
         }
-      },
-      'rule-allow-over-ask': async () => {
-        const logged = await tryAudit(record({ decision: 'allow', grantedBy: 'rule', outcome: null }))
-        if (logged) return { kind: 'allow' }
-        entry.chainAsked = true
-        return downstream
       },
       'downstream': async () => {
         entry.chainAsked = downstream.kind === 'ask'
@@ -2915,7 +3509,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
         return downstream
       },
     }
-    return handlers[combine(verdict, downstream.kind, { ruleAllowSatisfiesAsk: config.ruleAllowSatisfiesAsk })]()
+    return handlers[combine(verdict, downstream.kind)]()
   }, { prepend: true })
 
   ctx.on('tools/result', (exec) => {
@@ -2923,10 +3517,14 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   })
 
   // A guard runs after the waterfall and cannot be overridden by an allow rule.
+  // It covers every tool whose scope has a command argument, in that tool's shell dialect.
   if (config.sudoGuardEnabled) {
-    const guardConfig = { enabled: true, tools: config.sudoGuardTools, hint: config.sudoGuardHint }
+    const guardConfig = { enabled: true, hint: config.sudoGuardHint }
     ctx.tools.guard((exec) => {
-      const reason = sudoGuardReason(guardConfig, exec.name, exec.arguments)
+      const scope = Object.hasOwn(resolved.tables.tools, exec.name) ? resolved.tables.tools[exec.name] : undefined
+      const argument = scope?.commandKeys[0]
+      const shell = argument === undefined ? undefined : { argument, dialect: scope?.dialect ?? 'posix' }
+      const reason = sudoGuardReason(guardConfig, shell, exec.arguments)
       if (reason !== undefined) {
         void tryAudit(recordOf('sudo-guard', exec.callId, entryOf(exec), undefined, { decision: 'deny', grantedBy: null, outcome: null }))
       }
@@ -2938,35 +3536,35 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
 
 - [ ] **Step 6: Run the tests to verify they pass**
 
-Run: `pnpm -C /home/hxman/AIR-harness/air/packages/permission-rules test`
+Run: `pnpm -C air/packages/permission-rules test`
 Expected: `Test Files 10 passed (10)`.
 
 - [ ] **Step 7: Typecheck**
 
-Run: `pnpm -C /home/hxman/AIR-harness/air/packages/permission-rules typecheck`
+Run: `pnpm -C air/packages/permission-rules typecheck`
 Expected: exit 0. `Config` is both the schema value and its output type, so `apply`'s parameter always matches what `ctx.plugin(PermissionRules, input)` passes.
 
 - [ ] **Step 8: Commit**
 
 ```bash
-cd /home/hxman/AIR-harness
 git add air/packages/permission-rules
 git commit -m "feat(air): add the permission policy listener and the sudo guard"
 ```
 
 ---
 
-### Task 6: Approval answerer for direct asks and human-grant audit records
+### Task 6: Approval answerer, human-grant audit records, and the Auto review order test
 
 **Files:**
 - Modify: `air/packages/permission-rules/src/index.ts`
 - Test: `air/packages/permission-rules/tests/answerer.spec.ts`
+- Test: `air/packages/permission-rules/tests/auto-review-order.spec.ts`
 
 **Interfaces:**
 - Consumes from Task 5: `pending`, `source`, `tryAudit`, `recordOf`, `config.answerDirectAsks` inside `apply`; `PendingCall.chainAsked`. From upstream: `ctx.on('approval/request', (request, next) => Promise<ApprovalOutcome>, { prepend: true })`; `ApprovalOutcome` from `@deepseek-ai/dsh-user-approval`.
-- Produces: audit records with `origin: 'approval-request'`. A rule answer has `decision: 'allow'`, `grantedBy: 'rule'`, `outcome: null`. A delegated answer has `outcome` set to the approval outcome, `grantedBy: 'human'` and `decision: 'allow'` for `'allowed-once'`, otherwise `grantedBy: null` and `decision: 'deny'`. The listener never returns `'rejected'` on its own.
+- Produces: audit records with `origin: 'approval-request'`. A rule answer (only with `answerDirectAsks: true`) has `decision: 'allow'`, `grantedBy: 'rule'`, `outcome: null`. A delegated answer has `outcome` set to the approval outcome, `grantedBy: 'human'` and `decision: 'allow'` for `'allowed-once'`, otherwise `grantedBy: null` and `decision: 'deny'`. The listener never returns `'rejected'` on its own.
 
-Which asks the answerer may answer: an approval request whose `callId` belongs to a call the policy listener saw, and that was not produced by the `tools/pre-execute` chain itself. `chainAsked` is true while the chain's own ask is pending (the listener's ask, or a downstream ask it kept); that request always goes to the next answerer, and the flag is cleared when it arrives so that a later request from inside the tool body is treated as direct.
+Which asks the answerer sees: an approval request whose `callId` belongs to a call the policy listener saw. Every such request gets a human-outcome audit record. It may be answered from a rule only when `answerDirectAsks` is on, the request was not produced by the `tools/pre-execute` chain itself, and an explicit allow rule matches the call. `chainAsked` is true while the chain's own ask is pending (the listener's ask, or a downstream ask it kept); that request always goes to the next answerer, and the flag is cleared when it arrives so that a later request from inside the tool body is treated as direct. With the default `answerDirectAsks: false` the plugin never answers a request itself, so a sandbox escalation prompt reaches the user even when an allow rule such as `Bash(git status*)` matches the same command.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -2987,18 +3585,30 @@ const ALLOW_ESCALATE = { id: 'esc', decision: 'allow', tool: 'escalate' } as con
 describe('asks from the pre-execute chain', () => {
   it('records the human grant after an AIR ask', async () => {
     const h = await mount()
-    await h.call('bash', { command: 'ls' }, 'c1')
+    await h.call('mcp__demo__echo', { text: 'hi' }, 'c1')
     expect(await approvalRecords(h)).toMatchObject([{
-      callId: 'c1', tool: 'bash', decision: 'allow', grantedBy: 'human', outcome: 'allowed-once',
-      ruleId: null, capability: 'shell.execute', risk: 'high',
+      callId: 'c1', tool: 'mcp__demo__echo', decision: 'allow', grantedBy: 'human', outcome: 'allowed-once',
+      ruleId: null, capability: null, risk: null,
     }])
   })
 
   it('records a human rejection as a deny without a grant', async () => {
     const h = await mount()
     h.answer.outcome = 'rejected'
-    await h.call('bash', { command: 'ls' })
+    await h.call('mcp__demo__echo', { text: 'hi' })
     expect(await approvalRecords(h)).toMatchObject([{ decision: 'deny', grantedBy: null, outcome: 'rejected' }])
+  })
+})
+
+describe('asks kept from another listener', () => {
+  it('records the human grant, not a rule grant, when an allow rule meets a downstream ask', async () => {
+    const h = await mount({ rules: [{ id: 'todo', decision: 'allow', tool: 'todo_write' }] }, {
+      before(ctx) {
+        ctx.on('tools/pre-execute', () => Promise.resolve({ kind: 'ask', reason: 'hook asks' }), { prepend: true })
+      },
+    })
+    await h.call('todo_write', {})
+    expect((await approvalRecords(h)).map(record => record.grantedBy)).toEqual(['human'])
   })
 })
 
@@ -3011,8 +3621,15 @@ describe('direct asks from inside a tool call', () => {
     expect(await approvalRecords(h)).toMatchObject([{ grantedBy: 'human', outcome: 'allowed-once', capability: null }])
   })
 
-  it('answers from an allow rule and records a rule grant', async () => {
+  it('delegates to the human answerer by default even when an allow rule matches', async () => {
     const h = await mount({ rules: [ALLOW_ESCALATE] })
+    await h.call('escalate', { target: 'x' })
+    expect(h.asked).toHaveLength(1)
+    expect(await approvalRecords(h)).toMatchObject([{ grantedBy: 'human', ruleId: 'esc' }])
+  })
+
+  it('answers from an allow rule and records a rule grant with answerDirectAsks', async () => {
+    const h = await mount({ rules: [ALLOW_ESCALATE], answerDirectAsks: true })
     const result = await h.call('escalate', { target: 'x' }, 'c-esc')
     expect(textOf(result)).toBe('allowed-once')
     expect(h.asked).toEqual([])
@@ -3022,19 +3639,13 @@ describe('direct asks from inside a tool call', () => {
   })
 
   it('delegates a direct ask when the matching rule asks', async () => {
-    const h = await mount({ rules: [{ id: 'ask-esc', decision: 'ask', tool: 'escalate' }] })
+    const h = await mount({ rules: [{ id: 'ask-esc', decision: 'ask', tool: 'escalate' }], answerDirectAsks: true })
     await h.call('escalate', { target: 'x' })
     expect(h.asked).toHaveLength(2)
   })
 
-  it('delegates with answerDirectAsks off', async () => {
-    const h = await mount({ rules: [ALLOW_ESCALATE], answerDirectAsks: false })
-    await h.call('escalate', { target: 'x' })
-    expect(h.asked).toHaveLength(1)
-  })
-
   it('delegates when the rule grant cannot be audited', async () => {
-    const h = await mount({ rules: [ALLOW_ESCALATE], auditPath: import.meta.dirname })
+    const h = await mount({ rules: [ALLOW_ESCALATE], answerDirectAsks: true, auditPath: import.meta.dirname })
     const warn = vi.spyOn(h.ctx.logger, 'warn').mockImplementation(() => {})
     await h.call('escalate', { target: 'x' })
     expect(h.asked).toHaveLength(1)
@@ -3042,7 +3653,7 @@ describe('direct asks from inside a tool call', () => {
   })
 
   it('treats a request after the chain ask of the same call as direct', async () => {
-    const h = await mount({ rules: [ALLOW_ESCALATE], ruleAllowSatisfiesAsk: false }, {
+    const h = await mount({ rules: [ALLOW_ESCALATE], answerDirectAsks: true }, {
       before(ctx) {
         ctx.on('tools/pre-execute', () => Promise.resolve({ kind: 'ask', reason: 'hook asks' }), { prepend: true })
       },
@@ -3067,23 +3678,24 @@ describe('requests the plugin cannot correlate', () => {
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `pnpm -C /home/hxman/AIR-harness/air/packages/permission-rules exec vitest run tests/answerer.spec.ts`
+Run: `pnpm -C air/packages/permission-rules exec vitest run tests/answerer.spec.ts`
 Expected: FAIL; the first test finds no `approval-request` records, and "answers from an allow rule" finds one human request in `h.asked`.
 
 - [ ] **Step 3: Add the answerer to the plugin**
 
-In `air/packages/permission-rules/src/index.ts`, add this import after the `@deepseek-ai/dsh-tools` import:
+In `air/packages/permission-rules/src/index.ts`, change the user-approval import to:
 
 ```ts
-import type { ApprovalOutcome } from '@deepseek-ai/dsh-user-approval'
+import type { ApprovalOutcome, ApprovalService } from '@deepseek-ai/dsh-user-approval'
 ```
 
 and insert this block in `apply`, directly after the `ctx.on('tools/result', ...)` listener:
 
 ```ts
-  // Answers asks raised inside a tool call (sandbox escalation, hooks) from an
-  // explicit allow rule. A rule never produces a rejection: every other case
-  // goes to the next answerer, and its outcome is recorded.
+  // Records the human outcome of every ask that belongs to a call this plugin
+  // saw. With `answerDirectAsks`, an explicit allow rule also answers asks
+  // raised inside the tool call (sandbox escalation, hooks); a rule never
+  // produces a rejection, and every other case goes to the next answerer.
   ctx.on('approval/request', async (request, next): Promise<ApprovalOutcome> => {
     const callId = request.callId
     const entry = callId === undefined ? undefined : pending.get(callId)
@@ -3104,22 +3716,250 @@ and insert this block in `apply`, directly after the `ctx.on('tools/result', ...
   }, { prepend: true })
 ```
 
-Also change the module JSDoc's first sentence to: `AIR permission rules: capability scopes and allow/ask/deny rules on tools/pre-execute, a rule-based answerer for direct approval requests, a sudo guard for the bash tool, and a JSONL audit file.`
+Also change the module JSDoc's first sentence to: `AIR permission rules: capability scopes and allow/ask/deny rules on tools/pre-execute, an approval answerer that audits human grants and can answer asks raised inside a tool call from allow rules, a sudo and Windows-elevation guard for the shell tools, and a JSONL audit file.` and the `apply` JSDoc summary to `Mount the policy listener, the approval answerer, the sudo guard, and the commands.`
 
 - [ ] **Step 4: Run all tests to verify they pass**
 
-Run: `pnpm -C /home/hxman/AIR-harness/air/packages/permission-rules test`
+Run: `pnpm -C air/packages/permission-rules test`
 Expected: `Test Files 11 passed (11)`. The Task 5 tests still pass because they read only `pre-execute` and `sudo-guard` records.
 
-- [ ] **Step 5: Typecheck and commit**
+- [ ] **Step 5: Test the listener order with Auto review loaded**
 
-Run: `pnpm -C /home/hxman/AIR-harness/air/packages/permission-rules typecheck`
+How the two plugins compose. Both prepend a listener on `tools/pre-execute`; the plugin that loads last is outermost.
+
+| Order | What runs |
+|---|---|
+| Auto review outermost (AIR row loaded first) | Auto review classifies the call with a model request, then calls `next()`; the AIR listener evaluates its rules. An AIR deny is returned, but the review request was already spent. |
+| AIR outermost (Auto row loaded first) | The AIR listener evaluates its rules. An AIR deny returns at once, so Auto review never runs. Otherwise it calls `next()`, which runs Auto review, and combines the two. |
+
+In both orders: an AIR deny wins; a reviewer denial becomes an ask only when everything below it allows, and an AIR allow rule never removes that ask; when AIR asks (an unruled MCP tool) and the reviewer allows, the user sees exactly one prompt; when both ask, the downstream ask is the one shown. The only observable difference is the text of the prompt when both sides ask, and the spent review request on a denied call. Auto review is a preset (`auto`), so its listener acts only in sessions on that preset; in every other session the AIR listener is the only decision source above upstream's guards.
+
+`air/packages/permission-rules/tests/auto-review-order.spec.ts` mounts the real upstream Auto review plugin with a scripted reviewer model (the same technique as upstream's own Auto review tests) and runs the cases in both orders:
+
+```ts
+import { randomUUID } from 'node:crypto'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { afterEach, describe, expect, it } from 'vitest'
+import { Context } from '@deepseek-ai/cordis'
+import type { Agent } from '@deepseek-ai/dsh-agent'
+import * as AutoReview from '@deepseek-ai/dsh-experimental-auto-review'
+import LlmRuntime, {
+  createMessage,
+  LlmAdapter,
+  ToolCallId,
+  type GenerateOptions,
+  type StreamChunk,
+} from '@deepseek-ai/dsh-llm'
+import PermissionPresetService, { AUTO_PRESET } from '@deepseek-ai/dsh-permission-presets'
+import SessionStore, { SessionId, type Session } from '@deepseek-ai/dsh-session'
+import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
+import type {} from '@deepseek-ai/dsh-shell'
+import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
+import { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
+import ToolRuntime from '@deepseek-ai/dsh-tools'
+import ApprovalService, { type ApprovalOutcome } from '@deepseek-ai/dsh-user-approval'
+import * as PermissionRules from '../src/index.ts'
+
+type RulesInput = NonNullable<Parameters<typeof PermissionRules.Config>[0]>
+
+const ALLOW = '{"risk":"low","decision":"allow"}'
+const DENY = '{"risk":"medium","decision":"deny","reason":"reviewer says no"}'
+const TOOL = 'mcp__demo__echo'
+const ARGS = '{"text":"hi"}'
+const contexts: Context[] = []
+
+afterEach(async () => {
+  while (contexts.length > 0) await contexts.pop()!.fiber.dispose()
+})
+
+/** Reviewer model stand-in: answers each review request with the next scripted JSON object. */
+class ScriptedReviewer extends LlmAdapter {
+  requests = 0
+
+  constructor(private readonly script: string[]) {
+    super()
+  }
+
+  async * stream(_options: GenerateOptions): AsyncIterable<StreamChunk> {
+    this.requests += 1
+    const text = this.script.shift()
+    if (text === undefined) throw new Error('reviewer script exhausted')
+    yield { type: 'block-start', index: 0, blockType: 'text' }
+    yield { type: 'text-delta', index: 0, text }
+    yield { type: 'block-end', index: 0, block: { type: 'text', text } }
+    yield { type: 'finish', reason: { kind: 'stop' } }
+  }
+}
+
+/**
+ * Compose Auto review and the AIR plugin in one order. Both prepend their
+ * `tools/pre-execute` listener, so the plugin installed last is outermost.
+ */
+async function compose(order: 'auto-outermost' | 'air-outermost', reviews: string[], rules: RulesInput): Promise<{
+  ctx: Context
+  reviewer: ScriptedReviewer
+  humanRequests: string[]
+  answer: { outcome: ApprovalOutcome }
+  runs: () => number
+  call(callId: string): Promise<Awaited<ReturnType<Context['tools']['execute']>>>
+}> {
+  const ctx = new Context()
+  contexts.push(ctx)
+  await ctx.plugin(LlmRuntime)
+  await ctx.plugin(SessionStore)
+  await ctx.plugin(SessionProjectionRegistry)
+  await ctx.plugin(SystemPrompt, {})
+  await ctx.plugin(ToolRuntime)
+  ctx.provide('shell', {
+    sandboxMode: 'workspace-write',
+    resolve() { throw new Error('this test does not execute shell requests') },
+    run() { throw new Error('this test does not execute shell requests') },
+    start() { throw new Error('this test does not execute shell requests') },
+  })
+  await ctx.plugin(ApprovalService, { policy: 'ask' })
+  await ctx.plugin(PermissionPresetService, {
+    presets: {
+      'read-only': { sandbox: 'read-only', approval: 'ask' },
+      'workspace-write': { sandbox: 'workspace-write', approval: 'ask' },
+      'danger-full-access': { sandbox: 'danger-full-access', approval: 'never' },
+    },
+    defaultPreset: 'workspace-write',
+  })
+  const reviewer = new ScriptedReviewer([...reviews])
+  ctx.llm.registerAdapter(['review'], reviewer)
+  const installAir = async (): Promise<void> => {
+    await ctx.plugin(PermissionRules, {
+      rulesPath: join(tmpdir(), `air-order-${randomUUID()}.json`),
+      auditPath: join(tmpdir(), `air-order-${randomUUID()}.jsonl`),
+      ...rules,
+    })
+  }
+  if (order === 'auto-outermost') {
+    await installAir()
+    await ctx.plugin(AutoReview)
+  } else {
+    await ctx.plugin(AutoReview)
+    await installAir()
+  }
+
+  let runs = 0
+  ctx.tools.register(defineContentToolFixture({
+    name: TOOL,
+    description: 'live mcp fixture',
+    parameters: { text: { type: 'string' } },
+    execute() {
+      runs += 1
+      return Promise.resolve([{ type: 'text', text: 'ran' }])
+    },
+  }))
+  const humanRequests: string[] = []
+  const answer = { outcome: 'rejected' as ApprovalOutcome }
+  ctx.on('approval/request', (request) => {
+    humanRequests.push(request.reason ?? '')
+    return Promise.resolve(answer.outcome)
+  })
+
+  return {
+    ctx,
+    reviewer,
+    humanRequests,
+    answer,
+    runs: () => runs,
+    call(callId) {
+      const session = ctx.sessions.create(SessionId(`s-${callId}`), { meta: { cwd: '/workspace' } })
+      ctx.permissionPresets.set(session, AUTO_PRESET)
+      const agent = { id: session.id, session, options: { provider: 'review', model: 'same-model' } } as Agent
+      const id = ToolCallId(callId)
+      session.append('request/header', {
+        header: {
+          config: { provider: 'review', model: 'same-model' },
+          tools: [{ name: TOOL, description: 'live mcp fixture', parameters: { type: 'object' } }],
+        },
+        reason: 'initial',
+      })
+      session.append('turn/start', { turn: 1 })
+      appendToolCall(session, id)
+      return ctx.tools.execute({ signal: new AbortController().signal, callId: id, name: TOOL, arguments: { text: 'hi' }, agent })
+    },
+  }
+}
+
+function appendToolCall(session: Session, callId: ToolCallId): void {
+  session.append('step/start', { turn: 1, step: 1 })
+  session.append('assistant/message', {
+    turn: 1,
+    step: 1,
+    stream: [],
+    message: createMessage({
+      role: 'assistant',
+      content: [{ type: 'tool-call', id: callId, name: TOOL, arguments: ARGS }],
+      source: { kind: 'model', provider: 'review', model: 'same-model' },
+    }),
+  }, { surfaceOp: 'append' })
+  session.append('tool/call', { turn: 1, step: 1, callId, name: TOOL, arguments: ARGS })
+}
+
+describe.each(['auto-outermost', 'air-outermost'] as const)('Auto review with the AIR plugin, %s', (order) => {
+  it('shows one prompt for an unruled MCP call the reviewer allows, and runs it after approval', async () => {
+    const h = await compose(order, [ALLOW], {})
+    h.answer.outcome = 'allowed-once'
+    expect((await h.call('c1')).isError).toBe(false)
+    expect(h.humanRequests).toHaveLength(1)
+    expect(h.runs()).toBe(1)
+  })
+
+  it('does not run it when the user rejects the single prompt', async () => {
+    const h = await compose(order, [ALLOW], {})
+    expect((await h.call('c1')).isError).toBe(true)
+    expect(h.humanRequests).toHaveLength(1)
+    expect(h.runs()).toBe(0)
+  })
+
+  it('asks nothing when a saved allow rule covers the MCP server and the reviewer allows', async () => {
+    const h = await compose(order, [ALLOW], { rules: [{ id: 'demo', decision: 'allow', tool: 'mcp__demo__*' }] })
+    expect((await h.call('c1')).isError).toBe(false)
+    expect(h.humanRequests).toEqual([])
+    expect(h.runs()).toBe(1)
+  })
+
+  it('keeps the reviewer denial: an AIR allow rule does not replace the reviewer ask', async () => {
+    const h = await compose(order, [DENY], { rules: [{ id: 'demo', decision: 'allow', tool: 'mcp__demo__*' }] })
+    expect((await h.call('c1')).isError).toBe(true)
+    expect(h.humanRequests).toEqual(['Auto review denied tool "mcp__demo__echo": reviewer says no'])
+    expect(h.runs()).toBe(0)
+  })
+
+  it('applies an AIR deny rule in both orders', async () => {
+    const h = await compose(order, [ALLOW], { rules: [{ id: 'no-demo', decision: 'deny', tool: 'mcp__demo__*' }] })
+    const result = await h.call('c1')
+    expect(result.isError ? result.error.info?.code : undefined).toBe('AIR_RULE_DENIED')
+    expect(h.humanRequests).toEqual([])
+    expect(h.runs()).toBe(0)
+  })
+
+  it('spends the review request only when Auto review sees the call first', async () => {
+    const h = await compose(order, [ALLOW], { rules: [{ id: 'no-demo', decision: 'deny', tool: 'mcp__demo__*' }] })
+    await h.call('c1')
+    expect(h.reviewer.requests).toBe(order === 'auto-outermost' ? 1 : 0)
+  })
+})
+```
+
+Run: `pnpm -C air/packages/permission-rules exec vitest run tests/auto-review-order.spec.ts`
+Expected: `Test Files 1 passed (1)`, 12 tests. If Auto review's test fixtures changed upstream (the `request/header`, `assistant/message`, and `tool/call` events it needs before it will review a call), copy the new setup from `packages/experimental/auto-review/tests/auto-review.spec.ts`.
+
+Run: `pnpm -C air/packages/permission-rules test`
+Expected: `Test Files 12 passed (12)`.
+
+- [ ] **Step 6: Typecheck and commit**
+
+Run: `pnpm -C air/packages/permission-rules typecheck`
 Expected: exit 0.
 
 ```bash
-cd /home/hxman/AIR-harness
 git add air/packages/permission-rules
-git commit -m "feat(air): answer direct approval requests from allow rules and audit human grants"
+git commit -m "feat(air): record human grants, answer asks from rules on request, and test the Auto review order"
 ```
 
 ---
@@ -3135,7 +3975,7 @@ git commit -m "feat(air): answer direct approval requests from allow rules and a
 - Consumes from Tasks 2-3: `parseRuleSpec`, `formatRule`, `PolicySource` (`tables`, `rules()`, `current()`, `add()`, `remove()`). From upstream: `CommandDefinition` (`name`, `description`, `input: { hint }`, `handler(invocation)` with `invocation.rawInput`), `ctx.commands.register(definition)`, `ctx.inject(['commands'], callback)`.
 - Produces:
   - `commands.ts`: `newRuleId(): string` (`r-` plus eight hexadecimal characters), `createRuleCommands(source: PolicySource, newId: () => string): { readonly allow: CommandDefinition; readonly deny: CommandDefinition }`.
-  - Global commands, registered only when the `commands` service is mounted: `/allow <Tool | Tool(pattern)>` and `/deny <Tool | Tool(pattern)>` append a rule to the rules file; with no input or `list` they list every rule; `remove <id>` deletes a file rule.
+  - Global commands, registered only when the `commands` service is mounted: `/allow <Tool | Tool(pattern) | mcp__server__*>` and `/deny <Tool | Tool(pattern) | mcp__server__*>` append a rule to the rules file; with no input or `list` they list every rule; `remove <id>` deletes a file rule.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -3145,6 +3985,7 @@ git commit -m "feat(air): answer direct approval requests from allow rules and a
 import { readFile, writeFile } from 'node:fs/promises'
 import { describe, expect, it, vi } from 'vitest'
 import { newRuleId } from '../src/commands.ts'
+import { defaultCapabilities } from '../src/taxonomy.ts'
 import { codeOf, mount, type Harness } from './harness.ts'
 
 async function run(harness: Harness, line: string): Promise<{ kind: string; text?: string }> {
@@ -3168,7 +4009,7 @@ describe('newRuleId', () => {
 
 describe('/allow and /deny', () => {
   it('adds an allow rule that applies to the next call', async () => {
-    const h = await mount()
+    const h = await mount({ capabilities: { ...defaultCapabilities(), 'shell.execute': { risk: 'high', default: 'ask' } } })
     const reply = await run(h, '/allow Bash(git status:*)')
     expect(reply.kind).toBe('success')
     expect(reply.text).toMatch(/^Added rule r-[0-9a-f]{8}: allow bash\(command=git status\*\)$/)
@@ -3194,9 +4035,11 @@ describe('/allow and /deny', () => {
 
   it('removes a file rule and explains a miss', async () => {
     const h = await mount({ rules: [{ id: 'cfg', decision: 'allow', tool: 'todo_write' }] })
-    const added = idIn((await run(h, '/allow Bash')).text)
+    const added = idIn((await run(h, '/allow mcp__demo__*')).text)
+    await h.call('mcp__demo__echo', { text: 'hi' })
+    expect(h.asked).toEqual([])
     expect(await run(h, `/allow remove ${added}`)).toEqual({ kind: 'success', text: `Removed rule ${added}` })
-    await h.call('bash', { command: 'ls' })
+    await h.call('mcp__demo__echo', { text: 'hi' })
     expect(h.asked).toHaveLength(1)
     const miss = await run(h, '/deny remove cfg')
     expect(miss.kind).toBe('error')
@@ -3206,9 +4049,11 @@ describe('/allow and /deny', () => {
   it('reports a malformed spec and a failed write', async () => {
     const h = await mount()
     expect(await run(h, '/allow Bash(')).toEqual({ kind: 'error', text: 'rule "Bash(" is not in Tool or Tool(pattern) form' })
+    expect((await run(h, '/allow Ba*')).text).toContain('wildcards are allowed only in mcp__ tool names')
     const warn = vi.spyOn(h.ctx.logger, 'warn').mockImplementation(() => {})
     await writeFile(h.rulesPath, '{ broken')
     expect((await run(h, '/allow Bash')).text).toMatch(/not valid JSON/)
+    expect((await run(h, '/allow')).text).toContain('Note: rules file ignored until it is fixed')
     const removal = await run(h, '/allow remove r-00000000')
     expect(removal.kind).toBe('error')
     expect(removal.text).toMatch(/not valid JSON/)
@@ -3220,7 +4065,7 @@ describe('/allow and /deny', () => {
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `pnpm -C /home/hxman/AIR-harness/air/packages/permission-rules exec vitest run tests/commands.spec.ts`
+Run: `pnpm -C air/packages/permission-rules exec vitest run tests/commands.spec.ts`
 Expected: FAIL; `../src/commands.ts` cannot be resolved.
 
 - [ ] **Step 3: Write the command module**
@@ -3232,7 +4077,7 @@ Expected: FAIL; `../src/commands.ts` cannot be resolved.
 import { randomUUID } from 'node:crypto'
 import type { CommandDefinition } from '@deepseek-ai/dsh-commands'
 import type { PolicySource } from './policy-source.ts'
-import { messageOf } from './reason.ts'
+import { messageOf, withNotice } from './reason.ts'
 import { formatRule, parseRuleSpec, type ParsedRuleSpec } from './rule-syntax.ts'
 import type { RuleInput } from './types.ts'
 
@@ -3256,10 +4101,8 @@ function failure(error: unknown): Reply {
 async function list(source: PolicySource): Promise<Reply> {
   await source.current()
   const rules = source.rules()
-  return {
-    kind: 'success',
-    text: rules.length === 0 ? 'No permission rules.' : rules.map(rule => `${rule.id}  ${formatRule(rule)}`).join('\n'),
-  }
+  const text = rules.length === 0 ? 'No permission rules.' : rules.map(rule => `${rule.id}  ${formatRule(rule)}`).join('\n')
+  return { kind: 'success', text: withNotice(text, source.notice()) }
 }
 
 async function remove(source: PolicySource, id: string): Promise<Reply> {
@@ -3315,7 +4158,7 @@ export function createRuleCommands(
   return {
     allow: {
       name: 'allow',
-      description: 'Add a permission rule that allows a tool call without asking, for example /allow Bash(git status*). No input lists the rules; "remove <id>" deletes one.',
+      description: 'Add a permission rule that allows a tool call without asking, for example /allow Bash(git status*) or /allow mcp__github__*. No input lists the rules; "remove <id>" deletes one.',
       input: { hint: INPUT_HINT },
       handler: invocation => run(source, 'allow', invocation.rawInput, newId),
     },
@@ -3350,19 +4193,20 @@ and append this block at the end of `apply`:
 
 - [ ] **Step 5: Run all tests and the coverage gate**
 
-Run: `pnpm -C /home/hxman/AIR-harness/air/packages/permission-rules test`
-Expected: `Test Files 12 passed (12)`.
+Run: `pnpm -C air/packages/permission-rules test`
+Expected: `Test Files 13 passed (13)`.
 
-Run: `pnpm -C /home/hxman/AIR-harness/air/packages/permission-rules exec vitest run --coverage --coverage.include='src/**' --coverage.thresholds.100`
+Run: `pnpm -C air/packages/permission-rules exec vitest run --coverage --coverage.include='src/**' --coverage.thresholds.100`
 Expected: exit 0 with `100` in the Stmts, Branch, Funcs, and Lines columns of the `All files` row. When a line is reported uncovered, add a test that reaches it; do not lower the threshold.
 
 - [ ] **Step 6: Typecheck, lint, and commit**
 
-Run: `pnpm -C /home/hxman/AIR-harness/air/packages/permission-rules typecheck && pnpm -C /home/hxman/AIR-harness/air run lint`
+Run: `pnpm -C air/packages/permission-rules typecheck`
+
+Run: `pnpm -C air run lint`
 Expected: both exit 0.
 
 ```bash
-cd /home/hxman/AIR-harness
 git add air/packages/permission-rules
 git commit -m "feat(air): add /allow and /deny permission rule commands"
 ```
@@ -3379,7 +4223,7 @@ git commit -m "feat(air): add /allow and /deny permission rule commands"
 - Modify: `air/README.md`
 
 **Interfaces:**
-- Consumes: the built package (`lib/index.js`) through its own `exports`; `@deepseek-ai/cordis-plugin-loader` and `@deepseek-ai/cordis-plugin-include` as in spike 01 §1; `air/scripts/smoke-profile.sh` from plan 00; the `air` bundle as left by plan 01 Task 9.
+- Consumes: the built package (`lib/index.js`) through its own `exports`; `@deepseek-ai/cordis-plugin-loader` and `@deepseek-ai/cordis-plugin-include` as in spike 01 §1; `air/scripts/smoke-profile.ts` (run as `pnpm -C air run smoke`) from plan 00; the `air` bundle as left by plan 01 Task 9.
 - Produces: host row `{ id: air-permission-rules, name: '@air/dsh-permission-rules' }` in the `air` bundle; the `air` profile enforces the policy for every Agent.
 
 - [ ] **Step 1: Write the native Loader test**
@@ -3461,7 +4305,9 @@ it('loads the built package through native Loader resolution and enforces Config
 
 - [ ] **Step 2: Build, then run the Loader test**
 
-Run: `pnpm -C /home/hxman/AIR-harness/air/packages/permission-rules build && pnpm -C /home/hxman/AIR-harness/air/packages/permission-rules exec vitest run tests/native-loader.spec.ts`
+Run: `pnpm -C air/packages/permission-rules build`
+
+Run: `pnpm -C air/packages/permission-rules exec vitest run tests/native-loader.spec.ts`
 Expected: the build exits 0 and writes `lib/index.js`; `Test Files 1 passed (1)`. If the three `execute` calls all succeed, the row did not load: check that `cordis.yml` was written inside the package directory and that `lib/index.js` exists.
 
 - [ ] **Step 3: Write the README**
@@ -3473,7 +4319,7 @@ Expected: the build exits 0 and writes `lib/index.js`; `Test Files 1 passed (1)`
 
 ## Summary
 
-Decides every tool call from capability scopes and allow/ask/deny rules, answers approval requests raised inside a tool call from allow rules, denies `sudo` without an askpass helper in the bash tool, and writes an audit file that separates rule grants from human grants.
+Adds three things to the upstream permission presets (Read Only, Workspace Write, Full access, and the optional Auto review) and removes none of them: a guard against `sudo` and Windows elevation in the shell tools, an `ask` before MCP tool calls with saved allow rules, and a rule store (`/allow`, `/deny`) with an audit file. Built-in tools (`bash`, `pwsh`, `read`, `write`, `edit`, `web_fetch`, and the rest) behave as upstream defines them unless you write a rule that says otherwise.
 
 Mount it as a host row; it needs only the `tools` service and uses `approval` and `commands` when they are mounted.
 
@@ -3481,52 +4327,66 @@ Mount it as a host row; it needs only the `tools` service and uses `approval` an
 - id: air-permission-rules
   name: '@air/dsh-permission-rules'
   config:
-    unscopedMcpDefault: ask
     rules:
-      - { id: status, decision: allow, tool: bash, match: { command: 'git status*' } }
+      - { id: github, decision: allow, tool: 'mcp__github__*' }
+      - { id: no-delete, decision: deny, tool: 'mcp__github__delete_*' }
       - { id: metadata, decision: deny, capability: net.fetch, match: { url: 'http://169.254.*' } }
 ```
 
+### Behavior by access mode
+
+| Call | Read Only | Workspace Write | Full access | Auto review on | Approval policy `never` in any mode |
+|---|---|---|---|---|---|
+| Built-in tool, no rule | Upstream behavior; this plugin adds no prompt | Upstream behavior | Upstream behavior | Upstream behavior: the reviewer model decides | Upstream behavior |
+| Sandbox escalation prompt | Upstream prompt; this plugin answers it only with `answerDirectAsks` and a matching allow rule | Same | Not raised | Not raised | Rejected by the approval service |
+| MCP tool, no rule | This plugin asks | This plugin asks | Allowed (`neverPolicyAsk: allow`) | The reviewer decides and this plugin asks: one prompt | Allowed; denied with `neverPolicyAsk: deny` |
+| MCP tool, allow rule | Runs | Runs | Runs | The reviewer still decides; its denial still asks | Runs |
+| Call matching a deny rule | Denied | Denied | Denied | Denied | Denied |
+| Call matching an ask rule | Asks | Asks | Denied, naming the policy | Asks | Denied, naming the policy |
+| `sudo` without `-A`/`-n`, `sudo -S`, Windows elevation | Denied | Denied | Denied | Denied | Denied |
+
 | Field | Default | Meaning |
 |---|---|---|
-| `capabilities` | `fs.read` allow, `fs.write` ask, `shell.execute` ask, `net.fetch` ask, `net.search` allow, `browser.execute_script` ask, `system.device_control` ask | Capability id to `{ risk, default }` |
-| `tools` | `bash`, `read`, `write`, `edit`, `glob`, `grep`, `web_fetch`, `web_search` | Tool name to `{ capability, scopeArgKeys, pathKeys, commandKeys }`; `scopeArgKeys` must not be empty |
+| `capabilities` | every default `allow` (`fs.read`, `fs.write`, `shell.execute`, `net.fetch`, `net.search`, `browser.execute_script`, `system.device_control`) | Capability id to `{ risk, default }`; set a default to `ask` or `deny` to opt in to a stricter policy |
+| `tools` | `bash`, `pwsh`, `read`, `write`, `edit`, `glob`, `grep`, `web_fetch`, `web_search` | Tool name to `{ capability, scopeArgKeys, pathKeys, commandKeys, dialect }`; `scopeArgKeys` must not be empty; `dialect` is `posix` or `powershell` |
 | `unscopedDefault` | `allow` | Decision for a tool without a `tools` entry |
-| `unscopedMcpDefault` | `ask` | Decision for an `mcp__*` tool without a `tools` entry |
+| `unscopedMcpDefault` | `ask` | Decision for an `mcp__*` tool without a `tools` entry; the only default that asks |
+| `neverPolicyAsk` | `allow` | What a default-sourced ask becomes when the session approval policy is `never` |
 | `rules` | `[]` | Static rules; they precede the rules file |
 | `rulesPath` | `<harness home>/air/permissions.json` | Rules written by `/allow` and `/deny`; hand edits are read before the next call |
 | `auditPath` | `<harness home>/air/permissions/audit.jsonl` | Audit file |
 | `auditDefaultAllows` | `false` | Also record allows that come from a capability default |
-| `ruleAllowSatisfiesAsk` | `true` | An allow rule replaces an ask from another `tools/pre-execute` listener |
-| `answerDirectAsks` | `true` | An allow rule answers approval requests raised inside a tool call |
+| `answerDirectAsks` | `false` | An allow rule answers approval requests raised inside a tool call (sandbox escalation); an allow rule then also approves the wider access |
 | `reasonMaxChars` | `400` | Largest argument summary in an approval reason |
 | `pendingCallsMax` | `1000` | In-flight calls remembered for the approval answerer |
-| `sudoGuardEnabled`, `sudoGuardTools`, `sudoGuardHint` | `true`, `{ bash: command }`, a sentence telling the model to ask the user | The sudo guard |
+| `sudoGuardEnabled`, `sudoGuardHint` | `true`, a sentence telling the model to ask the user | The elevation guard |
 
-Rule order: deny rules, then ask rules, then allow rules; the first match within one decision wins; with no match the capability default applies. A rule names one `tool` or one `capability` and may match arguments. Path arguments are globs resolved against the session working directory. Command arguments are split into segments: a deny or ask rule matches any segment, an allow rule must match every segment. Other arguments use `*` wildcards, or `domain:<host>` for URLs.
+Rule precedence: deny rules, then ask rules, then allow rules; the first match within one decision wins, so a deny always beats an allow however the rules are ordered, and a rule from the configuration and a rule from the file rank alike. With no match the capability default applies. A rule names one `tool` or one `capability` and may match arguments. A tool name may end in a wildcard only for MCP tools (`mcp__github__*`). Path arguments are globs resolved against the session working directory; on Windows both sides use forward slashes after resolution and compare without regard to case. Command arguments are split into segments in the tool's shell dialect: a deny or ask rule matches any segment, an allow rule must match every segment. Other arguments use `*` wildcards, or `domain:<host>` for URLs.
 
-Commands: `/allow Bash(git status*)` and `/deny WebFetch(domain:example.com)` append a rule in Claude Code `Tool(pattern)` syntax; `/allow` or `/allow list` lists rules; `/allow remove <id>` deletes a file rule.
+Commands: `/allow Bash(git status*)`, `/allow mcp__github__*`, and `/deny WebFetch(domain:example.com)` append a rule in Claude Code `Tool(pattern)` syntax; `/allow` or `/allow list` lists rules; `/allow remove <id>` deletes a file rule.
 
-The listener calls `next()` before deciding, so listener order does not change the result. Combination order is deny, cancel, ask, allow; an allow rule may replace another listener's ask. Guards registered with `ctx.tools.guard()` still run after an allow.
+The listener returns an AIR deny without calling the listeners below it, and calls `next()` before every other decision. Combination order is deny, cancel, ask, allow; an AIR allow never replaces another listener's ask, and when both sides ask the other listener's ask is the one the user sees. Guards registered with `ctx.tools.guard()` still run after an allow.
 
 Audit lines carry `time`, `origin` (`pre-execute`, `approval-request`, `sudo-guard`), `sessionId`, `callId`, `tool`, `decision`, `grantedBy` (`rule`, `default`, `human`, or null), `ruleId`, `capability`, `risk`, `outcome`, and `argsDigest`. Arguments are not written.
 
 ## Model Experience
 
-- A denied call returns an error result: `AIR permission rule "<id>" denies tool "<name>"; its body was not executed`, or the capability form of that sentence. The structured error code is `AIR_RULE_DENIED` or `AIR_SCOPE_DENIED`.
+- A denied call returns an error result: `AIR permission rule "<id>" denies tool "<name>"; its body was not executed`, followed by how the user can see and remove the rule, or the capability or approval-policy form of that sentence. The structured error code is `AIR_RULE_DENIED`, `AIR_SCOPE_DENIED`, or `AIR_APPROVAL_NEVER`.
 - A call that needs approval waits for the user. A rejection returns the upstream text `the user rejected tool "<name>"`.
-- `sudo` without `-A` or `-n` in a guarded tool returns an error that says a password cannot be entered and tells the model to ask the user to run the command in their own terminal.
+- `sudo` without `-A` or `-n`, `sudo -S`, `gsudo`, `runas`, and `Start-Process -Verb RunAs` return an error that says a password or consent dialog cannot be answered and tells the model to ask the user to run the command in their own terminal.
+- When the rules file is unreadable, the previous rules stay in force and every ask or denial from this plugin ends with a note that names the file error.
 - The plugin adds nothing to the system prompt and does not change tool descriptions, so the model learns the policy only from these results.
 
 ## Known Limitations
 
-- With the session approval policy `never`, every `ask` resolves as rejected. Profiles that run unattended should set the capability defaults they need to `allow`.
+- With the session approval policy `never`, upstream rejects every ask. This plugin avoids the generic rejection: a default-sourced ask follows `neverPolicyAsk`, and an ask written by a rule becomes a denial that names the policy. An in-process delegated child that runs with `never` therefore gets MCP calls allowed by default; set `neverPolicyAsk: deny` to refuse them.
 - Path matching is lexical. Symbolic links are not followed; the sandbox remains the enforcement for file effects.
 - The command splitter is conservative, not a shell parser. An allow rule can fail to match a harmless command that uses subshells or command substitution; the call then falls back to the capability default.
+- The elevation guard prevents mistakes by a model acting in good faith. It looks through `env`, `nice`, `timeout`, `xargs`, `find -exec`, `bash -c`, and `pwsh -Command` or `-EncodedCommand` to a depth of four. It does not see elevation built from variable expansion or an obfuscated string, `su`, `doas`, `pkexec`, or `sudo` inside a script file. The sandbox and the approval service are the enforcement.
+- Windows elevation is denied, not asked: the consent dialog opens on a secure desktop that the agent cannot drive, and an unattended dialog stalls the turn. The secret-handoff follow-up plan can add an approved path.
 - The granted scope is not shown in tool descriptions, and tool names in `tools` are not checked against registered tools.
 - `grantedBy: human` means "the next approval answerer granted it"; another automated answerer after this plugin is recorded the same way.
-- An allow rule also answers a sandbox escalation request for the same call when `answerDirectAsks` is on.
-- `pkexec` and other elevation commands are not guarded. `sudo` inside a script file is not seen.
+- A server-level trust guard (plan 02) runs after this plugin and denies calls to servers that are not approved, whatever a rule says. An allow rule here never approves a server.
 - The pending-call map is process-local; nothing survives a restart, and no session event is written.
 - Only the first five rows of the earlier AIR capability table are shipped as defaults; add rows through `capabilities`.
 - Under PTC mode the outer `run_code` call is an unscoped tool; inner calls are decided one by one.
@@ -3544,32 +4404,36 @@ Append to `air/bundles/air/cordis.patch.yml`:
 
 ```yaml
 
-# Permission policy for every Agent: capability scopes, allow/ask/deny rules,
-# rule answers for direct approval requests, the sudo guard, and the audit
-# file. `rules` is left unset here; /allow and /deny write
-# $DSH_HOME/air/permissions.json.
+# Permission additions for every Agent, on top of the upstream presets: the
+# sudo and Windows-elevation guard, an ask before MCP tool calls, saved rules,
+# and the audit file. `rules` is left unset here; /allow and /deny write
+# <harness home>/air/permissions.json.
 - insert:
     - id: air-permission-rules
       name: '@air/dsh-permission-rules'
 ```
 
-Run: `pnpm -C /home/hxman/AIR-harness/air install && pnpm -C /home/hxman/AIR-harness/air run build && ls /home/hxman/AIR-harness/air/bundles/air/node_modules/@air/ | grep permission`
-Expected: both commands exit 0; the last prints `dsh-permission-rules`.
+Run: `pnpm -C air install`
+
+Run: `pnpm -C air run build`
+
+Run: `node -p "require('node:fs').readdirSync('air/bundles/air/node_modules/@air')"`
+Expected: the first two exit 0; the last prints a list that contains `dsh-permission-rules`.
 
 - [ ] **Step 5: Verify the composed profile and boot it**
 
-Run: `cd /home/hxman/AIR-harness && pnpm dsh --profile air --dump-config 2>/dev/null | grep -A1 'id: air-permission-rules'`
-Expected:
+Run: `pnpm dsh --profile air --dump-config`
+Expected: the output contains this row; stderr shows no unmatched patch target.
 
 ```
 - id: air-permission-rules
   name: '@air/dsh-permission-rules'
 ```
 
-Run: `pnpm -C /home/hxman/AIR-harness/air run smoke`
-Expected: exit 0; the script prints no `disabling profile plugin row`, `failed`, or `incompatible` line.
+Run: `pnpm -C air run smoke`
+Expected: exit 0; the script prints no `disabling profile plugin row`, `failed`, or `incompatible` line. The script is Node (`smoke-profile.ts`), so the step is the same on Windows and Linux.
 
-Manual check (needs the local model route from `air/README.md`): start `pnpm dsh --profile air web`, ask the agent to run `ls`, confirm an approval prompt whose text starts with `Permission check: bash uses capability shell.execute`, allow it, then type `/allow Bash(ls*)` and ask for `ls -la`; no prompt appears. Ask for `sudo true`; the tool result contains `sudo cannot ask for a password here`. `cat ~/.dsh/air/permissions/audit.jsonl` shows one `ask` line, one `human` grant, one `rule` grant, and one `sudo-guard` deny.
+Manual check (needs the local model route from `air/README.md`; the commands below work in the model's shell tool on both operating systems): start `pnpm dsh --profile air web` in the default Workspace Write mode. Ask the agent to run `ls` (Linux) or `Get-ChildItem` (Windows); it runs without a permission prompt. Ask it to call an MCP tool you have configured; an approval prompt whose text starts with `Permission check:` appears. Allow it, then type `/allow mcp__<server>__*` and repeat the request; no prompt appears. Ask for `sudo true` (Linux) or `gsudo ls` (Windows); the tool result contains `cannot ask for a password here` or `Administrator elevation`. Open `permissions/audit.jsonl` under the harness home (`$DSH_HOME/air/` on Linux, `%DSH_HOME%\air\` on Windows when the variable is set, otherwise the default harness home) and confirm one `ask` line, one `human` grant, one `rule` grant, and one `sudo-guard` deny.
 
 - [ ] **Step 6: Document the feature in `air/README.md`**
 
@@ -3578,18 +4442,21 @@ Append this section to `air/README.md`:
 ```markdown
 ## Permissions
 
-The `air-permission-rules` row decides every tool call before it runs. Shell commands, file writes, web fetches, and unknown MCP tools ask by default; reads and searches run without asking. `/allow Bash(git status*)` and `/deny Bash(rm -rf*)` add rules to `$DSH_HOME/air/permissions.json`; `/allow` lists them and `/allow remove <id>` deletes one. Every denial, ask, rule grant, and human answer is appended to `$DSH_HOME/air/permissions/audit.jsonl`. Plain `sudo` is refused in the bash tool because no password can be entered there. Details: [packages/permission-rules/README.md](packages/permission-rules/README.md).
+AIR uses upstream's permission presets (Read Only, Workspace Write, Full access, and the optional Auto review) as its defaults. The `air-permission-rules` row adds three things: MCP tool calls ask before they run, `sudo` and Windows elevation are refused in the shell tools because no password or consent dialog can be answered there, and `/allow mcp__github__*` or `/deny Bash(rm -rf*)` save rules to `permissions.json` in the harness home's `air` directory (`/allow` lists them, `/allow remove <id>` deletes one). Built-in tools keep upstream's behavior unless a rule says otherwise. Every denial, ask, rule grant, and human answer is appended to `permissions/audit.jsonl` in the same directory. Details: [packages/permission-rules/README.md](packages/permission-rules/README.md).
 ```
 
 - [ ] **Step 7: Run the root gates that scan `air/`**
 
-Run: `cd /home/hxman/AIR-harness && pnpm run verify-no-unknown-casts && pnpm run verify-concrete-terms && pnpm run verify-repository-references`
+Run: `pnpm run verify-no-unknown-casts`
+
+Run: `pnpm run verify-concrete-terms`
+
+Run: `pnpm run verify-repository-references`
 Expected: all three exit 0.
 
 - [ ] **Step 8: Commit**
 
 ```bash
-cd /home/hxman/AIR-harness
 git add air/pnpm-lock.yaml air/packages/permission-rules air/bundles/air air/README.md
 git commit -m "feat(air): mount permission rules in the air bundle with a Loader test and docs"
 ```
@@ -3600,14 +4467,17 @@ git commit -m "feat(air): mount permission rules in the air bundle with a Loader
 
 These items are specified in the spikes and deliberately left out of this plan. Each gets its own plan.
 
-- **Web "Always allow" button and full-argument approval detail** (spike 04 §7.3). A client plugin `@air/dsh-client-ui-approval-rules`: a `conversation.composer` chain entry at priority 0 with Reject / Allow once / Always allow, and a `conversation.approval.detail` entry at priority -1 that shows the parsed arguments. Findings to carry over: a chain entry cannot render a child slot that another entry declared (`packages/client/ui-slots/src/index.ts:1241-1247`), so the AIR panel must render the arguments itself; `PendingApproval` must be recognised by its `kind: 'approval'` field, because an AIR browser bundle carries its own copy of the class; upstream's client build preset rejects packages outside `packages/*/*` (spike 01 §5); copy goes through `ctx.locale.register(ns, { zh, en })`.
+- **Web "Always allow" button and full-argument approval detail** (spike 04 §7.3). A client plugin `@air/dsh-client-ui-approval-rules`: a `conversation.composer` chain entry at priority 0 with Reject / Allow once / Always allow, and a `conversation.approval.detail` entry at priority -1 that shows the parsed arguments. Findings to carry over: a chain entry cannot render a child slot that another entry declared (`packages/client/ui-slots/src/index.ts:1241-1247`), so the AIR panel must render the arguments itself; `PendingApproval` must be recognised by its `kind: 'approval'` field, because an AIR browser bundle carries its own copy of the class; upstream's client build preset rejects packages outside `packages/*/*` (spike 01 §5); copy goes through `ctx.locale.register(ns, { zh, en })`. The button is the main way a non-technical user will create the first `mcp__<server>__*` rule, so it should follow this plan closely.
 - **Rules through `ctx.remote.settings.mutate`** (spike 04 §7.2). Make `rules` (and `tools`, so the client can read `scopeArgKeys`) `.volatile()` Config fields, recompile on `loader/volatile-update`, and have the button write `{ op: 'set', path: ['rules', '<n>'], value }` with the namespace revision. The rules file stays as the store for `/allow` and `/deny`, or is migrated in that plan.
 - **Granted scope in tool descriptions** (research note 02 §2.3, lesson 6). A `system-prompt/assemble` listener that appends the capability, the default, and the matching allow and deny patterns to each scoped tool's description; it changes the request header, so it must run only when rules change.
 - **Taint escalation** (research note 04 §4 row 5). Mark a session once a result from an untrusted tool (`mcp__*`, `web_fetch`, `web_search`) is in context and turn allows for side-effecting capabilities into asks.
-- **`privileged_run` and secret handoff** (spike 05 §6.3). A tool that runs a command through `pkexec` or `sudo -A` on the Host after approval; it changes `sudoGuardHint` to point at the tool and extends the guard to `pkexec` under a confined sandbox mode.
-- **Import of Claude Code `permissions.allow|ask|deny`** from `.claude/settings.json`, and permission modes (`acceptEdits`, `plan`, `bypassPermissions`) (spike 02 §8.2).
-- **Install-time approval and capability scopes for MCP servers from the trust manifest** (research note 02 §2.3; plan 02 owns the manifest).
+- **`privileged_run` and secret handoff** (spike 05 §6.3). A tool that runs a command through `pkexec` or `sudo -A` on the Host after approval, and its Windows counterpart (an approved `Start-Process -Verb RunAs` path); it changes `sudoGuardHint` to point at the tool and extends the guard to `pkexec` and `doas`.
+- **Import of Claude Code `permissions.allow|ask|deny`** from `.claude/settings.json`, and permission modes (`acceptEdits`, `plan`, `bypassPermissions`) (spike 02 §8.2). Upstream's presets already cover the mode ideas; the import should map onto rules only.
+- **Install-time approval and capability scopes for MCP servers from the trust manifest** (research note 02 §2.3; plan 02 owns the manifest). Decide there whether an approved server's tools may skip this plugin's per-call ask (a trust level per server), instead of one `mcp__<server>__*` allow rule per server.
 - **The remaining rows of the earlier AIR capability table**, copied from that project's `core/capability_manager/taxonomy.py` into `defaultCapabilities()`.
+- **Cut candidate.** Research note 14 (feature opportunities) suggests the rule store, `/allow`, `/deny`, and the answerer could be cut if time is short, keeping the elevation guard, the MCP ask, and the explain-why messages. The owner has not approved cutting them; Tasks 3, 6, and 7 are the removable ones.
+- **Opt-in strict profile** (only if the team wants it): a documented `strict` patch for the `air-permission-rules` row that sets `fs.write`, `shell.execute`, and `net.fetch` to `ask`, as the earlier AIR project did. The Task 5 tests already run this table.
+- **Measure the extra prompt rate** in the evaluation pilot: how often the MCP ask fires per task on the local route, and how often Auto review plus the MCP ask shows a second prompt (plan 05 and the permission-rules arm of plan 06's follow-up table).
 
 ## Self-Review
 
@@ -3615,15 +4485,20 @@ These items are specified in the spikes and deliberately left out of this plan. 
 
 | Requirement | Task |
 |---|---|
-| Rule model, `Tool(pattern)` syntax, Claude-to-dsh name translation imported from `@air/dsh-convention-core` | 1, 2 |
-| allow/ask/deny evaluation, deny before allow | 2 |
+| Defaults equal upstream's presets; AIR adds only the elevation guard, an MCP ask, saved rules, and the audit file | Behavior table, decisions 4, 5, 12, 13; Tasks 1, 5 |
+| Rule model, `Tool(pattern)` syntax, `mcp__<server>__*` names, Claude-to-dsh name translation imported from `@air/dsh-convention-core` | 1, 2 |
+| allow/ask/deny evaluation, deny before allow regardless of source or order | 2 |
 | Capability scopes, mandatory `scopeArgKeys` (fails at load), capability table as data | 1, 2, 5 |
-| Rules file under `dshHomePath('air', 'permissions.json')`, lock plus atomic write | 3, 5 |
-| Prepended `tools/pre-execute` listener, `next()` first, order-independent combination | 5 |
-| Prepended `approval/request` answerer for direct asks; never rejects from a rule | 6 |
+| Rules file under `dshHomePath('air', 'permissions.json')`, lock plus atomic write, corrupt-file behavior | 3, 5 |
+| Prepended `tools/pre-execute` listener, `next()` first except for an AIR deny, order-independent combination | 5 |
+| Listener order with Auto review loaded, both orders | 6 |
+| Behavior under approval policy `never` (Full access) | 2, 5 |
+| Prepended `approval/request` answerer; rule answers opt-in; never rejects from a rule | 6 |
 | AIR audit JSONL that separates rule grants from human grants | 3, 5, 6 |
 | `/allow` and `/deny` | 7 |
-| Guard against plain `sudo` and `sudo -S` in bash | 4, 5 |
+| Guard against plain `sudo`, `sudo -S`, and Windows elevation in `bash` and `pwsh`, with wrapper and nested-shell look-through | 4, 5 |
+| Windows paths, dialects, and cross-platform commands | 1, 4, 5, 8 |
+| Interplay with plan 02's trust guard | Decision 15, README |
 | No new session event types; Config not constants; fail loud; branded id; no `as unknown` | 1, 3, 5 |
 | README sections, JSDoc, native Loader test | 8 |
 | Bundle wiring and smoke | 8 |
@@ -3631,11 +4506,16 @@ These items are specified in the spikes and deliberately left out of this plan. 
 
 **Placeholder scan.** Every code step contains the complete file or the exact block and its insertion point. No step defers content.
 
-**Type consistency.** `RuleInput`, `ToolScope`, `PolicyTables`, `CallFacts`, and `Verdict` are defined in Task 1 and used unchanged in Tasks 2-7. `PendingCall.chainAsked` is defined in Task 4, set in Task 5, and read and cleared in Task 6. `AuditRecord` is defined in Task 3; `recordOf` in Task 5 is its only producer. `PolicySource.tables`, `rules()`, `current()`, `add()`, and `remove()` are defined in Task 3 and called in Tasks 5-7. `Config` is the schema value and `ReturnType<typeof Config>`; `resolveConfig` is the only place path defaults are applied. `messageOf` is defined in Task 4 and used in Task 7.
+**Type consistency.** `RuleInput`, `ToolScope`, `PolicyTables`, `CallFacts`, and `Verdict` are defined in Task 1 and used unchanged in Tasks 2-7; `ToolScope.dialect` is read by `evaluate` (Task 2) and by the guard in `index.ts` (Task 5). `Verdict.blockedBy` is set by `adaptToApprovalPolicy` (Task 2) and read by `denyReason` (Task 4) and `denialInfo` (Task 5). `PendingCall.chainAsked` is defined in Task 4, set in Task 5, and read and cleared in Task 6. `AuditRecord` is defined in Task 3; `recordOf` in Task 5 is its only producer. `PolicySource.tables`, `rules()`, `current()`, `notice()`, `add()`, and `remove()` are defined in Task 3 and called in Tasks 5-7. `Config` is the schema value and `ReturnType<typeof Config>`; `resolveConfig` is the only place path defaults are applied. `messageOf` and `withNotice` are defined in Task 4 and used in Tasks 5 and 7. `sudoGuardReason` takes `{ argument, dialect } | undefined`, which `index.ts` builds from the tool's scope.
+
+**What was run.** The code of Tasks 1-7 and the Task 6 order test were compiled and run in a scratch copy outside the repository (test aliases resolve `@deepseek-ai/*` to the current `src` trees; `@air/dsh-convention-core` was replaced by a stub with the three signatures above): 13 test files, 222 tests passed, 1 Windows-only test skipped, `tsc --noEmit` clean for the sources apart from the `picomatch` and `vitest` type packages the scratch copy lacks. The 100% coverage gate, lint, the native Loader test (Task 8), the bundle wiring, and every Windows-only behavior were not run.
 
 **Known risks for the executor.**
 
-- Schemastery inference: if `tsc` rejects `config.rules` or `config.tools` as arguments of `PolicySource` or `resolveConfig`, widen the receiving type in `types.ts` (`RuleInput` already accepts `undefined` for optional fields); do not add casts.
+- Schemastery inference: `Record<string, ToolScope>` is not accepted as a `z.dict(...).default(...)` argument because `ToolScope` has readonly arrays; `defaultToolScopes()` therefore returns `MutableToolScope`. If `tsc` rejects another Config value, widen the receiving type in `types.ts`; do not add casts.
 - `apply` is asynchronous (it reads the rules file before registering listeners), as `@deepseek-ai/dsh-mcp-client`'s `apply` is. The harness awaits `ctx.plugin(PermissionRules, ...)` before it registers tools and makes calls; if a test still sees a call pass before the listeners exist, the awaited fiber did not wait for `apply`, and the fix is to make `apply` synchronous by moving `source.load()` into the first `source.current()` call and failing that call loudly.
-- The coverage gate counts logical-expression branches. Step 5 of Task 7 is the gate; close a gap with a test.
+- Accessing `ctx.approval` without declaring the service throws ("cannot get property approval without inject"). The plugin reads it only inside `ctx.inject(['approval'], ...)`; keep it that way when editing `index.ts`.
+- The coverage gate counts logical-expression branches. Task 7 Step 5 is the gate; close a gap with a test. The sudo look-through (`sudo.ts`) has many branches; add a test per uncovered line, do not lower the threshold.
 - The rules file is re-read when its modification time or size changes. Two hand edits within the same millisecond that keep the size are not seen until the next change.
+- Windows: `fs.write` modes (`0600`) are not enforced by NTFS, the file-mode assertions are skipped there, and the `EISDIR` assertions accept `EPERM` and `EACCES`. The Windows-only path test (`it.runIf`) runs only on Windows.
+- Auto review is experimental upstream; its test fixtures (Task 6 Step 5) may change with any upstream release. The order test is the first thing to re-run after an upstream sync.

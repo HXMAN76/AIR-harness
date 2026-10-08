@@ -27,7 +27,7 @@ This page orders the work, names each plan, and lists what is still unplanned. T
 
 ## Cross-plan obligations
 
-- **Plan 01 after plan 02:** every `mcp-client` child that plan 01 mounts from `.mcp.json` must declare `inject: [mcpToolReview]`, so imported servers cannot register tools unreviewed. Plan 02's bundle test checks only static patches; add the inject and a test in whichever plan lands second.
+- **Plan 02 turns on review for imported servers:** plan 01's `air-mcp-conventions` row has a `reviewTools` Config field (default false) that adds `inject: [mcpToolReview]` to every `mcp-client` child mounted from `.mcp.json`. Plan 02's bundle task sets it to true; plan 01 does not depend on plan 02.
 - **Plan 02 edits a plan 00 file:** its last task adds the `air/bundles/mcp-servers` bundle to the profile smoke, which is now `air/scripts/smoke-profile.ts`.
 - **Plan 01 edits a plan 00 file:** it adds `yaml` to `air/package.json` devDependencies.
 - **Plan 04 edits a plan 01 file:** its bundle task updates `air/scripts/tests/preset-air-drift.spec.ts` (expected AIR rows and row-package count).
@@ -36,6 +36,8 @@ This page orders the work, names each plan, and lists what is still unplanned. T
 - **Plan 07 packaging finding:** `pnpm deploy --prod` of the CLI package leaves out the workspace packages that are only peers (28 at `dsh-v0.2.1-alpha.1`; the staging script computes the list) and copies them in (research note 13 section 2). Windows staging is untested and is the first gate of plan 07.
 - **Plans 05 and 06 on Windows:** plan 06 uses only `uv`, `pnpm`, `ollama`, and `git` commands; plan 05 still has a few bash-only steps (`mktemp`, a `for` loop) that need PowerShell or Python equivalents before a Windows teammate runs it.
 - **Plan 06 leaves one Ollama model behind:** `air-eval-qwen25` (qwen2.5:7b-instruct, temperature 0, seed 7, 16k context), the model plan 05 Task 4 also creates; remove with `ollama rm air-eval-qwen25`.
+- **Peer ranges:** the loader checks ranges with prerelease versions included, so `^0.2.0-rc.1` accepts `0.2.1-alpha.1` (verified with the loader's own options); plain semver tools report a mismatch, so plan 03 writes `^0.2.0-rc.1 || ^0.2.1-alpha.1`. Use that form in all plans for clarity.
+- **Plans 02 and 03 prompt order:** plan 03's MCP ask can appear before plan 02's trust guard denies an unapproved server; a per-server trust level that skips the per-call ask is a plan 03 follow-up.
 - **Plan 03 imports from plan 01:** the Claude-to-dsh tool-name table exported by `@air/dsh-convention-core`.
 - **Plan 02 carried upstream changes:** the review hook in `packages/mcp/mcp-client` and the regenerated cordis catalog docs go into [../UPSTREAM-DELTA.md](../UPSTREAM-DELTA.md).
 - **Plan sizes:** plans 01 and 02 are long (about 6,000 lines each) because every step carries full code. Execute them task by task with a fresh worker per task; the code in them has not been compiled, so the first failing step of each task is where assumptions get corrected.
@@ -100,7 +102,7 @@ Each item gets its own plan after the plans above land. The spike section that a
 
 Apply these when the build starts; the plan files are unchanged for now.
 
-- **Plan 03 (permissions):** remove ask-by-default for `shell.execute` and `fs.write`; keep the `sudo` guard and MCP default-ask; aim rules, `/allow`, `/deny`, and the audit file at MCP tools and sandbox escalation prompts; add a listener-order test with Auto review loaded ([research note 11](../../research/notes/11-upstream-permission-modes.md)).
+- **Plan 03 (permissions):** done in the 2026-10-08 revision. Before: remove ask-by-default for `shell.execute` and `fs.write`; keep the `sudo` guard and MCP default-ask; aim rules, `/allow`, `/deny`, and the audit file at MCP tools and sandbox escalation prompts; add a listener-order test with Auto review loaded ([research note 11](../../research/notes/11-upstream-permission-modes.md)).
 - **`air` bundle:** optionally pin the default preset to Workspace Write so an ambient `DSH_PERMISSION_MODE` cannot start sessions in Full access; add a startup check that the loaded Ollama context is large enough ([research note 10](../../research/notes/10-local-models-rig.md): the default 4,096-token context silently truncates the harness prompt).
 - **Plan 05 (evaluation pilot):** use the measured local timings and the local/hosted split from research note 10; record the full runtime configuration with every result.
 - **New plan needed:** the desktop shell (item 8 below).
@@ -110,9 +112,9 @@ Apply these when the build starts; the plan files are unchanged for now.
 | Plan | Revised for `0.2.1-alpha.1`, Windows teammates, and owner decisions |
 |---|---|
 | 00 | Done: Node smoke script (run on Fedora), cross-platform steps, lint and CI scope |
-| 01 | In progress |
+| 01 | Done (code still uncompiled): preset regenerated and keeps clock and reminder tools; one polling watcher; command files no longer read as skills; safer `@path` imports; `.mcp.json` approval keyed on the unexpanded definition; `reviewTools` Config field for plan 02; Windows path handling and cross-platform steps |
 | 02 | Not yet: re-verify the `mcp-client` hook lines, update the smoke reference, check the bundle template |
-| 03 | In progress: defaults follow upstream presets |
+| 03 | Done (222 tests run in a scratch copy on Linux, including the real Auto review plugin in both load orders; Windows paths untested): built-in tools allow by default, only MCP tools ask; every ask and denial explains itself; Windows elevation blocked; escalation answering opt-in |
 | 04 | Not yet: `time-context` is a preset row; re-verify APIs |
 | 05, 06 | Not yet: bash-only steps in 05, `sdk-minimal` row list, expected tool list |
 | 07 | Done: dynamic port, release gate, per-line log redaction, 116 unit tests pass in a scratch copy |
@@ -135,7 +137,7 @@ Note 14 also recommends cuts for a five-person team (reduce the phase-1 desktop 
 
 Apply these when the build starts; the plan files are unchanged. Detail is in [research.md](../../research/research.md) section 2b.
 
-- **Plan 01:** its `preset-air` row list was generated from the old `standard.patch.yml`. The standard preset now also declares `time-context` and the `schedule/tool-schedule` row; regenerate the list (the plan's drift test detects this) and decide whether AIR's preset keeps the reminder tools. Before writing AIR's hook plugin in a later slice, evaluate upstream's new experimental Claude Code mods bridge.
+- **Plan 01:** done in the 2026-10-08 revision. Before: its `preset-air` row list was generated from the old `standard.patch.yml`. The standard preset now also declares `time-context` and the `schedule/tool-schedule` row; regenerate the list (the plan's drift test detects this) and decide whether AIR's preset keeps the reminder tools. Before writing AIR's hook plugin in a later slice, evaluate upstream's new experimental Claude Code mods bridge.
 - **Plan 04:** `time-context` is a preset row now; the memory-context row sits beside it in `preset-air`, and wording that calls it a top-level row is outdated.
 - **Plans 05 and 06:** `sdk-minimal` no longer has the five invariant rows, and Schedule tools exist in non-minimal presets; re-check the eval bundle's disabled-row list and the expected model-visible tool list. The experimental session inspector can help debug episodes.
 - **Plan 07:** done in the 2026-10-08 revision (dynamic port, origin handling, release gate, start-at-login moved to follow-ups).

@@ -4,17 +4,36 @@
 
 **Goal:** A repository or home folder configured for Claude Code works in the `air` profile on day one: its skills, command files, `CLAUDE.md` imports and rules, and `.mcp.json` servers load, while unrelated user-level skills stay out of the catalog unless the user opts in.
 
-**Architecture:** Five out-of-tree packages under `air/packages/`. `@air/dsh-convention-core` is a plain library (project root, homes, frontmatter, Markdown discovery, polling watcher, tool-name table). `@air/dsh-skill-conventions` and `@air/dsh-instruction-conventions` are mounted inside a new agent preset `preset-air` (a copy of the upstream `standard` preset whose `skill-filesystem` has `includeDefaultRoots: false`), and `agent-preset-registry` is patched to `default: air`. `@air/dsh-mcp-conventions` and `@air/dsh-command-conventions` are host rows that mount per-Agent children through `createScope(ctx, agent)`, the pattern upstream uses in `packages/experimental/browser-use-runtime/src/mcp.ts`.
+**Architecture:** Five out-of-tree packages under `air/packages/`. `@air/dsh-convention-core` is a plain library (project root, homes, frontmatter, Markdown discovery, a grouped polling watcher, tool-name table). `@air/dsh-skill-conventions` and `@air/dsh-instruction-conventions` are mounted inside a new agent preset `preset-air` (a copy of the upstream `standard` preset, including its clock and reminder rows, whose `skill-filesystem` has `includeDefaultRoots: false`), and `agent-preset-registry` is patched to `default: air`. `@air/dsh-mcp-conventions` and `@air/dsh-command-conventions` are host rows that mount per-Agent children through `createScope(ctx, agent)`, the pattern upstream uses in `packages/experimental/browser-use-runtime/src/mcp.ts`.
 
-**Tech Stack:** TypeScript 6 (strict, ESM), Cordis plugins, `@deepseek-ai/schemastery` for Config, `yaml` 2.9, `picomatch` 4, Vitest 4, tsdown, pnpm 11.7.0.
+**Tech Stack:** TypeScript 6 (strict, ESM), Cordis plugins, `@deepseek-ai/schemastery` for Config, `yaml` 2.9, `picomatch` 4, Vitest 4, tsdown, pnpm 11.7.0. Every command runs unchanged in PowerShell and bash.
 
 **Spec:** [spikes/02-file-conventions.md](spikes/02-file-conventions.md) (primary; §0, §1, §3, §4, §5, §9), [spikes/01-toolchain.md](spikes/01-toolchain.md) (package templates, native Loader test, pitfalls), [research/research.md §5.1](../../research/research.md), [research/notes/03-competitors.md §5](../../research/notes/03-competitors.md). Depends on [plan 00](2026-09-30-00-workspace-foundation.md) being done.
 
+## Revision log
+
+**2026-10-08.** The plan was written against `dsh-v0.2.0-rc.2`, and its code has never been compiled. The fork is now at `dsh-v0.2.1-alpha.1`. Each entry gives the change and the reason.
+
+1. **Upstream APIs re-verified against the new base.** The source of `skill`, `skill-filesystem`, `mcp-client`, `scope`, `commands`, `home-paths`, `brand`, `tools`, `agent-instructions`, and `time-context` is byte-identical between the two release tags; `agent`, `session`, `agent-preset-registry`, and `app-boot` changed only in comments, removed invariant files, and unrelated code. Line references in the table above moved for `agent`, `session`, `agent-preset-registry`, and `app-boot` and were corrected. The removal of runtime invariants and the new plugin display metadata (locale files and `<subpath>/icon`) need no change here: AIR packages never had an `./invariant` export, and the display rule applies to subpath plugins, while every AIR package is a package-root plugin that keeps its `package.json` text. The peer range `^0.2.0-rc.1` does not satisfy `0.2.1-alpha.1` under plain semver (checked with the `semver` package), but the profile loader checks peers with `includePrerelease`, which accepts it (`packages/boot/app-boot/src/plugin-compatibility.ts`); the smoke in Task 9 is the gate.
+2. **`preset-air` regenerated from the new `standard` preset** (Task 9). Upstream added `time-context`, `tool-schedule`, and a `toolFilter` that denies the four `schedule_*` tools to the `subagent` and `subagent_fork` rows. AIR keeps all of them (reminders and a clock reading suit a personal assistant); Task 9 has a keep-or-drop table and the drift test names the "keeps clock and reminders" decision. The YAML block was generated from the upstream file by a script, not retyped, and the drift test's comparison was run against it (the deep comparison held; the file-level run of the test itself needs the packages built).
+3. **Corrected a limitation.** With `includeDefaultRoots: false` the upstream `skill-filesystem` still scans its `customSkillDirs` and the bundled skill directory. The README no longer claims bundled skills disappear; `~/.dsh/skills` and `~/.agents/skills` do.
+4. **The skill provider no longer reads `.claude/commands`** (Tasks 3 and 9). In the bundle those files had to be hidden (`commandsUserInvocable: false`), so the code path could only produce a duplicate or a model-invocable command by accident, and the same file had two readers. `@air/dsh-command-conventions` is the only reader. A flat `<name>.md` in a skill root now counts as a skill only when its frontmatter has a `description`, so a `README.md` in a skills folder is not listed. Duplicate-name handling stays with the registry (which already warns and keeps the lower rank).
+5. **Watcher redesigned** (Tasks 2 and 3). The per-path `fs.watchFile` wrapper evicted single paths past a limit, which could leave a cached catalog with one root unwatched, and it baselined after listing, so a change during listing was missed. `PollWatcher` has one timer, groups paths by project, evicts whole projects (and invalidates once when it does), takes a `listedAt` timestamp so a change during listing is caught, and exposes `pollOnce()` so tests do not depend on timers.
+6. **`@path` import safety** (Tasks 4 and 5). Imports are now checked by real path (a symbolic link inside the project cannot reach a file outside it), credential-like files are refused (`.env*`, SSH keys, `.pem`/`.key`, anything under `.ssh`, `.aws`, `.gnupg`, `.kube`, `.docker`, `.npmrc`, `.netrc`), and a file larger than the byte budget is skipped without being read. Each refusal appears as a `<skipped reason=.../>` line.
+7. **The instruction baseline is composed once per turn** (step 1 of `agent/pre-step`) instead of at every step, so a mid-turn edit cannot break the provider's prompt cache, and a read failure now logs and lets the turn continue instead of failing it. Rule globs match with POSIX rules on every platform.
+8. **`$ARGUMENTS` edge cases** (Task 8). A backslash now escapes only quotes and whitespace, so Windows paths (`C:\Users\me\a.txt`, `\\server\share`) survive; tests cover single-pass insertion (an argument that contains `$1` is not expanded again), `$&`-style text, multi-line input, `$10`, and an unterminated `$ARGUMENTS[`. A failure to read a command folder no longer fails Agent creation.
+9. **`.mcp.json` consent redesigned** (Tasks 6 and 7). The approval key now covers the entry as written (variables unexpanded), so rotating a token does not force a new approval while any edit of the command, arguments, URL, or variable names does, and no expanded secret is part of the hash input. The approvals store serializes writes, uses a unique temporary file per write, and tolerates a failed write; an unreadable approvals file or `.mcp.json` approves nothing and shows as a `Problem:` line in `/mcp` instead of failing Agent creation. `/mcp` tells the person to approve before the first message, and the session logs a note when servers await approval. A byte-order mark in `.mcp.json` (written by some Windows editors) is accepted.
+10. **MCP review switch** (Task 7, cross-plan obligation). `air-mcp-conventions` has a `reviewTools` Config field (default `false`). When `true`, each mounted `mcp-client` child is the upstream plugin with `inject` extended by `mcpToolReview`, so it stays pending until plan 02's reviewer exists. This plan does not depend on plan 02; plan 02's bundle task sets `reviewTools: true` on the `air-mcp-conventions` row. Tests cover the pending case, the satisfied case, and the default.
+11. **Windows** (all tasks). Every command step now runs unchanged in PowerShell and bash: no absolute home paths, no `&&` chains, no `ls`, `grep`, `printf`, `mktemp`, or `pgrep`. The bash blocks of Task 9 became two Node scripts (`check-air-composition.ts`, `make-demo-project.ts`), and the process-leak check of Task 7 became a pid-file check inside the test. Code takes `node:path` objects as an optional argument (`isInside`, `expandHome`, `directoriesBetween`, `toPosixRelative`), so Windows rules (case-insensitive paths, drive letters, backslashes) are tested on Linux through `path.win32`. Tests no longer hard-code POSIX paths, use file names Windows rejects, or assume symbolic links, POSIX modes, or an absolute path without spaces.
+12. **Claude Code mods bridge evaluated** (see the Deferred table): it does not affect this slice.
+13. **Verified by running while revising:** the semver check in entry 1, the `git diff` of each cited package between the two release tags, the `picomatch` `windows` option, the YAML equality of `preset-air` and the upstream `standard` preset with the declared changes, and the JavaScript quoting of the new `node -e` commands. **Read, not run:** the `cross-spawn` use in the upstream MCP stdio transport, the skill registry's duplicate handling, and every package's code and tests, which are still uncompiled; Windows execution is untested.
+
 ## Global Constraints
 
+- **Windows and Linux.** Four teammates develop on native Windows PowerShell. Commands in this plan use only `pnpm`, `node`, and `git`, run from the repository root, with relative paths and no bash syntax (`mktemp`, `printf`, `grep`, `ls`, pipes into tools, `$(...)`). Code builds paths with `node:path`, never string concatenation with `/`; tests build expected paths with `join`/`resolve` instead of literals such as `/p/a`; Windows-specific behavior (case-insensitive paths, drive letters, backslashes) is tested through `node:path`'s `win32` object so it runs on Linux CI too; tests that need symbolic links or POSIX file modes skip on `win32`.
 - Node `^22.19 || >=24`; pnpm `11.7.0` (`air/package.json` `packageManager`); ESM only; TypeScript strict.
 - Packages live in `air/packages/<pkg>`, named `@air/dsh-<pkg>`. dsh packages are peers with range `^0.2.0-rc.1` plus `link:../../../packages/<group>/<pkg>` devDependencies (vendor packages: `link:../../../vendor/<pkg>`). `workspace:*` is used only between AIR packages.
-- Plan 00 provides: `air/package.json` devDependencies (`typescript`, `tsdown`, `vitest`, `@vitest/coverage-v8`, `@types/node`, `tsx`, the oxlint set) and scripts `build`, `typecheck`, `lint`, `test`, `smoke`; `air/pnpm-workspace.yaml` with `autoInstallPeers: false`; `air/tsconfig.base.json`; `air/.oxlintrc.json`; `air/.gitignore` (ignores `lib/`, `coverage/`, `.loader-*/`); `air/scripts/smoke-profile.sh`.
+- Plan 00 provides: `air/package.json` devDependencies (`typescript`, `tsdown`, `vitest`, `@vitest/coverage-v8`, `@types/node`, `tsx`, the oxlint set) and scripts `build`, `typecheck`, `lint`, `test`, `smoke`; `air/pnpm-workspace.yaml` with `autoInstallPeers: false`; `air/tsconfig.base.json`; `air/.oxlintrc.json`; `air/.gitignore` (ignores `lib/`, `coverage/`, `.loader-*/`); `air/scripts/smoke-profile.ts` (run through `pnpm -C air run smoke`; plan 00 owns it and it runs on Windows and Linux).
 - Each package: `tsconfig.build.json` extends `../../tsconfig.base.json` and sets `rootDir: src`, `outDir: lib/types`, `include: ["src"]`; `tsconfig.json` extends `./tsconfig.build.json` with `rootDir: "."`, `noEmit: true`, `include: ["src", "tests"]`; `vitest.config.ts` includes `tests/**/*.spec.ts`.
 - Test commands: `pnpm -C air/packages/<pkg> test`; coverage `pnpm -C air/packages/<pkg> exec vitest run --coverage --coverage.include='src/**' --coverage.thresholds.100`. Coverage must reach 100% per package; close a gap with a test, and use a `/* v8 ignore next -- <reason> */` comment only for a branch that needs a concurrent filesystem change to reach.
 - Build order matters: the root `pnpm run build` must have finished before any AIR install, build, or test; an AIR package that imports `@air/dsh-convention-core` resolves its built `lib/`, so run `pnpm -C air/packages/convention-core build` before testing dependents. A native Loader test imports the package's own `lib/`, so run that package's `build` before its tests.
@@ -26,13 +45,19 @@
 
 ## Decisions fixed by this plan
 
-1. **Skill ranks.** Lower wins inside one layer. Project `.dsh/skills` 100, project `.agents/skills` 200, project `.claude/skills` 220, project `.claude/commands` 230, each `extraProjectRoots` entry 240, `<airHome>/skills` 350, and, only with `includeUserRoots: true`, `<agentsHome>/skills` 500, `<claudeHome>/skills` 520, `<claudeHome>/commands` 530. Spike 02 §1.2 proposed 150/160 for the `.claude` roots; this plan follows the research priority order (product-native, `.agents`, `.claude`), which is also the order in the task brief.
+1. **Skill ranks.** Lower wins inside one layer. Project `.dsh/skills` 100, project `.agents/skills` 200, project `.claude/skills` 220, each `extraProjectRoots` entry 240, `<airHome>/skills` 350, and, only with `includeUserRoots: true`, `<agentsHome>/skills` 500 and `<claudeHome>/skills` 520. Spike 02 §1.2 proposed 150/160 for the `.claude` roots; this plan follows the research priority order (product-native, `.agents`, `.claude`), which is also the order in the task brief. The skill registry already drops a same-name lower-priority candidate with a warning, so the provider does no cross-root deduplication.
 2. **Host filesystem only.** The AIR plugins read convention files with `node:fs`, not through `ctx.fs`. Remote or sandboxed filesystem providers are a later slice.
-3. **Watching is polling.** `PathWatcher` wraps `fs.watchFile`, which also reports a path that does not exist yet. No chokidar dependency.
+3. **Watching is one grouped poll timer.** `PollWatcher` keeps one interval timer for all retained paths, groups paths by project, and evicts whole projects (least recently listed first) so a retained catalog is never left half-watched; an evicted project invalidates the catalog once. Paths that do not exist yet are watched too. No chokidar dependency. (The first draft wrapped `fs.watchFile` per path and evicted single paths, which could leave a cached catalog with no watch on one of its roots.)
 4. **`/mcp` lives in `@air/dsh-mcp-conventions`.** Spike 02 §9 lists it under the command package; the package that owns the approvals file also owns the command that edits it, so the two packages do not depend on each other.
 5. **Commands in slice 1 substitute arguments only.** `@file` expansion and `` !`cmd` `` execution from spike 02 §3.2 are deferred; they stay literal text in the prompt and are listed under Known Limitations.
 6. **Import approval is an allowlist.** An `@path` import outside the project root is skipped with a note unless its path is under a Config `allowedImportRoots` entry (spike 02 §4.2: no open turn exists to ask in).
 7. **User roots stay off in the bundle.** `includeUserRoots` defaults to `false` in every package and the bundle leaves it there; a user turns it on in the profile patch.
+8. **Command files are commands only.** `@air/dsh-command-conventions` is the single reader of `.claude/commands`. The skill provider no longer lists command files as skills: in the bundle it had to hide them anyway (`commandsUserInvocable: false`), which left a code path that could only produce a duplicate or a model-invocable command by accident. Claude Code's merge of commands into skills is deferred with `$ARGUMENTS` on the skill path.
+9. **The instruction baseline is composed once per turn,** at step 1 of `agent/pre-step`. Mid-turn edits to convention files reach the model on the next turn, and the provider's prompt cache is not invalidated inside a turn.
+10. **Imports are contained by real path.** An `@path` import must resolve (after symbolic links) inside the project root or an `allowedImportRoots` entry, must not be a credential-like file, and must not exceed the baseline byte budget.
+11. **`.mcp.json` approval is keyed by the definition as written** (the raw entry, `${VAR}` unexpanded), not by expanded values: a rotated token does not need a new approval, and a changed command, argument, URL, or variable name does. A file edit that changes any of those needs a new approval.
+12. **MCP review is a Config switch, not a dependency.** `air-mcp-conventions` has `reviewTools` (default `false`). When `true`, each mounted `mcp-client` child declares `inject: ['mcpToolReview']` and waits for plan 02's reviewer. This plan does not depend on plan 02; the bundle turns the switch on when plan 02 lands.
+13. **`preset-air` keeps every upstream `standard` row** except the changes listed in Task 9 (the clock reading `time-context` and the reminder tools `tool-schedule` stay, because AIR is a personal assistant and reminders are part of that product).
 
 ## File Structure
 
@@ -44,22 +69,24 @@ air/
     package.json                                 (modify: dependencies on the four plugin packages)
     cordis.patch.yml                             (modify: preset-air, registry default, two host rows)
   scripts/tests/preset-air-drift.spec.ts         (create: preset-air equals upstream standard plus declared changes)
+  scripts/check-air-composition.ts               (create: dump the air profile and check the AIR rows; runs on Windows and Linux)
+  scripts/make-demo-project.ts                   (create: scratch project for the manual check; runs on Windows and Linux)
   packages/
     convention-core/                             @air/dsh-convention-core (library, no plugin)
       package.json  tsconfig.build.json  tsconfig.json  tsdown.config.ts  vitest.config.ts  README.md
       src/index.ts                               re-exports
-      src/paths.ts                               homes, project root, containment
+      src/paths.ts                               homes, project root, containment, POSIX-relative paths
       src/names.ts                               kebab-case names
       src/tool-names.ts                          Claude Code <-> dsh tool-name table
       src/frontmatter.ts                         YAML frontmatter and typed field readers
-      src/files.ts                               text reads, directory and Markdown-tree listing
-      src/watch.ts                               PathWatcher (polling)
+      src/files.ts                               text reads, real-path lookup, directory and Markdown-tree listing
+      src/watch.ts                               PollWatcher (one grouped poll timer)
       tests/{paths,names,tool-names,frontmatter,files,watch}.spec.ts
     skill-conventions/                           @air/dsh-skill-conventions (preset row)
       package.json  tsconfig.build.json  tsconfig.json  tsdown.config.ts  vitest.config.ts  README.md
       src/index.ts                               Config, provider, apply
       src/roots.ts                               root list and ranks
-      src/parse.ts                               skill and command file parsing
+      src/parse.ts                               skill file parsing
       tests/{parse,roots,provider,native-loader}.spec.ts
     instruction-conventions/                     @air/dsh-instruction-conventions (preset row)
       package.json  tsconfig.build.json  tsconfig.json  tsdown.config.ts  vitest.config.ts  README.md
@@ -85,25 +112,27 @@ air/
       tests/{args,plugin,native-loader}.spec.ts
 ```
 
-Upstream APIs this plan relies on (verified at `dsh-v0.2.0-rc.2`):
+Upstream APIs this plan relies on (re-verified at `dsh-v0.2.1-alpha.1` by diffing the source of each cited package between the two release tags; line numbers are the current ones):
 
 | API | Location |
 |---|---|
 | `ctx.skills.registerProvider(create)`, `SkillProvider`, `SkillCandidate`, `SkillDefinition`, `SkillProviderControl`, layer and rank rules | `packages/skill/skill/src/index.ts` L40-97, L247-275, L345-355, L390-425 |
-| `skill-filesystem` Config `includeDefaultRoots`, roots and ranks | `packages/skill/skill-filesystem/src/index.ts` L49-74, L245-265 |
-| Preset row schema (`id`, `name`, `description`, `order`, `plugins`), registry Config (`default`) | `packages/preset/agent-preset/src/index.ts`, `packages/preset/agent-preset-registry/src/index.ts` L53-56 |
-| Upstream `standard` preset list | `packages/bundle/web-app/presets/standard.patch.yml` |
-| `agent/created` (serial, awaited before queued input), `agent/disposed`, `agent/pre-step` (waterfall), `PreStepDecision`, `Agent.followup` | `packages/core/agent/src/runtime-types.ts` L112-119, L215-240, L252-270, L309-320 |
+| `skill-filesystem` Config `includeDefaultRoots`, roots and ranks; with `includeDefaultRoots: false` the `customSkillDirs` and the bundled skill directory are still scanned | `packages/skill/skill-filesystem/src/index.ts` L53, L78, L244-262 |
+| Preset row schema (`id`, `name`, `description`, `order`, `plugins`), registry Config (`default` and the volatile `selectedDefault`) | `packages/preset/agent-preset/src/index.ts`, `packages/preset/agent-preset-registry/src/index.ts` L54-57 |
+| Upstream `standard` preset list (now with `time-context`, `tool-schedule`, and `toolFilter` on the two subagent rows) | `packages/bundle/web-app/presets/standard.patch.yml` |
+| `agent/created` (serial, awaited before queued input; a throw fails Agent creation and skips later listeners), `agent/disposed`, `agent/pre-step` (waterfall), `PreStepDecision`, `Agent.followup` | `packages/core/agent/src/runtime-types.ts` PreStepDecision L112, followup L222, created L252-261, disposed L270, pre-step L320 |
 | `tools/post-execute` waterfall, `PostToolDecision.additionalContexts` | `packages/core/tools/src/index.ts` L165-176, L617-620, L1781-1820 |
 | `MessageSourceMap` (merge-extensible), `createUserMessage` | `packages/llm/llm/src/message.ts` L103-115, L236-246 |
-| `Session.deriveMessages()`, `CreateSessionOptions.meta.cwd` | `packages/core/session/src/index.ts` L860-884, `packages/core/session/src/types.ts` L138-160 |
+| `Session.deriveMessages()`, `CreateSessionOptions.meta.cwd`, `session.header.cwd` | `packages/core/session/src/index.ts` L856, `packages/core/session/src/types.ts` L105, L152 |
 | `createScope(ctx, key)`, `Scope.dispose()` | `packages/core/scope/src/index.ts` L104-146 |
 | `mcp-client` `Config` validator and `apply` | `packages/mcp/mcp-client/src/index.ts` L51-142, L154 |
 | Per-Agent `mcp-client` child precedent | `packages/experimental/browser-use-runtime/src/mcp.ts` L100-160 |
 | `ctx.commands.register`, `find`, `execute`, `CommandInvocation`, `CommandResult` | `packages/interaction/commands/src/index.ts` L41-80, L285-292, L328-330, L361-431; `types.ts` |
 | `dshHomePath(...segments)` | `packages/util/home-paths/src/index.ts` L98 |
 | `Branded<B>` | `packages/util/brand/src/index.ts` L18 |
-| Bundle dependency closure supplies row packages to Node resolution | `packages/boot/app-boot/src/profile.ts` L16-20, L470-536 |
+| Runtime resolution supplies the packages of the installation and of selected bundles to Node resolution | `packages/boot/app-boot/src/profile.ts` L16-22 (header comment) |
+| `@deepseek-ai/dsh-time-context`, `@deepseek-ai/dsh-tool-schedule` preset rows | `packages/context/time-context`, `packages/schedule/tool-schedule` |
+| `cross-spawn` resolves `npx` to `npx.cmd` for stdio MCP servers on Windows | `@modelcontextprotocol/client` `dist/stdio.mjs` (used by `packages/mcp/mcp-client/src/transport.ts`) |
 
 ---
 
@@ -129,12 +158,13 @@ Upstream APIs this plan relies on (verified at `dsh-v0.2.0-rc.2`):
   - `AIR_HOME_ENV = 'AIR_HOME'`, `AGENTS_HOME_ENV = 'DSH_AGENTS_HOME'`
   - `interface UserHomeConfig { airHome?: string; claudeHome?: string; agentsHome?: string }`
   - `interface UserHomes { readonly airHome: string; readonly claudeHome: string; readonly agentsHome: string }`
-  - `expandHome(path: string, home?: string): string`
+  - `expandHome(path: string, home?: string, pathApi?: PlatformPath): string` (`~`, `~/`, and, for Windows rules, `~\`)
   - `resolveUserHomes(config?: UserHomeConfig, env?: Readonly<Record<string, string | undefined>>, home?: string): UserHomes`
   - `pathExists(path: string): Promise<boolean>`
-  - `findProjectRoot(cwd: string, markers?: readonly string[]): Promise<string>` (nearest ancestor containing a marker, default `['.git']`; falls back to `cwd`)
-  - `isInside(root: string, candidate: string): boolean`
-  - `directoriesBetween(root: string, cwd: string): string[]` (root first, cwd last; `[cwd]` when cwd is outside root)
+  - `findProjectRoot(cwd: string, markers?: readonly string[]): Promise<string>` (nearest ancestor containing a marker, default `['.git']`; falls back to `cwd`; stops at `/` or a drive root)
+  - `isInside(root: string, candidate: string, pathApi?: PlatformPath): boolean` (case-insensitive for `path.win32`; another drive is outside)
+  - `directoriesBetween(root: string, cwd: string, pathApi?: PlatformPath): string[]` (root first, cwd last; `[cwd]` when cwd is outside root)
+  - `toPosixRelative(root: string, candidate: string, pathApi?: PlatformPath): string` (forward slashes, for glob matching)
   - `toKebabName(input: string): string | undefined`
   - `CLAUDE_TO_DSH_TOOL_NAMES: Readonly<Record<string, string>>`
   - `toDshToolName(claudeName: string): string | undefined`
@@ -228,7 +258,7 @@ export default defineConfig({
 })
 ```
 
-Run: `pnpm -C /home/hxman/AIR-harness/air install`
+Run: `pnpm -C air install`
 Expected: exit 0; `air/packages/convention-core/node_modules/yaml` exists.
 
 - [ ] **Step 2: Write the failing tests**
@@ -238,7 +268,7 @@ Expected: exit 0; `air/packages/convention-core/node_modules/yaml` exists.
 ```ts
 import { mkdir, mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import nodePath, { join, resolve, sep } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
   directoriesBetween,
@@ -247,9 +277,16 @@ import {
   isInside,
   pathExists,
   resolveUserHomes,
+  toPosixRelative,
 } from '../src/index.ts'
 
+const { win32 } = nodePath
 const created: string[] = []
+
+/** An absolute path on the current platform's current drive, so expectations hold on Windows and Linux. */
+function abs(...segments: string[]): string {
+  return resolve(sep, ...segments)
+}
 
 async function tempDir(): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), 'air-core-paths-'))
@@ -262,42 +299,51 @@ afterEach(async () => {
 })
 
 describe('expandHome', () => {
+  const home = abs('home', 'u')
+
   it('expands a bare tilde and a tilde prefix', () => {
-    expect(expandHome('~', '/home/u')).toBe('/home/u')
-    expect(expandHome('~/x/y', '/home/u')).toBe('/home/u/x/y')
+    expect(expandHome('~', home)).toBe(home)
+    expect(expandHome('~/x/y', home)).toBe(join(home, 'x', 'y'))
   })
 
   it('leaves other paths unchanged', () => {
-    expect(expandHome('/abs/x', '/home/u')).toBe('/abs/x')
-    expect(expandHome('~other/x', '/home/u')).toBe('~other/x')
+    expect(expandHome('/abs/x', home)).toBe('/abs/x')
+    expect(expandHome('~other/x', home)).toBe('~other/x')
+  })
+
+  it('accepts a backslash after the tilde only for Windows paths', () => {
+    expect(expandHome('~\\notes\\a.md', 'C:\\Users\\u', win32)).toBe('C:\\Users\\u\\notes\\a.md')
+    expect(expandHome('~\\notes', home)).toBe('~\\notes')
   })
 })
 
 describe('resolveUserHomes', () => {
+  const home = abs('home', 'u')
+
   it('uses defaults under the operating-system home', () => {
-    expect(resolveUserHomes({}, {}, '/home/u')).toEqual({
-      airHome: '/home/u/.air',
-      claudeHome: '/home/u/.claude',
-      agentsHome: '/home/u/.agents',
+    expect(resolveUserHomes({}, {}, home)).toEqual({
+      airHome: join(home, '.air'),
+      claudeHome: join(home, '.claude'),
+      agentsHome: join(home, '.agents'),
     })
   })
 
   it('reads AIR_HOME and DSH_AGENTS_HOME and ignores blank values', () => {
-    expect(resolveUserHomes({}, { AIR_HOME: '/data/air', DSH_AGENTS_HOME: '~/shared' }, '/home/u')).toEqual({
-      airHome: '/data/air',
-      claudeHome: '/home/u/.claude',
-      agentsHome: '/home/u/shared',
+    expect(resolveUserHomes({}, { AIR_HOME: abs('data', 'air'), DSH_AGENTS_HOME: '~/shared' }, home)).toEqual({
+      airHome: abs('data', 'air'),
+      claudeHome: join(home, '.claude'),
+      agentsHome: join(home, 'shared'),
     })
-    expect(resolveUserHomes({}, { AIR_HOME: '  ', DSH_AGENTS_HOME: '' }, '/home/u').airHome).toBe('/home/u/.air')
+    expect(resolveUserHomes({}, { AIR_HOME: '  ', DSH_AGENTS_HOME: '' }, home).airHome).toBe(join(home, '.air'))
   })
 
   it('prefers explicit configuration over the environment', () => {
     const homes = resolveUserHomes(
-      { airHome: '~/a', claudeHome: '/c', agentsHome: '/g' },
-      { AIR_HOME: '/ignored', DSH_AGENTS_HOME: '/ignored' },
-      '/home/u',
+      { airHome: '~/a', claudeHome: abs('c'), agentsHome: abs('g') },
+      { AIR_HOME: abs('ignored'), DSH_AGENTS_HOME: abs('ignored') },
+      home,
     )
-    expect(homes).toEqual({ airHome: '/home/u/a', claudeHome: '/c', agentsHome: '/g' })
+    expect(homes).toEqual({ airHome: join(home, 'a'), claudeHome: abs('c'), agentsHome: abs('g') })
   })
 
   it('falls back to process.env and the real home', () => {
@@ -329,23 +375,42 @@ describe('findProjectRoot', () => {
 })
 
 describe('isInside', () => {
+  const project = abs('p')
+
   it('accepts the root and its descendants only', () => {
-    expect(isInside('/p', '/p')).toBe(true)
-    expect(isInside('/p', '/p/a/b')).toBe(true)
-    expect(isInside('/p', '/p/../q')).toBe(false)
-    expect(isInside('/p', '/')).toBe(false)
-    expect(isInside('/p', '/pq')).toBe(false)
+    expect(isInside(project, project)).toBe(true)
+    expect(isInside(project, join(project, 'a', 'b'))).toBe(true)
+    expect(isInside(project, join(project, '..', 'q'))).toBe(false)
+    expect(isInside(project, abs())).toBe(false)
+    expect(isInside(project, `${project}q`)).toBe(false)
+  })
+
+  it('compares Windows paths without regard to case and rejects another drive', () => {
+    expect(isInside('C:\\p', 'c:\\P\\a', win32)).toBe(true)
+    expect(isInside('C:\\p', 'D:\\p\\a', win32)).toBe(false)
+    expect(isInside('C:\\p', 'C:\\pq', win32)).toBe(false)
+    expect(isInside('C:\\p', 'C:\\p\\..\\q', win32)).toBe(false)
   })
 })
 
 describe('directoriesBetween', () => {
+  const project = abs('p')
+
   it('lists directories from the root down to the cwd', () => {
-    expect(directoriesBetween('/p', '/p/a/b')).toEqual(['/p', '/p/a', '/p/a/b'])
-    expect(directoriesBetween('/p', '/p')).toEqual(['/p'])
+    expect(directoriesBetween(project, join(project, 'a', 'b'))).toEqual([project, join(project, 'a'), join(project, 'a', 'b')])
+    expect(directoriesBetween(project, project)).toEqual([project])
+    expect(directoriesBetween('C:\\p', 'C:\\p\\a\\b', win32)).toEqual(['C:\\p', 'C:\\p\\a', 'C:\\p\\a\\b'])
   })
 
   it('returns only the cwd when it is outside the root', () => {
-    expect(directoriesBetween('/p', '/q/r')).toEqual(['/q/r'])
+    expect(directoriesBetween(project, abs('q', 'r'))).toEqual([abs('q', 'r')])
+  })
+})
+
+describe('toPosixRelative', () => {
+  it('joins the relative path with forward slashes on every platform', () => {
+    expect(toPosixRelative(abs('p'), join(abs('p'), 'src', 'a.ts'))).toBe('src/a.ts')
+    expect(toPosixRelative('C:\\p', 'C:\\p\\src\\a.ts', win32)).toBe('src/a.ts')
   })
 })
 ```
@@ -429,7 +494,7 @@ describe('tool-name table', () => {
 
 - [ ] **Step 3: Run the tests to verify they fail**
 
-Run: `pnpm -C /home/hxman/AIR-harness/air/packages/convention-core test`
+Run: `pnpm -C air/packages/convention-core test`
 Expected: FAIL, all three files, with `Failed to load url ../src/index.ts` (the module does not exist).
 
 - [ ] **Step 4: Implement the modules**
@@ -440,7 +505,7 @@ Expected: FAIL, all three files, with `Failed to load url ../src/index.ts` (the 
 /** Home directories, project-root lookup, and path containment for the AIR convention plugins. */
 import { access } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
+import nodePath, { type PlatformPath } from 'node:path'
 
 /** Environment variable that overrides the AIR home directory (default `~/.air`). */
 export const AIR_HOME_ENV = 'AIR_HOME'
@@ -466,14 +531,15 @@ export interface UserHomes {
 }
 
 /**
- * Expand a leading `~` or `~/` against a home directory.
+ * Expand a leading `~`, `~/`, or (for Windows paths) `~\` against a home directory.
  * @param path - configured path.
  * @param home - home directory; defaults to the operating-system home.
+ * @param pathApi - path module used to join; pass `path.win32` to apply Windows rules on any host.
  * @returns the expanded path, or the input when it has no supported prefix.
  */
-export function expandHome(path: string, home: string = homedir()): string {
+export function expandHome(path: string, home: string = homedir(), pathApi: PlatformPath = nodePath): string {
   if (path === '~') return home
-  if (path.startsWith('~/')) return join(home, path.slice(2))
+  if (path.startsWith('~/') || (pathApi.sep === '\\' && path.startsWith('~\\'))) return pathApi.join(home, path.slice(2))
   return path
 }
 
@@ -493,11 +559,11 @@ export function resolveUserHomes(
   env: Readonly<Record<string, string | undefined>> = process.env,
   home: string = homedir(),
 ): UserHomes {
-  const absolute = (path: string): string => resolve(expandHome(path, home))
+  const absolute = (path: string): string => nodePath.resolve(expandHome(path, home))
   return {
-    airHome: absolute(config.airHome ?? nonBlank(env[AIR_HOME_ENV]) ?? join(home, '.air')),
-    claudeHome: absolute(config.claudeHome ?? join(home, '.claude')),
-    agentsHome: absolute(config.agentsHome ?? nonBlank(env[AGENTS_HOME_ENV]) ?? join(home, '.agents')),
+    airHome: absolute(config.airHome ?? nonBlank(env[AIR_HOME_ENV]) ?? nodePath.join(home, '.air')),
+    claudeHome: absolute(config.claudeHome ?? nodePath.join(home, '.claude')),
+    agentsHome: absolute(config.agentsHome ?? nonBlank(env[AGENTS_HOME_ENV]) ?? nodePath.join(home, '.agents')),
   }
 }
 
@@ -517,52 +583,68 @@ export async function pathExists(path: string): Promise<boolean> {
 }
 
 /**
- * Find the nearest ancestor of `cwd` that contains one of the markers.
+ * Find the nearest ancestor of `cwd` that contains one of the markers. The walk ends at the file
+ * system root (`/`, or a drive root such as `C:\`).
  * @param cwd - directory to start from.
  * @param markers - entry names that identify a project root.
  * @returns the project root, or the resolved `cwd` when no ancestor has a marker.
  */
 export async function findProjectRoot(cwd: string, markers: readonly string[] = ['.git']): Promise<string> {
-  const start = resolve(cwd)
+  const start = nodePath.resolve(cwd)
   let current = start
   while (true) {
     for (const marker of markers) {
-      if (await pathExists(join(current, marker))) return current
+      if (await pathExists(nodePath.join(current, marker))) return current
     }
-    const parent = dirname(current)
+    const parent = nodePath.dirname(current)
     if (parent === current) return start
     current = parent
   }
 }
 
 /**
- * Test whether `candidate` is `root` or a path below it, after normalisation. Symbolic links are not resolved.
+ * Test whether `candidate` is `root` or a path below it, after normalisation. Symbolic links are not
+ * resolved; use `realpathIfPresent` first when a link could leave the root. Windows paths compare
+ * without regard to case, and a path on another drive is outside.
  * @param root - containing directory.
  * @param candidate - path to test.
+ * @param pathApi - path module; pass `path.win32` to apply Windows rules on any host.
  * @returns true when the candidate does not leave the root.
  */
-export function isInside(root: string, candidate: string): boolean {
-  const rel = relative(resolve(root), resolve(candidate))
-  return rel === '' || (rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel))
+export function isInside(root: string, candidate: string, pathApi: PlatformPath = nodePath): boolean {
+  const rel = pathApi.relative(pathApi.resolve(root), pathApi.resolve(candidate))
+  return rel === '' || (rel !== '..' && !rel.startsWith(`..${pathApi.sep}`) && !pathApi.isAbsolute(rel))
 }
 
 /**
  * List every directory from `root` down to `cwd`.
  * @param root - project root.
  * @param cwd - working directory.
+ * @param pathApi - path module; pass `path.win32` to apply Windows rules on any host.
  * @returns directories ordered root first; only `cwd` when it lies outside `root`.
  */
-export function directoriesBetween(root: string, cwd: string): string[] {
-  const top = resolve(root)
-  const bottom = resolve(cwd)
-  if (!isInside(top, bottom)) return [bottom]
+export function directoriesBetween(root: string, cwd: string, pathApi: PlatformPath = nodePath): string[] {
+  const top = pathApi.resolve(root)
+  const bottom = pathApi.resolve(cwd)
+  if (!isInside(top, bottom, pathApi)) return [bottom]
   const directories = [top]
   let current = top
-  for (const segment of relative(top, bottom).split(sep).filter(part => part.length > 0)) {
-    current = join(current, segment)
+  for (const segment of pathApi.relative(top, bottom).split(pathApi.sep).filter(part => part.length > 0)) {
+    current = pathApi.join(current, segment)
     directories.push(current)
   }
   return directories
+}
+
+/**
+ * Express `candidate` relative to `root` with forward slashes, the form glob matching expects.
+ * @param root - containing directory.
+ * @param candidate - path below the root.
+ * @param pathApi - path module; pass `path.win32` to apply Windows rules on any host.
+ * @returns the relative path, for example `src/a.ts`.
+ */
+export function toPosixRelative(root: string, candidate: string, pathApi: PlatformPath = nodePath): string {
+  return pathApi.relative(pathApi.resolve(root), pathApi.resolve(candidate)).split(pathApi.sep).join('/')
 }
 ```
 
@@ -666,18 +748,17 @@ export * from './tool-names.ts'
 
 - [ ] **Step 5: Run the tests to verify they pass**
 
-Run: `pnpm -C /home/hxman/AIR-harness/air/packages/convention-core test`
+Run: `pnpm -C air/packages/convention-core test`
 Expected: `Test Files 3 passed (3)`.
 
 - [ ] **Step 6: Typecheck**
 
-Run: `pnpm -C /home/hxman/AIR-harness/air/packages/convention-core typecheck`
+Run: `pnpm -C air/packages/convention-core typecheck`
 Expected: exit 0, no output.
 
 - [ ] **Step 7: Commit**
 
-```bash
-cd /home/hxman/AIR-harness
+```sh
 git add air/packages/convention-core air/pnpm-lock.yaml
 git commit -m "feat(air): add convention-core paths, names, and tool-name table"
 ```
@@ -706,12 +787,14 @@ git commit -m "feat(air): add convention-core paths, names, and tool-name table"
   - `booleanField(data, key): boolean | undefined` (throws `TypeError` for other values)
   - `stringListField(data, key): string[] | undefined` (YAML list, or a string split on commas and whitespace outside parentheses; throws `TypeError` otherwise)
   - `readTextFile(path: string): Promise<string | undefined>` (undefined when absent or not a regular file)
+  - `fileSize(path: string): Promise<number | undefined>` (bytes of a regular file; undefined when absent or not a regular file)
+  - `realpathIfPresent(path: string): Promise<string | undefined>` (symbolic links and, on Windows, letter case resolved; undefined when the path is absent)
   - `interface DirectoryEntry { readonly name: string; readonly path: string; readonly kind: 'directory' | 'file' }`
   - `listDirectory(root: string): Promise<DirectoryEntry[]>` (sorted by name; absent root returns `[]`; symbolic links are followed; broken links are skipped)
   - `interface MarkdownEntry { readonly path: string; readonly segments: readonly string[] }`
   - `listMarkdownTree(root: string, maxDepth: number): Promise<MarkdownEntry[]>` (`segments` is the relative path without the `.md` suffix; `maxDepth` 1 lists only the root)
-  - `interface PathWatcherOptions { readonly intervalMs: number; readonly maxPaths: number; readonly onChange: () => void }`
-  - `class PathWatcher { constructor(options: PathWatcherOptions); retain(paths: Iterable<string>): void; get paths(): string[]; close(): void }`
+  - `interface PollWatcherOptions { readonly intervalMs: number; readonly maxGroups: number; readonly onChange: () => void; readonly onError: (error: unknown) => void }`
+  - `class PollWatcher { constructor(options: PollWatcherOptions); retain(group: string, paths: Iterable<string>, listedAt: number): void; get groups(): string[]; pollOnce(): Promise<void>; close(): void }` (one timer; groups are projects; the oldest group is released past `maxGroups`)
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -795,11 +878,11 @@ describe('field readers', () => {
 `air/packages/convention-core/tests/files.spec.ts`:
 
 ```ts
-import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { listDirectory, listMarkdownTree, readTextFile } from '../src/index.ts'
+import { fileSize, listDirectory, listMarkdownTree, readTextFile, realpathIfPresent } from '../src/index.ts'
 
 const created: string[] = []
 
@@ -833,8 +916,45 @@ describe('readTextFile', () => {
   })
 })
 
+describe('fileSize and realpathIfPresent', () => {
+  it('reports the size of a regular file only', async () => {
+    const dir = await tempDir()
+    await writeFile(join(dir, 'a.md'), 'hello')
+    expect(await fileSize(join(dir, 'a.md'))).toBe(5)
+    expect(await fileSize(dir)).toBeUndefined()
+    expect(await fileSize(join(dir, 'missing.md'))).toBeUndefined()
+  })
+
+  it('resolves an existing path and returns undefined for an absent one', async () => {
+    const dir = await tempDir()
+    expect(await realpathIfPresent(dir)).toBe(await realpath(dir))
+    expect(await realpathIfPresent(join(dir, 'missing'))).toBeUndefined()
+  })
+
+  it.skipIf(process.platform === 'win32')('resolves a symbolic link to its target', async () => {
+    const dir = await tempDir()
+    await mkdir(join(dir, 'real'))
+    await symlink(join(dir, 'real'), join(dir, 'link'))
+    expect(await realpathIfPresent(join(dir, 'link'))).toBe(await realpath(join(dir, 'real')))
+  })
+
+  it('rethrows failures other than absence', async () => {
+    await expect(realpathIfPresent('bad\0path')).rejects.toThrow()
+  })
+})
+
 describe('listDirectory', () => {
-  it('lists files and directories sorted by name and follows symbolic links', async () => {
+  it('lists files and directories sorted by name', async () => {
+    const dir = await tempDir()
+    await mkdir(join(dir, 'zeta'))
+    await writeFile(join(dir, 'alpha.md'), 'a')
+    expect(await listDirectory(dir)).toEqual([
+      { name: 'alpha.md', path: join(dir, 'alpha.md'), kind: 'file' },
+      { name: 'zeta', path: join(dir, 'zeta'), kind: 'directory' },
+    ])
+  })
+
+  it.skipIf(process.platform === 'win32')('follows symbolic links and skips broken ones', async () => {
     const dir = await tempDir()
     await mkdir(join(dir, 'zeta'))
     await writeFile(join(dir, 'alpha.md'), 'a')
@@ -882,11 +1002,12 @@ describe('listMarkdownTree', () => {
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { setTimeout as sleep } from 'node:timers/promises'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { PathWatcher } from '../src/index.ts'
+import { PollWatcher } from '../src/index.ts'
 
 const created: string[] = []
-const watchers: PathWatcher[] = []
+const watchers: PollWatcher[] = []
 
 afterEach(async () => {
   for (const watcher of watchers.splice(0)) watcher.close()
@@ -899,55 +1020,128 @@ async function tempDir(): Promise<string> {
   return dir
 }
 
-function watcher(onChange: () => void, maxPaths = 8): PathWatcher {
-  const subject = new PathWatcher({ intervalMs: 20, maxPaths, onChange })
+function watcher(onChange: () => void, options: { maxGroups?: number; onError?: (error: unknown) => void } = {}): PollWatcher {
+  const subject = new PollWatcher({ intervalMs: 20, maxGroups: options.maxGroups ?? 8, onChange, onError: options.onError ?? (() => {}) })
   watchers.push(subject)
   return subject
 }
 
-describe('PathWatcher', () => {
-  it('reports a change to a retained file', async () => {
+describe('PollWatcher', () => {
+  it('reports a change to a retained file and nothing while it is unchanged', async () => {
+    const dir = await tempDir()
+    const file = join(dir, 'a.md')
+    await writeFile(file, 'one')
+    await sleep(120)
+    const onChange = vi.fn()
+    const subject = watcher(onChange)
+    subject.retain('project', [file], Date.now())
+    await subject.pollOnce()
+    await subject.pollOnce()
+    expect(onChange).not.toHaveBeenCalled()
+    await writeFile(file, 'one two three')
+    await subject.pollOnce()
+    expect(onChange).toHaveBeenCalledTimes(1)
+  })
+
+  it('reports a retained path that appears after it was listed as absent', async () => {
+    const dir = await tempDir()
+    const file = join(dir, 'later.md')
+    const onChange = vi.fn()
+    const subject = watcher(onChange)
+    subject.retain('project', [file], Date.now())
+    await subject.pollOnce()
+    expect(onChange).not.toHaveBeenCalled()
+    await writeFile(file, 'now present')
+    await subject.pollOnce()
+    expect(onChange).toHaveBeenCalledTimes(1)
+  })
+
+  it('reports a file modified between listing and the first poll, and ignores an older one', async () => {
+    const dir = await tempDir()
+    const file = join(dir, 'a.md')
+    await writeFile(file, 'content')
+    const stale = vi.fn()
+    watcher(stale).retain('project', [file], Date.now() + 10_000)
+    const early = vi.fn()
+    const subject = watcher(early)
+    subject.retain('project', [file], Date.now() - 10_000)
+    await subject.pollOnce()
+    expect(early).toHaveBeenCalledTimes(1)
+    const quiet = watcher(stale)
+    quiet.retain('project', [file], Date.now() + 10_000)
+    await quiet.pollOnce()
+    expect(stale).not.toHaveBeenCalled()
+  })
+
+  it('polls on its own timer', async () => {
     const dir = await tempDir()
     const file = join(dir, 'a.md')
     await writeFile(file, 'one')
     const onChange = vi.fn()
-    watcher(onChange).retain([file])
-    await writeFile(file, 'one two three')
+    const subject = watcher(onChange)
+    subject.retain('project', [file], Date.now() + 10_000)
+    await subject.pollOnce()
+    await writeFile(file, 'one two three four')
     await vi.waitFor(() => { expect(onChange).toHaveBeenCalled() }, { timeout: 5000 })
   })
 
-  it('reports a retained path that appears later', async () => {
-    const dir = await tempDir()
-    const file = join(dir, 'later.md')
+  it('evicts the least recently retained project and invalidates once', async () => {
     const onChange = vi.fn()
-    watcher(onChange).retain([file])
-    await writeFile(file, 'now present')
-    await vi.waitFor(() => { expect(onChange).toHaveBeenCalled() }, { timeout: 5000 })
+    const subject = watcher(onChange, { maxGroups: 2 })
+    subject.retain('a', ['pa'], 0)
+    subject.retain('b', ['pb'], 0)
+    subject.retain('a', ['pa'], 0)
+    expect(subject.groups).toEqual(['b', 'a'])
+    subject.retain('c', ['pc'], 0)
+    expect(subject.groups).toEqual(['a', 'c'])
+    await vi.waitFor(() => { expect(onChange).toHaveBeenCalledTimes(1) })
   })
 
-  it('keeps the most recently retained paths within the limit', () => {
-    const subject = watcher(() => {}, 2)
-    subject.retain(['/air-watch/a', '/air-watch/b'])
-    subject.retain(['/air-watch/a'])
-    subject.retain(['/air-watch/c'])
-    expect(subject.paths).toEqual(['/air-watch/a', '/air-watch/c'])
+  it('treats an unreadable path as unchanged', async () => {
+    const onChange = vi.fn()
+    const subject = watcher(onChange)
+    subject.retain('project', ['bad\0path'], Date.now())
+    await subject.pollOnce()
+    await subject.pollOnce()
+    expect(onChange).not.toHaveBeenCalled()
   })
 
-  it('stops watching on close and ignores later retains', () => {
-    const subject = watcher(() => {})
-    subject.retain(['/air-watch/a'])
+  it('passes a failing change callback to onError', async () => {
+    const dir = await tempDir()
+    const file = join(dir, 'a.md')
+    await writeFile(file, 'one')
+    const onError = vi.fn()
+    const subject = watcher(() => { throw new Error('boom') }, { onError })
+    subject.retain('project', [file], Date.now() + 10_000)
+    await subject.pollOnce()
+    await writeFile(file, 'one two three four')
+    await vi.waitFor(() => { expect(onError).toHaveBeenCalledWith(expect.objectContaining({ message: 'boom' })) }, { timeout: 5000 })
+  })
+
+  it('stops on close, ignores later retains, and does not report a poll that finished after close', async () => {
+    const dir = await tempDir()
+    const file = join(dir, 'a.md')
+    await writeFile(file, 'one')
+    const onChange = vi.fn()
+    const subject = watcher(onChange)
+    subject.retain('project', [file], Date.now() + 10_000)
+    await subject.pollOnce()
+    await writeFile(file, 'one two three four')
+    const pending = subject.pollOnce()
     subject.close()
-    expect(subject.paths).toEqual([])
-    subject.retain(['/air-watch/b'])
-    expect(subject.paths).toEqual([])
+    await pending
+    expect(onChange).not.toHaveBeenCalled()
+    expect(subject.groups).toEqual([])
+    subject.retain('project', [file], 0)
+    expect(subject.groups).toEqual([])
   })
 })
 ```
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `pnpm -C /home/hxman/AIR-harness/air/packages/convention-core test`
-Expected: the three new files FAIL with `parseFrontmatter is not a function`, `readTextFile is not a function`, and `PathWatcher is not a constructor`; the three Task 1 files pass.
+Run: `pnpm -C air/packages/convention-core test`
+Expected: the three new files FAIL with `parseFrontmatter is not a function`, `readTextFile is not a function`, and `PollWatcher is not a constructor`; the three Task 1 files pass.
 
 - [ ] **Step 3: Implement the modules**
 
@@ -1071,7 +1265,7 @@ export function stringListField(data: Record<string, unknown>, key: string): str
 
 ```ts
 /** Host-filesystem reads and listings for convention files. Absence is a normal result, not an error. */
-import { readdir, readFile, stat } from 'node:fs/promises'
+import { readdir, readFile, realpath, stat } from 'node:fs/promises'
 import type { Stats } from 'node:fs'
 import { join } from 'node:path'
 
@@ -1103,6 +1297,30 @@ export async function readTextFile(path: string): Promise<string | undefined> {
   const info = await statIfPresent(path)
   if (info === undefined || !info.isFile()) return undefined
   return await readFile(path, 'utf8')
+}
+
+/**
+ * Read the size of a regular file without reading its content.
+ * @param path - absolute file path.
+ * @returns the size in bytes, or undefined when the path is absent or not a regular file.
+ */
+export async function fileSize(path: string): Promise<number | undefined> {
+  const info = await statIfPresent(path)
+  return info?.isFile() === true ? info.size : undefined
+}
+
+/**
+ * Resolve symbolic links (and, on Windows, drive and letter case) of an existing path.
+ * @param path - absolute path.
+ * @returns the canonical path, or undefined when the path is absent.
+ */
+export async function realpathIfPresent(path: string): Promise<string | undefined> {
+  try {
+    return await realpath(path)
+  } catch (error: unknown) {
+    if (isAbsent(error)) return undefined
+    throw error
+  }
 }
 
 /** One entry of a listed directory, with symbolic links resolved to their target kind. */
@@ -1163,63 +1381,128 @@ export async function listMarkdownTree(root: string, maxDepth: number): Promise<
 `air/packages/convention-core/src/watch.ts`:
 
 ```ts
-/** Polling change detection for convention files and directories. */
-import { unwatchFile, watchFile } from 'node:fs'
+/** Polling change detection for convention files and directories, grouped by project. */
+import { stat, type Stats } from 'node:fs/promises'
 
-/** Settings for one {@link PathWatcher}. */
-export interface PathWatcherOptions {
-  /** Milliseconds between stat polls of each retained path. */
+/**
+ * File systems and the clock used for `listedAt` can disagree by a few milliseconds; a file whose
+ * modification time is within this margin of the listing counts as modified after it.
+ */
+const CLOCK_SLACK_MS = 50
+
+/** Settings for one {@link PollWatcher}. */
+export interface PollWatcherOptions {
+  /** Milliseconds between polls. */
   readonly intervalMs: number
-  /** Maximum number of retained paths; the least recently retained path is released first. */
-  readonly maxPaths: number
-  /** Called when a retained path is created, modified, or removed. */
+  /** Maximum number of retained groups; the least recently retained group is released first. */
+  readonly maxGroups: number
+  /** Called once per poll in which a retained path was created, modified, or removed, and once after a group was released. */
   readonly onChange: () => void
+  /** Receives an error thrown by `onChange` during a timer-driven poll. */
+  readonly onError: (error: unknown) => void
+}
+
+interface Group {
+  /** Millisecond timestamp taken before the group's files were listed. */
+  readonly listedAt: number
+  /** Path to its last fingerprint; undefined until the first poll. */
+  readonly paths: Map<string, string | undefined>
+}
+
+interface Fingerprint {
+  readonly key: string
+  readonly modifiedMs: number
+}
+
+async function fingerprint(path: string): Promise<Fingerprint> {
+  let info: Stats | undefined
+  let code: unknown
+  try {
+    info = await stat(path)
+  } catch (error: unknown) {
+    // Absence is a normal state; any other failure is a state that must not look like a change.
+    code = typeof error === 'object' && error !== null && 'code' in error ? error.code : undefined
+  }
+  if (info !== undefined) return { key: `${info.mtimeMs}:${info.size}`, modifiedMs: info.mtimeMs }
+  return { key: code === 'ENOENT' || code === 'ENOTDIR' ? 'absent' : 'unreadable', modifiedMs: 0 }
 }
 
 /**
- * Watches a bounded set of paths with `fs.watchFile`. A path that does not exist yet is
- * reported when it appears. The poll timers do not keep the process alive.
+ * Watches the paths of a bounded number of project groups with one timer. A path that does not exist
+ * yet is reported when it appears. The timer does not keep the process alive, and each poll costs one
+ * `stat` per retained path.
  */
-export class PathWatcher {
-  private readonly listeners = new Map<string, () => void>()
+export class PollWatcher {
+  private readonly retained = new Map<string, Group>()
+  private timer: NodeJS.Timeout | undefined
   private closed = false
 
-  /** @param options - poll interval, path limit, and change callback. */
-  constructor(private readonly options: PathWatcherOptions) {}
+  /** @param options - poll interval, group limit, and callbacks. */
+  constructor(private readonly options: PollWatcherOptions) {}
 
   /**
-   * Start watching the given paths, or mark them as recently used when already watched.
-   * @param paths - absolute paths of files or directories.
+   * Replace the paths of one group and mark the group as the most recently used. Releasing the oldest
+   * group when the limit is exceeded schedules one `onChange`, because a catalog built from a released
+   * group is no longer watched.
+   * @param group - key of the project the paths belong to.
+   * @param paths - absolute paths of files or directories, existing or not.
+   * @param listedAt - `Date.now()` taken before the files were listed; a path modified after it counts as changed.
    */
-  retain(paths: Iterable<string>): void {
+  retain(group: string, paths: Iterable<string>, listedAt: number): void {
     if (this.closed) return
-    for (const path of paths) {
-      let listener = this.listeners.get(path)
-      if (listener === undefined) {
-        listener = (): void => { this.options.onChange() }
-        watchFile(path, { interval: this.options.intervalMs, persistent: false }, listener)
-      } else {
-        this.listeners.delete(path)
+    this.retained.delete(group)
+    this.retained.set(group, { listedAt, paths: new Map([...paths].map(path => [path, undefined])) })
+    let released = false
+    for (const key of this.retained.keys()) {
+      if (this.retained.size <= this.options.maxGroups) break
+      this.retained.delete(key)
+      released = true
+    }
+    if (released) queueMicrotask(() => { if (!this.closed) this.options.onChange() })
+    this.schedule()
+  }
+
+  /** Keys of the retained groups, least recently retained first. */
+  get groups(): string[] {
+    return [...this.retained.keys()]
+  }
+
+  /**
+   * Compare every retained path with its last fingerprint and call `onChange` once when any differs.
+   * The timer calls this method; tests call it directly.
+   */
+  async pollOnce(): Promise<void> {
+    let changed = false
+    for (const group of [...this.retained.values()]) {
+      for (const [path, previous] of [...group.paths]) {
+        const current = await fingerprint(path)
+        const differs = previous === undefined
+          ? current.modifiedMs > group.listedAt - CLOCK_SLACK_MS
+          : previous !== current.key
+        if (differs) changed = true
+        group.paths.set(path, current.key)
       }
-      this.listeners.set(path, listener)
     }
-    for (const [path, listener] of this.listeners) {
-      if (this.listeners.size <= this.options.maxPaths) break
-      unwatchFile(path, listener)
-      this.listeners.delete(path)
-    }
+    if (changed && !this.closed) this.options.onChange()
   }
 
-  /** Paths currently watched, least recently retained first. */
-  get paths(): string[] {
-    return [...this.listeners.keys()]
-  }
-
-  /** Stop every poll timer. Later `retain` calls do nothing. */
+  /** Stop the timer and release every group. Later `retain` calls do nothing. */
   close(): void {
     this.closed = true
-    for (const [path, listener] of this.listeners) unwatchFile(path, listener)
-    this.listeners.clear()
+    clearTimeout(this.timer)
+    this.timer = undefined
+    this.retained.clear()
+  }
+
+  private schedule(): void {
+    if (this.timer !== undefined || this.closed) return
+    this.timer = setTimeout(() => {
+      this.timer = undefined
+      this.pollOnce()
+        .catch((error: unknown) => { this.options.onError(error) })
+        .finally(() => { this.schedule() })
+    }, this.options.intervalMs)
+    this.timer.unref()
   }
 }
 ```
@@ -1241,18 +1524,18 @@ export * from './watch.ts'
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `pnpm -C /home/hxman/AIR-harness/air/packages/convention-core test`
+Run: `pnpm -C air/packages/convention-core test`
 Expected: `Test Files 6 passed (6)`.
 
 - [ ] **Step 5: Check coverage, typecheck, build, lint**
 
-Run: `pnpm -C /home/hxman/AIR-harness/air/packages/convention-core exec vitest run --coverage --coverage.include='src/**' --coverage.thresholds.100`
+Run: `pnpm -C air/packages/convention-core exec vitest run --coverage --coverage.include='src/**' --coverage.thresholds.100`
 Expected: every `src/*.ts` row shows 100 in all four columns; exit 0.
 
-Run: `pnpm -C /home/hxman/AIR-harness/air/packages/convention-core typecheck && pnpm -C /home/hxman/AIR-harness/air/packages/convention-core build && ls /home/hxman/AIR-harness/air/packages/convention-core/lib/index.js`
-Expected: exit 0; the path is printed.
+Run: `pnpm -C air/packages/convention-core typecheck`, then `pnpm -C air/packages/convention-core build`, then `node -e "console.log(require('fs').existsSync('air/packages/convention-core/lib/index.js'))"`
+Expected: the first two exit 0; the last prints `true`.
 
-Run: `pnpm -C /home/hxman/AIR-harness/air run lint`
+Run: `pnpm -C air run lint`
 Expected: exit 0. If oxlint reports a rule violation in the new files, change the code to satisfy the rule (do not add a disable comment) and rerun Steps 4 and 5.
 
 - [ ] **Step 6: Write the README**
@@ -1269,10 +1552,10 @@ A library, not a plugin. It holds the code every AIR file-convention plugin need
 | Export | Use |
 |---|---|
 | `resolveUserHomes`, `expandHome` | `~/.air` (or `$AIR_HOME`), `~/.claude`, `~/.agents` (or `$DSH_AGENTS_HOME`) |
-| `findProjectRoot`, `isInside`, `directoriesBetween` | nearest ancestor containing `.git`; containment checks |
+| `findProjectRoot`, `isInside`, `directoriesBetween`, `toPosixRelative` | nearest ancestor containing `.git`; containment checks; forward-slash relative paths for globs |
 | `parseFrontmatter`, `stringField`, `booleanField`, `stringListField` | skill, command, and rule files |
-| `readTextFile`, `listDirectory`, `listMarkdownTree` | discovery; an absent path is an empty result |
-| `PathWatcher` | invalidation when a watched file or directory changes |
+| `readTextFile`, `fileSize`, `realpathIfPresent`, `listDirectory`, `listMarkdownTree` | discovery and containment checks; an absent path is an empty result |
+| `PollWatcher` | one timer that invalidates a catalog when a watched file or directory of a project changes |
 | `toKebabName` | `frontend/component.md` becomes `frontend-component` |
 | `toDshToolName`, `toClaudeToolNames`, `translateToolNames` | `Edit` and `MultiEdit` become `edit`; `mcp__*` names pass through |
 
@@ -1283,15 +1566,14 @@ None directly. The model sees the results through the plugins that use this libr
 ## Known Limitations
 
 - Files are read from the host filesystem with `node:fs`. A remote or sandboxed filesystem provider is not consulted.
-- `isInside` compares normalised paths and does not resolve symbolic links.
-- `PathWatcher` polls with `fs.watchFile`; a change is seen after at most one interval, and each watched path costs one `stat` per interval.
+- `isInside` compares normalised paths and does not resolve symbolic links; call `realpathIfPresent` on both sides when a link could leave the root. Windows rules (case-insensitive, drive letters) apply on Windows and are tested on every host through `path.win32`.
+- `PollWatcher` runs one timer; a change is seen after at most one interval, each retained path costs one `stat` per interval, and a file deleted between listing and the first poll is noticed only when the registry fails to load it.
 - The tool-name table covers the tools listed in the export; a Claude Code tool with no dsh equivalent (for example `NotebookEdit`) is reported as unknown.
 ```
 
 - [ ] **Step 7: Commit**
 
-```bash
-cd /home/hxman/AIR-harness
+```sh
 git add air/packages/convention-core
 git commit -m "feat(air): add convention-core frontmatter, file listing, and path watcher"
 ```
@@ -1316,16 +1598,16 @@ git commit -m "feat(air): add convention-core frontmatter, file listing, and pat
 - Test: `air/packages/skill-conventions/tests/native-loader.spec.ts`
 
 **Interfaces:**
-- Consumes from `@air/dsh-convention-core`: `PathWatcher`, `findProjectRoot`, `isRecord`, `listDirectory`, `listMarkdownTree`, `readTextFile`, `resolveUserHomes`, `UserHomes`, `parseFrontmatter`, `stringField`, `booleanField`, `stringListField`, `toKebabName`.
+- Consumes from `@air/dsh-convention-core`: `PollWatcher`, `findProjectRoot`, `isRecord`, `listDirectory`, `readTextFile`, `resolveUserHomes`, `UserHomes`, `parseFrontmatter`, `stringField`, `booleanField`, `stringListField`, `toKebabName`.
 - Consumes from upstream: `ctx.skills.registerProvider(create: (control: SkillProviderControl) => SkillProvider): () => void`; `SkillCandidate`, `SkillDefinition`, `SkillLookupOptions`, `SkillInvocationPolicy`, `SkillSource` from `@deepseek-ai/dsh-skill`.
 - Produces:
   - Cordis plugin module `@air/dsh-skill-conventions`: `name = 'air-skill-conventions'`, `inject = ['skills']`, `Config`, `apply(ctx, config)`.
-  - `interface Config { providerName?: string; airHome?: string; claudeHome?: string; agentsHome?: string; includeUserRoots?: boolean; extraProjectRoots?: string[]; commandsUserInvocable?: boolean; descriptionMaxChars?: number; watchIntervalMs?: number; watchMaxPaths?: number }` with defaults `'air-conventions'`, homes from `resolveUserHomes`, `false`, `[]`, `true`, `1500`, `2000`, `512`.
+  - `interface Config { providerName?: string; airHome?: string; claudeHome?: string; agentsHome?: string; includeUserRoots?: boolean; extraProjectRoots?: string[]; descriptionMaxChars?: number; watchIntervalMs?: number; watchMaxProjects?: number }` with defaults `'air-conventions'`, homes from `resolveUserHomes`, `false`, `[]`, `1500`, `3000`, `32`.
   - `resolveConfig(config: Config): ResolvedConfig` (throws `TypeError` on invalid values).
   - `class ConventionSkillProvider implements SkillProvider`.
-  - Skill sources: `project-dsh`, `project-agents`, `project-claude`, `project-claude-commands`, `project-extra`, `user-air`, `user-agents`, `user-claude`, `user-claude-commands`.
+  - Skill sources: `project-dsh`, `project-agents`, `project-claude`, `project-extra`, `user-air`, `user-agents`, `user-claude`.
   - `SkillCandidate.metadata.claudeCode` keys (present only when the file sets them): `allowedTools: string[]`, `disallowedTools: string[]`, `arguments: string[]`, `paths: string[]`, `model: string`, `context: string`, `agent: string`, `argumentHint: string`.
-  - Bundle row used in Task 9: `{ id: air-skill-conventions, name: '@air/dsh-skill-conventions', config: { commandsUserInvocable: false } }`.
+  - Bundle row used in Task 9: `{ id: air-skill-conventions, name: '@air/dsh-skill-conventions' }` (no config).
 
 - [ ] **Step 1: Create the package scaffold**
 
@@ -1425,7 +1707,7 @@ export default defineConfig({
 })
 ```
 
-Run: `pnpm -C /home/hxman/AIR-harness/air install && pnpm -C /home/hxman/AIR-harness/air/packages/convention-core build`
+Run: `pnpm -C air install`, then `pnpm -C air/packages/convention-core build`
 Expected: exit 0; `air/packages/skill-conventions/node_modules/@air/dsh-convention-core/lib/index.js` exists; `air/packages/skill-conventions/node_modules/@deepseek-ai/dsh-skill/lib/index.js` exists.
 
 - [ ] **Step 2: Write the failing parser and root tests**
@@ -1436,10 +1718,10 @@ Expected: exit 0; `air/packages/skill-conventions/node_modules/@air/dsh-conventi
 import { describe, expect, it } from 'vitest'
 import { parseSkillText, type ParseOptions } from '../src/parse.ts'
 
-const skill: ParseOptions = { fallbackName: 'from-dir', kind: 'skill', commandsUserInvocable: true, descriptionMaxChars: 1500 }
-const command: ParseOptions = { fallbackName: 'frontend-component', kind: 'command', commandsUserInvocable: true, descriptionMaxChars: 1500 }
+const skill: ParseOptions = { fallbackName: 'from-dir', flat: false, descriptionMaxChars: 1500 }
+const flat: ParseOptions = { ...skill, flat: true }
 
-describe('parseSkillText: skills', () => {
+describe('parseSkillText', () => {
   it('reads name, description, when_to_use, and body', () => {
     expect(parseSkillText('---\nname: pdf-tools\ndescription: Work with PDFs\nwhen_to_use: For PDF files\n---\n\n# PDF\nSteps.\n', skill)).toEqual({
       name: 'pdf-tools',
@@ -1451,26 +1733,26 @@ describe('parseSkillText: skills', () => {
   })
 
   it('accepts the camelCase whenToUse spelling', () => {
-    expect(parseSkillText('---\ndescription: D\nwhenToUse: Sometimes\n---\nB', skill).whenToUse).toBe('Sometimes')
+    expect(parseSkillText('---\ndescription: D\nwhenToUse: Sometimes\n---\nB', skill)?.whenToUse).toBe('Sometimes')
   })
 
   it('defaults the name to the directory name, normalised to kebab-case', () => {
-    expect(parseSkillText('---\ndescription: D\n---\nB', { ...skill, fallbackName: 'My Skill' }).name).toBe('my-skill')
-    expect(parseSkillText('---\nname: Fancy Name\ndescription: D\n---\nB', skill).name).toBe('fancy-name')
+    expect(parseSkillText('---\ndescription: D\n---\nB', { ...skill, fallbackName: 'My Skill' })?.name).toBe('my-skill')
+    expect(parseSkillText('---\nname: Fancy Name\ndescription: D\n---\nB', skill)?.name).toBe('fancy-name')
   })
 
   it('defaults the description to the first body paragraph without heading marks', () => {
-    expect(parseSkillText('\n\n# Deploy helper\nruns the deploy\n\nSecond paragraph.', skill).description).toBe('Deploy helper runs the deploy')
+    expect(parseSkillText('\n\n# Deploy helper\nruns the deploy\n\nSecond paragraph.', skill)?.description).toBe('Deploy helper runs the deploy')
   })
 
   it('caps the description', () => {
     const parsed = parseSkillText(`---\ndescription: ${'x'.repeat(40)}\n---\nB`, { ...skill, descriptionMaxChars: 10 })
-    expect(parsed.description).toBe(`${'x'.repeat(9)}…`)
+    expect(parsed?.description).toBe(`${'x'.repeat(9)}…`)
   })
 
   it('reads the invocation flags', () => {
     const parsed = parseSkillText('---\ndescription: D\ndisable-model-invocation: true\nuser-invocable: false\n---\nB', skill)
-    expect(parsed.invocation).toEqual({ modelInvocable: false, userInvocable: false })
+    expect(parsed?.invocation).toEqual({ modelInvocable: false, userInvocable: false })
   })
 
   it('keeps metadata and records Claude Code fields under metadata.claudeCode', () => {
@@ -1490,7 +1772,7 @@ describe('parseSkillText: skills', () => {
       '---',
       'B',
     ].join('\n'), skill)
-    expect(parsed.metadata).toEqual({
+    expect(parsed?.metadata).toEqual({
       author: 'someone',
       claudeCode: {
         allowedTools: ['Bash(git add:*)', 'Read'],
@@ -1510,23 +1792,11 @@ describe('parseSkillText: skills', () => {
     expect(() => parseSkillText('---\nname: x\n---\n', skill)).toThrow('no description in frontmatter or body')
     expect(() => parseSkillText('---\ndescription: D\nuser-invocable: perhaps\n---\nB', skill)).toThrow('must be a boolean')
   })
-})
 
-describe('parseSkillText: commands', () => {
-  it('names a command after its file path and keeps it out of the model catalog', () => {
-    expect(parseSkillText('---\nname: ignored\ndescription: Make a component\n---\nCreate $ARGUMENTS', command)).toEqual({
-      name: 'frontend-component',
-      description: 'Make a component',
-      invocation: { modelInvocable: false, userInvocable: true },
-      body: 'Create $ARGUMENTS',
-    })
-  })
-
-  it('follows the commandsUserInvocable default and explicit flags', () => {
-    const hidden = { ...command, commandsUserInvocable: false }
-    expect(parseSkillText('Fix it', hidden).invocation).toEqual({ modelInvocable: false, userInvocable: false })
-    expect(parseSkillText('---\nuser-invocable: true\ndisable-model-invocation: false\n---\nFix it', hidden).invocation)
-      .toEqual({ modelInvocable: true, userInvocable: true })
+  it('accepts a flat file only when its frontmatter has a description', () => {
+    expect(parseSkillText('# Project notes\nNot a skill.', flat)).toBeUndefined()
+    expect(parseSkillText('---\nname: x\n---\nBody', flat)).toBeUndefined()
+    expect(parseSkillText('---\ndescription: A flat skill\n---\nBody', flat)?.name).toBe('from-dir')
   })
 })
 ```
@@ -1534,29 +1804,30 @@ describe('parseSkillText: commands', () => {
 `air/packages/skill-conventions/tests/roots.spec.ts`:
 
 ```ts
+import { join, resolve, sep } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { skillRoots } from '../src/roots.ts'
 
-const homes = { airHome: '/h/.air', claudeHome: '/h/.claude', agentsHome: '/h/.agents' }
+const base = (...segments: string[]): string => resolve(sep, ...segments)
+const homes = { airHome: base('h', '.air'), claudeHome: base('h', '.claude'), agentsHome: base('h', '.agents') }
 
 describe('skillRoots', () => {
   it('lists project roots and the AIR home, without user roots by default', () => {
-    expect(skillRoots({ projectRoot: '/p', homes, includeUserRoots: false, extraProjectRoots: ['.opencode/skills'] })).toEqual([
-      { path: '/p/.dsh/skills', source: 'project-dsh', rank: 100, kind: 'skill' },
-      { path: '/p/.agents/skills', source: 'project-agents', rank: 200, kind: 'skill' },
-      { path: '/p/.claude/skills', source: 'project-claude', rank: 220, kind: 'skill' },
-      { path: '/p/.claude/commands', source: 'project-claude-commands', rank: 230, kind: 'command' },
-      { path: '/p/.opencode/skills', source: 'project-extra', rank: 240, kind: 'skill' },
-      { path: '/h/.air/skills', source: 'user-air', rank: 350, kind: 'skill' },
+    const projectRoot = base('p')
+    expect(skillRoots({ projectRoot, homes, includeUserRoots: false, extraProjectRoots: ['.opencode/skills'] })).toEqual([
+      { path: join(projectRoot, '.dsh', 'skills'), source: 'project-dsh', rank: 100 },
+      { path: join(projectRoot, '.agents', 'skills'), source: 'project-agents', rank: 200 },
+      { path: join(projectRoot, '.claude', 'skills'), source: 'project-claude', rank: 220 },
+      { path: join(projectRoot, '.opencode', 'skills'), source: 'project-extra', rank: 240 },
+      { path: join(homes.airHome, 'skills'), source: 'user-air', rank: 350 },
     ])
   })
 
   it('adds the user roots only on request and omits project roots without a project', () => {
     expect(skillRoots({ projectRoot: undefined, homes, includeUserRoots: true, extraProjectRoots: ['x'] })).toEqual([
-      { path: '/h/.air/skills', source: 'user-air', rank: 350, kind: 'skill' },
-      { path: '/h/.agents/skills', source: 'user-agents', rank: 500, kind: 'skill' },
-      { path: '/h/.claude/skills', source: 'user-claude', rank: 520, kind: 'skill' },
-      { path: '/h/.claude/commands', source: 'user-claude-commands', rank: 530, kind: 'command' },
+      { path: join(homes.airHome, 'skills'), source: 'user-air', rank: 350 },
+      { path: join(homes.agentsHome, 'skills'), source: 'user-agents', rank: 500 },
+      { path: join(homes.claudeHome, 'skills'), source: 'user-claude', rank: 520 },
     ])
   })
 })
@@ -1564,7 +1835,7 @@ describe('skillRoots', () => {
 
 - [ ] **Step 3: Run the tests to verify they fail**
 
-Run: `pnpm -C /home/hxman/AIR-harness/air/packages/skill-conventions exec vitest run tests/parse.spec.ts tests/roots.spec.ts`
+Run: `pnpm -C air/packages/skill-conventions exec vitest run tests/parse.spec.ts tests/roots.spec.ts`
 Expected: FAIL with `Failed to load url ../src/parse.ts` and `Failed to load url ../src/roots.ts`.
 
 - [ ] **Step 4: Implement the parser and the root list**
@@ -1572,7 +1843,7 @@ Expected: FAIL with `Failed to load url ../src/parse.ts` and `Failed to load url
 `air/packages/skill-conventions/src/parse.ts`:
 
 ```ts
-/** Parses skill files and Claude Code command files into skill metadata. */
+/** Parses skill files into skill metadata. */
 import type { SkillInvocationPolicy } from '@deepseek-ai/dsh-skill'
 import {
   booleanField,
@@ -1583,21 +1854,17 @@ import {
   toKebabName,
 } from '@air/dsh-convention-core'
 
-/** Whether a file is a skill (`SKILL.md` or flat `<name>.md`) or a `.claude/commands` file. */
-export type SkillFileKind = 'skill' | 'command'
-
 /** Inputs that depend on where the file was found and on plugin configuration. */
 export interface ParseOptions {
-  /** Directory name, file stem, or joined command path used when the file declares no name. */
+  /** Directory name or file stem used when the file declares no name. */
   readonly fallbackName: string
-  readonly kind: SkillFileKind
-  /** Default `userInvocable` for command files that do not set `user-invocable`. */
-  readonly commandsUserInvocable: boolean
+  /** True for `<name>.md` directly in a skill root; such a file is a skill only when its frontmatter has a `description`, so `README.md` is not listed. */
+  readonly flat: boolean
   /** Longest description kept; longer text ends with an ellipsis. */
   readonly descriptionMaxChars: number
 }
 
-/** A parsed skill or command file. */
+/** A parsed skill file. */
 export interface ParsedSkillFile {
   readonly name: string
   readonly description: string
@@ -1644,24 +1911,24 @@ function claudeCodeFields(data: Record<string, unknown>): Record<string, unknown
 }
 
 /**
- * Parse one skill or command file.
+ * Parse one skill file.
  * @param raw - file content.
- * @param options - fallback name, file kind, and configured defaults.
- * @returns name, description, invocation policy, recorded Claude Code fields, and body.
+ * @param options - fallback name, whether the file is flat, and the description limit.
+ * @returns name, description, invocation policy, recorded Claude Code fields, and body; undefined for a flat file that is not a skill.
  * @throws when the YAML is invalid, a flag is not a boolean, no usable name remains, or no description can be derived.
  */
-export function parseSkillText(raw: string, options: ParseOptions): ParsedSkillFile {
+export function parseSkillText(raw: string, options: ParseOptions): ParsedSkillFile | undefined {
   const { data, body } = parseFrontmatter(raw)
-  const declared = (options.kind === 'skill' ? stringField(data, 'name') : undefined) ?? options.fallbackName
+  if (options.flat && stringField(data, 'description') === undefined) return undefined
+  const declared = stringField(data, 'name') ?? options.fallbackName
   const name = toKebabName(declared)
   if (name === undefined) throw new Error(`invalid skill name "${declared}"`)
   const description = stringField(data, 'description') ?? firstParagraph(body)
   if (description === undefined) throw new Error('no description in frontmatter or body')
-  const disableModelInvocation = booleanField(data, 'disable-model-invocation')
-  const userInvocable = booleanField(data, 'user-invocable')
-  const invocation: SkillInvocationPolicy = options.kind === 'skill'
-    ? { modelInvocable: disableModelInvocation !== true, userInvocable: userInvocable !== false }
-    : { modelInvocable: disableModelInvocation === false, userInvocable: userInvocable ?? options.commandsUserInvocable }
+  const invocation: SkillInvocationPolicy = {
+    modelInvocable: booleanField(data, 'disable-model-invocation') !== true,
+    userInvocable: booleanField(data, 'user-invocable') !== false,
+  }
   const whenToUse = stringField(data, 'when_to_use') ?? stringField(data, 'whenToUse')
   const claudeCode = claudeCodeFields(data)
   const declaredMetadata = data['metadata']
@@ -1690,13 +1957,11 @@ import { join } from 'node:path'
 import type { SkillSource } from '@deepseek-ai/dsh-skill'
 import type { UserHomes } from '@air/dsh-convention-core'
 
-/** One directory scanned for skills. Lower `rank` wins a duplicate name inside one registry layer. */
+/** One directory scanned for skills: `<dir>/SKILL.md` and flat `<name>.md`, one level. Lower `rank` wins a duplicate name inside one registry layer. */
 export interface SkillRoot {
   readonly path: string
   readonly source: SkillSource
   readonly rank: number
-  /** `skill`: `<dir>/SKILL.md` and flat `<name>.md`, one level. `command`: every `.md` file, nested paths joined with `-`. */
-  readonly kind: 'skill' | 'command'
 }
 
 /** Inputs for {@link skillRoots}. */
@@ -1704,7 +1969,7 @@ export interface RootOptions {
   /** Project root of the lookup cwd; undefined for a lookup without a cwd. */
   readonly projectRoot: string | undefined
   readonly homes: UserHomes
-  /** Whether `~/.agents/skills`, `~/.claude/skills`, and `~/.claude/commands` are scanned. */
+  /** Whether `~/.agents/skills` and `~/.claude/skills` are scanned. */
   readonly includeUserRoots: boolean
   /** Extra skill directories relative to the project root, for example `.opencode/skills`. */
   readonly extraProjectRoots: readonly string[]
@@ -1721,21 +1986,19 @@ export function skillRoots(options: RootOptions): SkillRoot[] {
   const roots: SkillRoot[] = []
   if (projectRoot !== undefined) {
     roots.push(
-      { path: join(projectRoot, '.dsh', 'skills'), source: 'project-dsh', rank: 100, kind: 'skill' },
-      { path: join(projectRoot, '.agents', 'skills'), source: 'project-agents', rank: 200, kind: 'skill' },
-      { path: join(projectRoot, '.claude', 'skills'), source: 'project-claude', rank: 220, kind: 'skill' },
-      { path: join(projectRoot, '.claude', 'commands'), source: 'project-claude-commands', rank: 230, kind: 'command' },
+      { path: join(projectRoot, '.dsh', 'skills'), source: 'project-dsh', rank: 100 },
+      { path: join(projectRoot, '.agents', 'skills'), source: 'project-agents', rank: 200 },
+      { path: join(projectRoot, '.claude', 'skills'), source: 'project-claude', rank: 220 },
     )
     for (const relativeRoot of options.extraProjectRoots) {
-      roots.push({ path: join(projectRoot, relativeRoot), source: 'project-extra', rank: 240, kind: 'skill' })
+      roots.push({ path: join(projectRoot, relativeRoot), source: 'project-extra', rank: 240 })
     }
   }
-  roots.push({ path: join(homes.airHome, 'skills'), source: 'user-air', rank: 350, kind: 'skill' })
+  roots.push({ path: join(homes.airHome, 'skills'), source: 'user-air', rank: 350 })
   if (options.includeUserRoots) {
     roots.push(
-      { path: join(homes.agentsHome, 'skills'), source: 'user-agents', rank: 500, kind: 'skill' },
-      { path: join(homes.claudeHome, 'skills'), source: 'user-claude', rank: 520, kind: 'skill' },
-      { path: join(homes.claudeHome, 'commands'), source: 'user-claude-commands', rank: 530, kind: 'command' },
+      { path: join(homes.agentsHome, 'skills'), source: 'user-agents', rank: 500 },
+      { path: join(homes.claudeHome, 'skills'), source: 'user-claude', rank: 520 },
     )
   }
   return roots
@@ -1744,7 +2007,7 @@ export function skillRoots(options: RootOptions): SkillRoot[] {
 
 - [ ] **Step 5: Run the parser and root tests to verify they pass**
 
-Run: `pnpm -C /home/hxman/AIR-harness/air/packages/skill-conventions exec vitest run tests/parse.spec.ts tests/roots.spec.ts`
+Run: `pnpm -C air/packages/skill-conventions exec vitest run tests/parse.spec.ts tests/roots.spec.ts`
 Expected: `Test Files 2 passed (2)`.
 
 - [ ] **Step 6: Write the failing provider tests**
@@ -1754,7 +2017,7 @@ Expected: `Test Files 2 passed (2)`.
 ```ts
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { dirname, join } from 'node:path'
+import { dirname, join, resolve, sep } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import SkillRegistry from '@deepseek-ai/dsh-skill'
@@ -1815,12 +2078,13 @@ async function names(ctx: Context, cwd: string | undefined): Promise<string[]> {
 }
 
 describe('air-skill-conventions provider', () => {
-  it('lists project roots and the AIR home and leaves user roots out by default', async () => {
+  it('lists project roots and the AIR home and leaves user roots and command files out by default', async () => {
     const { project, home, config } = await world()
     await write(join(project, '.dsh/skills/alpha/SKILL.md'), skillText('Alpha', 'name: alpha\n'))
     await write(join(project, '.agents/skills/beta/SKILL.md'), skillText('Beta'))
     await write(join(project, '.claude/skills/gamma/SKILL.md'), skillText('Gamma'))
     await write(join(project, '.claude/skills/flat.md'), skillText('Flat'))
+    await write(join(project, '.claude/skills/README.md'), '# Skills in this project\nNot a skill.')
     await write(join(project, '.claude/skills/notes.txt'), 'not a skill')
     await write(join(project, '.claude/skills/empty-dir/readme.txt'), 'no SKILL.md here')
     await write(join(project, '.claude/commands/frontend/component.md'), 'Create a component named $ARGUMENTS')
@@ -1828,17 +2092,17 @@ describe('air-skill-conventions provider', () => {
     await write(join(home, '.agents/skills/decoy/SKILL.md'), skillText('Decoy'))
     await write(join(home, '.claude/skills/decoy-two/SKILL.md'), skillText('Decoy two'))
     const { ctx } = await mount(config)
-    expect(await names(ctx, join(project))).toEqual(['alpha', 'beta', 'delta', 'flat', 'frontend-component', 'gamma'])
+    expect(await names(ctx, project)).toEqual(['alpha', 'beta', 'delta', 'flat', 'gamma'])
     expect(await names(ctx, undefined)).toEqual(['delta'])
   })
 
-  it('includes the user roots on request', async () => {
+  it('includes the user skill roots on request', async () => {
     const { project, home, config } = await world()
     await write(join(home, '.agents/skills/shared/SKILL.md'), skillText('Shared'))
     await write(join(home, '.claude/skills/personal/SKILL.md'), skillText('Personal'))
     await write(join(home, '.claude/commands/standup.md'), 'Write my standup')
     const { ctx } = await mount({ ...config, includeUserRoots: true })
-    expect(await names(ctx, project)).toEqual(['personal', 'shared', 'standup'])
+    expect(await names(ctx, project)).toEqual(['personal', 'shared'])
   })
 
   it('scans extra project roots', async () => {
@@ -1856,17 +2120,6 @@ describe('air-skill-conventions provider', () => {
     const { ctx } = await mount(config)
     const [skill] = await ctx.skills.list({ cwd: project })
     expect(skill).toMatchObject({ name: 'same', description: 'From dsh', source: 'project-dsh' })
-  })
-
-  it('marks commands user-invocable only, and hides them when commandsUserInvocable is false', async () => {
-    const { project, config } = await world()
-    await write(join(project, '.claude/commands/fix.md'), 'Fix issue $ARGUMENTS')
-    await write(join(project, '.claude/commands/open.md'), '---\ndisable-model-invocation: false\n---\nOpen the file')
-    const visible = await mount(config)
-    const listed = await visible.ctx.skills.list({ cwd: project })
-    expect(listed.find(skill => skill.name === 'fix')?.invocation).toEqual({ modelInvocable: false, userInvocable: true })
-    const hidden = await mount({ ...config, commandsUserInvocable: false })
-    expect(await names(hidden.ctx, project)).toEqual(['open'])
   })
 
   it('loads a body with the skill directory substituted and $ARGUMENTS left literal', async () => {
@@ -1895,6 +2148,13 @@ describe('air-skill-conventions provider', () => {
     expect(listed[0]?.whenToUse).toBe('Always')
   })
 
+  it('drops a skill that is neither model- nor user-invocable', async () => {
+    const { project, config } = await world()
+    await write(join(project, '.claude/skills/hidden/SKILL.md'), skillText('Hidden', 'disable-model-invocation: true\nuser-invocable: false\n'))
+    const { ctx } = await mount(config)
+    expect(await names(ctx, project)).toEqual([])
+  })
+
   it('removes its skills when the plugin unloads', async () => {
     const { project, config } = await world()
     await write(join(project, '.claude/skills/gone/SKILL.md'), skillText('Gone'))
@@ -1904,12 +2164,22 @@ describe('air-skill-conventions provider', () => {
     expect(await names(ctx, project)).toEqual([])
   })
 
-  it('refreshes the catalog when a watched root changes', async () => {
+  it('refreshes the catalog when a watched root gains a skill', async () => {
     const { project, config } = await world()
     const { ctx } = await mount({ ...config, watchIntervalMs: 20 })
     expect(await names(ctx, project)).toEqual([])
     await write(join(project, '.claude/skills/late/SKILL.md'), skillText('Late'))
     await vi.waitFor(async () => { expect(await names(ctx, project)).toEqual(['late']) }, { timeout: 5000 })
+  })
+
+  it('refreshes the catalog when a listed skill file changes', async () => {
+    const { project, config } = await world()
+    const file = join(project, '.claude/skills/edited/SKILL.md')
+    await write(file, skillText('First wording'))
+    const { ctx } = await mount({ ...config, watchIntervalMs: 20 })
+    expect((await ctx.skills.list({ cwd: project }))[0]?.description).toBe('First wording')
+    await write(file, skillText('Second wording, which is longer'))
+    await vi.waitFor(async () => { expect((await ctx.skills.list({ cwd: project }))[0]?.description).toBe('Second wording, which is longer') }, { timeout: 5000 })
   })
 })
 
@@ -1920,9 +2190,7 @@ describe('ConventionSkillProvider.get', () => {
     const { project, config } = await world()
     const file = join(project, '.claude/skills/temp/SKILL.md')
     await write(file, skillText('Temp'))
-    const ctx = new Context()
-    contexts.push(ctx)
-    const provider = new skillConventions.ConventionSkillProvider(ctx, control, skillConventions.resolveConfig(config))
+    const provider = new skillConventions.ConventionSkillProvider({ warn: () => {} }, control, skillConventions.resolveConfig(config))
     const [candidate] = await provider.list({ cwd: project })
     if (candidate === undefined) throw new Error('expected one candidate')
     const foreign: SkillCandidate = { ...candidate, locator: 'not-a-locator' }
@@ -1933,33 +2201,49 @@ describe('ConventionSkillProvider.get', () => {
   })
 })
 
+describe('ConventionSkillProvider change notification', () => {
+  it('logs a failing invalidate callback', async () => {
+    const { project, config } = await world()
+    const file = join(project, '.claude/skills/temp/SKILL.md')
+    await write(file, skillText('Temp'))
+    const warn = vi.fn()
+    const invalidate = (): void => { throw new Error('boom') }
+    const provider = new skillConventions.ConventionSkillProvider({ warn }, { signal: new AbortController().signal, invalidate }, skillConventions.resolveConfig({ ...config, watchIntervalMs: 20 }))
+    await provider.list({ cwd: project })
+    await write(file, skillText('Temp with a longer description'))
+    await vi.waitFor(() => { expect(warn).toHaveBeenCalledWith(expect.stringContaining('boom')) }, { timeout: 5000 })
+    provider.dispose()
+  })
+})
+
 describe('resolveConfig', () => {
   it('applies defaults', () => {
-    expect(skillConventions.resolveConfig({ airHome: '/a', claudeHome: '/c', agentsHome: '/g' })).toEqual({
+    const homes = { airHome: resolve(sep, 'a'), claudeHome: resolve(sep, 'c'), agentsHome: resolve(sep, 'g') }
+    expect(skillConventions.resolveConfig(homes)).toEqual({
       providerName: 'air-conventions',
-      homes: { airHome: '/a', claudeHome: '/c', agentsHome: '/g' },
+      homes,
       includeUserRoots: false,
       extraProjectRoots: [],
-      commandsUserInvocable: true,
       descriptionMaxChars: 1500,
-      watchIntervalMs: 2000,
-      watchMaxPaths: 512,
+      watchIntervalMs: 3000,
+      watchMaxProjects: 32,
     })
   })
 
   it('rejects invalid values', () => {
     expect(() => skillConventions.resolveConfig({ descriptionMaxChars: 0 })).toThrow('descriptionMaxChars must be a positive integer')
     expect(() => skillConventions.resolveConfig({ watchIntervalMs: -1 })).toThrow('watchIntervalMs must be a non-negative integer')
-    expect(() => skillConventions.resolveConfig({ watchMaxPaths: 0.5 })).toThrow('watchMaxPaths must be a positive integer')
-    expect(() => skillConventions.resolveConfig({ extraProjectRoots: ['/abs'] })).toThrow('must be a relative path inside the project')
-    expect(() => skillConventions.resolveConfig({ extraProjectRoots: ['a/../../b'] })).toThrow('must be a relative path inside the project')
+    expect(() => skillConventions.resolveConfig({ watchMaxProjects: 0.5 })).toThrow('watchMaxProjects must be a positive integer')
+    for (const root of ['/abs', 'C:\\abs', 'a/../../b', 'a\\..\\..\\b']) {
+      expect(() => skillConventions.resolveConfig({ extraProjectRoots: [root] })).toThrow('must be a relative path inside the project')
+    }
   })
 })
 ```
 
 - [ ] **Step 7: Run the provider tests to verify they fail**
 
-Run: `pnpm -C /home/hxman/AIR-harness/air/packages/skill-conventions exec vitest run tests/provider.spec.ts`
+Run: `pnpm -C air/packages/skill-conventions exec vitest run tests/provider.spec.ts`
 Expected: FAIL with `Failed to load url ../src/index.ts`.
 
 - [ ] **Step 8: Implement the plugin**
@@ -1969,12 +2253,13 @@ Expected: FAIL with `Failed to load url ../src/index.ts`.
 ```ts
 /**
  * Skill provider for the file conventions other agents use: project `.dsh/skills`, `.agents/skills`,
- * `.claude/skills`, `.claude/commands`, extra project roots, the AIR home, and opt-in user roots.
+ * `.claude/skills`, extra project roots, the AIR home, and opt-in user roots. `.claude/commands` files
+ * are not skills here; `@air/dsh-command-conventions` registers them as slash commands.
  * Mount it in the same agent preset as upstream `skill-filesystem` so both register in one layer.
  *
  * @module @air/dsh-skill-conventions
  */
-import { dirname, isAbsolute, join, normalize } from 'node:path'
+import { join, posix, win32 } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import Schema from '@deepseek-ai/schemastery'
 import type {
@@ -1985,23 +2270,19 @@ import type {
   SkillProviderControl,
 } from '@deepseek-ai/dsh-skill'
 import {
-  PathWatcher,
+  PollWatcher,
   findProjectRoot,
   isRecord,
   listDirectory,
-  listMarkdownTree,
   readTextFile,
   resolveUserHomes,
   type UserHomes,
 } from '@air/dsh-convention-core'
-import { parseSkillText, type ParsedSkillFile, type SkillFileKind } from './parse.ts'
-import { skillRoots, type SkillRoot } from './roots.ts'
+import { parseSkillText, type ParsedSkillFile } from './parse.ts'
+import { skillRoots } from './roots.ts'
 
 export const name = 'air-skill-conventions'
 export const inject = ['skills']
-
-/** Directory levels walked under a commands root (`a/b/c/d.md` is the deepest command). */
-const COMMAND_TREE_DEPTH = 4
 
 /** Plugin configuration. */
 export interface Config {
@@ -2013,18 +2294,16 @@ export interface Config {
   claudeHome?: string
   /** Shared agents home, read only with `includeUserRoots`. Defaults to `$DSH_AGENTS_HOME`, then `~/.agents`. */
   agentsHome?: string
-  /** Whether `<agentsHome>/skills`, `<claudeHome>/skills`, and `<claudeHome>/commands` are scanned. Defaults to false. */
+  /** Whether `<agentsHome>/skills` and `<claudeHome>/skills` are scanned. Defaults to false. */
   includeUserRoots?: boolean
   /** Extra skill directories relative to the project root, for example `.opencode/skills`. */
   extraProjectRoots?: string[]
-  /** Whether a command file without `user-invocable` is listed for people. Set false when a command plugin registers the same files. Defaults to true. */
-  commandsUserInvocable?: boolean
   /** Longest skill description kept in the catalog. Defaults to 1500. */
   descriptionMaxChars?: number
-  /** Milliseconds between polls of scanned roots and skill files; 0 disables watching. Defaults to 2000. */
+  /** Milliseconds between polls of scanned roots and skill files; 0 disables watching. Defaults to 3000. */
   watchIntervalMs?: number
-  /** Maximum number of watched paths. Defaults to 512. */
-  watchMaxPaths?: number
+  /** Maximum number of projects whose roots stay watched. Defaults to 32. */
+  watchMaxProjects?: number
 }
 
 export const Config: Schema<Config> = Schema.object({
@@ -2032,12 +2311,11 @@ export const Config: Schema<Config> = Schema.object({
   airHome: Schema.string().description('AIR home; defaults to $AIR_HOME, then ~/.air.'),
   claudeHome: Schema.string().description('Claude Code home; defaults to ~/.claude.'),
   agentsHome: Schema.string().description('Shared agents home; defaults to $DSH_AGENTS_HOME, then ~/.agents.'),
-  includeUserRoots: Schema.boolean().default(false).description('Scan ~/.agents/skills, ~/.claude/skills, and ~/.claude/commands.'),
+  includeUserRoots: Schema.boolean().default(false).description('Scan ~/.agents/skills and ~/.claude/skills.'),
   extraProjectRoots: Schema.array(Schema.string()).default([]).description('Extra skill directories relative to the project root.'),
-  commandsUserInvocable: Schema.boolean().default(true).description('List command files for people unless they set user-invocable.'),
   descriptionMaxChars: Schema.number().default(1500).description('Longest skill description kept in the catalog.'),
-  watchIntervalMs: Schema.number().default(2000).description('Milliseconds between polls of scanned paths; 0 disables watching.'),
-  watchMaxPaths: Schema.number().default(512).description('Maximum number of watched paths.'),
+  watchIntervalMs: Schema.number().default(3000).description('Milliseconds between polls of scanned paths; 0 disables watching.'),
+  watchMaxProjects: Schema.number().default(32).description('Maximum number of projects whose skill roots stay watched.'),
 })
 
 /** Configuration after defaulting and validation. */
@@ -2046,10 +2324,9 @@ export interface ResolvedConfig {
   readonly homes: UserHomes
   readonly includeUserRoots: boolean
   readonly extraProjectRoots: readonly string[]
-  readonly commandsUserInvocable: boolean
   readonly descriptionMaxChars: number
   readonly watchIntervalMs: number
-  readonly watchMaxPaths: number
+  readonly watchMaxProjects: number
 }
 
 /**
@@ -2064,10 +2341,9 @@ export function resolveConfig(config: Config): ResolvedConfig {
     homes: resolveUserHomes(config),
     includeUserRoots: config.includeUserRoots ?? false,
     extraProjectRoots: config.extraProjectRoots ?? [],
-    commandsUserInvocable: config.commandsUserInvocable ?? true,
     descriptionMaxChars: config.descriptionMaxChars ?? 1500,
-    watchIntervalMs: config.watchIntervalMs ?? 2000,
-    watchMaxPaths: config.watchMaxPaths ?? 512,
+    watchIntervalMs: config.watchIntervalMs ?? 3000,
+    watchMaxProjects: config.watchMaxProjects ?? 32,
   }
   if (!Number.isInteger(resolved.descriptionMaxChars) || resolved.descriptionMaxChars < 1) {
     throw new TypeError('air-skill-conventions: descriptionMaxChars must be a positive integer')
@@ -2075,11 +2351,12 @@ export function resolveConfig(config: Config): ResolvedConfig {
   if (!Number.isInteger(resolved.watchIntervalMs) || resolved.watchIntervalMs < 0) {
     throw new TypeError('air-skill-conventions: watchIntervalMs must be a non-negative integer')
   }
-  if (!Number.isInteger(resolved.watchMaxPaths) || resolved.watchMaxPaths < 1) {
-    throw new TypeError('air-skill-conventions: watchMaxPaths must be a positive integer')
+  if (!Number.isInteger(resolved.watchMaxProjects) || resolved.watchMaxProjects < 1) {
+    throw new TypeError('air-skill-conventions: watchMaxProjects must be a positive integer')
   }
   for (const root of resolved.extraProjectRoots) {
-    if (isAbsolute(root) || normalize(root).split(/[\\/]/u).includes('..')) {
+    // Both path flavors are checked so a profile patch shared between Windows and Linux fails the same way on each.
+    if (posix.isAbsolute(root) || win32.isAbsolute(root) || root.split(/[\\/]/u).includes('..')) {
       throw new TypeError(`air-skill-conventions: extraProjectRoots entry "${root}" must be a relative path inside the project`)
     }
   }
@@ -2091,34 +2368,25 @@ interface SkillFile {
   /** Directory that `${CLAUDE_SKILL_DIR}` and relative resources resolve against. */
   readonly directory: string
   readonly fallbackName: string
+  /** True for `<name>.md` directly in a root. */
+  readonly flat: boolean
 }
 
-interface Locator extends SkillFile {
-  readonly kind: SkillFileKind
-}
-
-function isLocator(value: unknown): value is Locator {
+function isLocator(value: unknown): value is SkillFile {
   return isRecord(value)
     && typeof value['path'] === 'string'
     && typeof value['directory'] === 'string'
     && typeof value['fallbackName'] === 'string'
-    && (value['kind'] === 'skill' || value['kind'] === 'command')
+    && typeof value['flat'] === 'boolean'
 }
 
-async function skillFiles(root: SkillRoot): Promise<SkillFile[]> {
-  if (root.kind === 'command') {
-    return (await listMarkdownTree(root.path, COMMAND_TREE_DEPTH)).map(entry => ({
-      path: entry.path,
-      directory: dirname(entry.path),
-      fallbackName: entry.segments.join('-'),
-    }))
-  }
+async function skillFiles(rootPath: string): Promise<SkillFile[]> {
   const files: SkillFile[] = []
-  for (const entry of await listDirectory(root.path)) {
+  for (const entry of await listDirectory(rootPath)) {
     if (entry.kind === 'directory') {
-      files.push({ path: join(entry.path, 'SKILL.md'), directory: entry.path, fallbackName: entry.name })
+      files.push({ path: join(entry.path, 'SKILL.md'), directory: entry.path, fallbackName: entry.name, flat: false })
     } else if (entry.name.endsWith('.md')) {
-      files.push({ path: entry.path, directory: root.path, fallbackName: entry.name.slice(0, -3) })
+      files.push({ path: entry.path, directory: rootPath, fallbackName: entry.name.slice(0, -3), flat: true })
     }
   }
   return files
@@ -2127,21 +2395,26 @@ async function skillFiles(root: SkillRoot): Promise<SkillFile[]> {
 /** Skill provider over the convention roots. One instance serves every lookup cwd. */
 export class ConventionSkillProvider implements SkillProvider {
   readonly name: string
-  private readonly watcher: PathWatcher | undefined
+  private readonly watcher: PollWatcher | undefined
 
   /**
-   * @param ctx - plugin context, used for warnings.
+   * @param logger - receives warnings about unreadable skill files and failed change notifications.
    * @param control - registration lifecycle; `invalidate` is called when a watched path changes.
    * @param config - resolved configuration.
    */
   constructor(
-    private readonly ctx: Context,
+    private readonly logger: Pick<Context['logger'], 'warn'>,
     control: SkillProviderControl,
     private readonly config: ResolvedConfig,
   ) {
     this.name = config.providerName
     this.watcher = config.watchIntervalMs > 0
-      ? new PathWatcher({ intervalMs: config.watchIntervalMs, maxPaths: config.watchMaxPaths, onChange: control.invalidate })
+      ? new PollWatcher({
+        intervalMs: config.watchIntervalMs,
+        maxGroups: config.watchMaxProjects,
+        onChange: control.invalidate,
+        onError: (error: unknown) => { logger.warn(`air-skill-conventions: change notification failed: ${String(error)}`) },
+      })
       : undefined
     control.signal.addEventListener('abort', () => { this.dispose() }, { once: true })
   }
@@ -2152,6 +2425,7 @@ export class ConventionSkillProvider implements SkillProvider {
    * @returns candidates from every configured root; files that fail to parse are logged and omitted.
    */
   async list(options: SkillLookupOptions): Promise<SkillCandidate[]> {
+    const listedAt = Date.now()
     const projectRoot = options.cwd === undefined ? undefined : await findProjectRoot(options.cwd)
     const roots = skillRoots({
       projectRoot,
@@ -2163,12 +2437,11 @@ export class ConventionSkillProvider implements SkillProvider {
     const watched: string[] = []
     for (const root of roots) {
       watched.push(root.path)
-      for (const file of await skillFiles(root)) {
+      for (const file of await skillFiles(root.path)) {
         watched.push(file.path)
-        const parsed = await this.parse(file, root.kind)
+        const parsed = await this.parse(file)
         if (parsed === undefined) continue
         if (!parsed.invocation.modelInvocable && !parsed.invocation.userInvocable) continue
-        const locator: Locator = { ...file, kind: root.kind }
         candidates.push({
           name: parsed.name,
           description: parsed.description,
@@ -2177,14 +2450,14 @@ export class ConventionSkillProvider implements SkillProvider {
           provider: this.name,
           source: root.source,
           rank: root.rank,
-          locator,
+          locator: file,
           resourceBase: { kind: 'directory', path: file.directory },
           path: file.path,
           ...parsed.metadata !== undefined ? { metadata: parsed.metadata } : {},
         })
       }
     }
-    this.watcher?.retain(watched)
+    this.watcher?.retain(projectRoot ?? '', watched, listedAt)
     return candidates
   }
 
@@ -2196,7 +2469,7 @@ export class ConventionSkillProvider implements SkillProvider {
   async get(candidate: SkillCandidate): Promise<SkillDefinition | undefined> {
     const locator = candidate.locator
     if (!isLocator(locator)) return undefined
-    const parsed = await this.parse(locator, locator.kind)
+    const parsed = await this.parse(locator)
     if (parsed === undefined) return undefined
     return {
       name: parsed.name,
@@ -2217,18 +2490,17 @@ export class ConventionSkillProvider implements SkillProvider {
     this.watcher?.close()
   }
 
-  private async parse(file: SkillFile, kind: SkillFileKind): Promise<ParsedSkillFile | undefined> {
+  private async parse(file: SkillFile): Promise<ParsedSkillFile | undefined> {
     const raw = await readTextFile(file.path)
     if (raw === undefined) return undefined
     try {
       return parseSkillText(raw, {
         fallbackName: file.fallbackName,
-        kind,
-        commandsUserInvocable: this.config.commandsUserInvocable,
+        flat: file.flat,
         descriptionMaxChars: this.config.descriptionMaxChars,
       })
     } catch (error: unknown) {
-      this.ctx.logger.warn(`air-skill-conventions: ${file.path} ignored: ${(error as Error).message}`)
+      this.logger.warn(`air-skill-conventions: ${file.path} ignored: ${(error as Error).message}`)
       return undefined
     }
   }
@@ -2243,7 +2515,7 @@ export function apply(ctx: Context, config: Config = {}): void {
   const resolved = resolveConfig(config)
   let provider: ConventionSkillProvider | undefined
   ctx.skills.registerProvider((control) => {
-    provider = new ConventionSkillProvider(ctx, control, resolved)
+    provider = new ConventionSkillProvider(ctx.logger, control, resolved)
     return provider
   })
   ctx.effect(() => () => { provider?.dispose() }, 'air-skill-conventions.watcher')
@@ -2252,10 +2524,10 @@ export function apply(ctx: Context, config: Config = {}): void {
 
 - [ ] **Step 9: Run all unit tests to verify they pass**
 
-Run: `pnpm -C /home/hxman/AIR-harness/air/packages/skill-conventions exec vitest run tests/parse.spec.ts tests/roots.spec.ts tests/provider.spec.ts`
+Run: `pnpm -C air/packages/skill-conventions exec vitest run tests/parse.spec.ts tests/roots.spec.ts tests/provider.spec.ts`
 Expected: `Test Files 3 passed (3)`.
 
-If `ctx.logger.warn` is reported as not callable, compare with `packages/skill/skill-filesystem/src/index.ts` (it calls `ctx.logger.warn(message)` the same way) and check that `@deepseek-ai/cordis` resolves to `vendor/cordis` (`ls -l air/packages/skill-conventions/node_modules/@deepseek-ai/`).
+If `ctx.logger.warn` is reported as not callable, compare with `packages/skill/skill-filesystem/src/index.ts` (it calls `ctx.logger.warn(message)` the same way) and check that `@deepseek-ai/cordis` resolves to `vendor/cordis`: `node -e "console.log(require('fs').realpathSync('air/packages/skill-conventions/node_modules/@deepseek-ai/cordis'))"` must print a path ending in `vendor/cordis` (or `vendor\cordis` on Windows).
 
 - [ ] **Step 10: Write the native Loader test**
 
@@ -2321,10 +2593,10 @@ it('loads the built package through native Loader resolution', async () => {
 
 - [ ] **Step 11: Build, then run the whole suite with coverage**
 
-Run: `pnpm -C /home/hxman/AIR-harness/air/packages/skill-conventions build && pnpm -C /home/hxman/AIR-harness/air/packages/skill-conventions exec vitest run --coverage --coverage.include='src/**' --coverage.thresholds.100`
+Run: `pnpm -C air/packages/skill-conventions build`, then `pnpm -C air/packages/skill-conventions exec vitest run --coverage --coverage.include='src/**' --coverage.thresholds.100`
 Expected: `Test Files 4 passed (4)`; `index.ts`, `parse.ts`, and `roots.ts` at 100 in every column.
 
-Run: `pnpm -C /home/hxman/AIR-harness/air/packages/skill-conventions typecheck && pnpm -C /home/hxman/AIR-harness/air run lint`
+Run: `pnpm -C air/packages/skill-conventions typecheck`, then `pnpm -C air run lint`
 Expected: exit 0 for both.
 
 - [ ] **Step 12: Write the README**
@@ -2336,45 +2608,43 @@ Expected: exit 0 for both.
 
 ## Summary
 
-A skill provider (`air-conventions`) for the directories other agents already use. It registers through `ctx.skills.registerProvider` and must be mounted in the same agent preset as upstream `skill-filesystem`, because the preset layer wins duplicate names over host-level providers. The AIR preset sets `skill-filesystem` to `includeDefaultRoots: false`, so this provider is the only source of local skills.
+A skill provider (`air-conventions`) for the directories other agents already use. It registers through `ctx.skills.registerProvider` and must be mounted in the same agent preset as upstream `skill-filesystem`, because the preset layer wins duplicate names over host-level providers. The AIR preset sets `skill-filesystem` to `includeDefaultRoots: false`, so this provider is the only source of project and user skill directories. Upstream still lists its `customSkillDirs` and the bundled skill directory (`DSH_BUNDLED_SKILL_DIR`), which this provider does not touch.
 
 | Root | Source | Rank | Scanned |
 |---|---|---|---|
 | `<project>/.dsh/skills` | `project-dsh` | 100 | always |
 | `<project>/.agents/skills` | `project-agents` | 200 | always |
 | `<project>/.claude/skills` | `project-claude` | 220 | always |
-| `<project>/.claude/commands` | `project-claude-commands` | 230 | always |
 | each `extraProjectRoots` entry | `project-extra` | 240 | when configured |
 | `<airHome>/skills` | `user-air` | 350 | always |
 | `<agentsHome>/skills` | `user-agents` | 500 | `includeUserRoots: true` |
 | `<claudeHome>/skills` | `user-claude` | 520 | `includeUserRoots: true` |
-| `<claudeHome>/commands` | `user-claude-commands` | 530 | `includeUserRoots: true` |
 
-`<project>` is the nearest ancestor of the session cwd that contains `.git`. A lower rank wins a duplicate name. A skill is `<root>/<dir>/SKILL.md` or `<root>/<name>.md`; a command is any `.md` file up to four levels deep, named after its path (`frontend/component.md` becomes `frontend-component`).
+`<project>` is the nearest ancestor of the session cwd that contains `.git`. A lower rank wins a duplicate name; the registry logs the one it dropped. A skill is `<root>/<dir>/SKILL.md`, or `<root>/<name>.md` when that file's frontmatter has a `description` (a plain `README.md` in a skills folder is not a skill). `.claude/commands` files are not skills; `@air/dsh-command-conventions` registers them as slash commands.
 
-Differences from upstream `skill-filesystem` parsing: `name` defaults to the directory or file name; `description` defaults to the first body paragraph; `when_to_use` is accepted; a file without frontmatter is valid. The Claude Code fields `allowed-tools`, `disallowed-tools`, `arguments`, `paths`, `model`, `context`, `agent`, and `argument-hint` are recorded under `metadata.claudeCode` for other AIR plugins and have no effect here.
+Differences from upstream `skill-filesystem` parsing: `name` defaults to the directory or file name; `description` defaults to the first body paragraph for a `SKILL.md`; `when_to_use` is accepted; a `SKILL.md` without frontmatter is valid. The Claude Code fields `allowed-tools`, `disallowed-tools`, `arguments`, `paths`, `model`, `context`, `agent`, and `argument-hint` are recorded under `metadata.claudeCode` for other AIR plugins and have no effect here.
 
-Config: `providerName`, `airHome`, `claudeHome`, `agentsHome`, `includeUserRoots` (default `false`), `extraProjectRoots` (default `[]`), `commandsUserInvocable` (default `true`), `descriptionMaxChars` (default 1500), `watchIntervalMs` (default 2000; 0 disables), `watchMaxPaths` (default 512).
+Config: `providerName`, `airHome`, `claudeHome`, `agentsHome`, `includeUserRoots` (default `false`), `extraProjectRoots` (default `[]`; relative, no `..`), `descriptionMaxChars` (default 1500), `watchIntervalMs` (default 3000; 0 disables), `watchMaxProjects` (default 32).
 
 ## Model Experience
 
-The model sees these skills in the same catalog and loads them with the same `skill` tool as any other skill. Command files are user-invocable only unless the file sets `disable-model-invocation: false`, so they do not consume catalog space. A loaded body has `${CLAUDE_SKILL_DIR}` replaced with the absolute skill directory. `$ARGUMENTS` and `$1` placeholders stay literal on the skill path; `@air/dsh-command-conventions` substitutes them for command files.
+The model sees these skills in the same catalog and loads them with the same `skill` tool as any other skill. A loaded body has `${CLAUDE_SKILL_DIR}` replaced with the absolute skill directory. `$ARGUMENTS` and `$1` placeholders stay literal on the skill path.
 
 ## Known Limitations
 
 - Skills written for Claude Code may name tools that do not exist here (`NotebookEdit`) or use Claude Code tool names (`Bash`, `Edit`); the model sees those names unchanged.
 - `allowed-tools`, `context: fork`, `agent`, `model`, and `paths` are recorded but not enforced.
 - `` !`cmd` `` lines and `@file` references in a skill body are not expanded.
+- A command file cannot be invoked by the model, and Claude Code's merge of commands into skills is not reproduced.
 - Files are read from the host filesystem, not through `ctx.fs`.
 - Nested `<subdir>/.claude/skills` directories below the project root are not scanned.
-- With `includeDefaultRoots: false` on upstream `skill-filesystem`, skills bundled with the upstream application (`DSH_BUNDLED_SKILL_DIR`) and `~/.dsh/skills` are not listed.
-- A changed description is seen after at most one `watchIntervalMs`; a body edit is always read fresh.
+- With `includeDefaultRoots: false` on upstream `skill-filesystem`, `~/.dsh/skills` and `~/.agents/skills` are not listed; put harness-native skills in `~/.air/skills` or `<project>/.dsh/skills`.
+- A changed description is seen after at most one `watchIntervalMs`; a body edit is always read fresh. Only the `watchMaxProjects` most recently listed projects are watched; a project released from the watch list causes one catalog rebuild.
 ```
 
 - [ ] **Step 13: Commit**
 
-```bash
-cd /home/hxman/AIR-harness
+```sh
 git add air/packages/skill-conventions air/pnpm-lock.yaml
 git commit -m "feat(air): add the convention skill provider with opt-in user roots"
 ```
@@ -2397,13 +2667,13 @@ git commit -m "feat(air): add the convention skill provider with opt-in user roo
 - Test: `air/packages/instruction-conventions/tests/baseline.spec.ts`
 
 **Interfaces:**
-- Consumes from `@air/dsh-convention-core`: `directoriesBetween`, `expandHome`, `isInside`, `listMarkdownTree`, `parseFrontmatter`, `readTextFile`, `stringListField`.
+- Consumes from `@air/dsh-convention-core`: `directoriesBetween`, `expandHome`, `fileSize`, `isInside`, `listMarkdownTree`, `parseFrontmatter`, `readTextFile`, `realpathIfPresent`, `stringListField`.
 - Produces (package-internal modules used by Task 5):
-  - `imports.ts`: `MAX_IMPORT_HOPS = 4`; `interface InstructionFile { readonly path: string; readonly content: string }`; `interface SkippedImport { readonly path: string; readonly reason: 'outside-project' | 'max-hops' }`; `interface ImportOptions { readonly projectRoot: string; readonly allowedRoots: readonly string[]; readonly home: string }`; `findImportPaths(text: string): string[]`; `resolveImports(seeds: readonly InstructionFile[], options: ImportOptions): Promise<{ files: InstructionFile[]; skipped: SkippedImport[] }>`.
+  - `imports.ts`: `MAX_IMPORT_HOPS = 4`; `interface InstructionFile { readonly path: string; readonly content: string }`; `interface SkippedImport { readonly path: string; readonly reason: 'outside-project' | 'max-hops' | 'sensitive' | 'too-large' }`; `interface ImportOptions { readonly projectRoot: string; readonly allowedRoots: readonly string[]; readonly home: string; readonly maxFileBytes: number }`; `isSensitivePath(path: string): boolean`; `findImportPaths(text: string): string[]`; `resolveImports(seeds: readonly InstructionFile[], options: ImportOptions): Promise<{ files: InstructionFile[]; skipped: SkippedImport[] }>`.
   - `rules.ts`: `interface Rule { readonly path: string; readonly relativePath: string; readonly content: string; readonly globs: readonly string[]; readonly digest: string }`; `loadClaudeRules(projectRoot: string): Promise<{ rules: Rule[]; problems: string[] }>`; `matchingRules(rules: readonly Rule[], relativeFilePath: string): Rule[]`.
   - `baseline.ts`: `interface BaselineInput { readonly cwd: string; readonly projectRoot: string; readonly claudeHome: string; readonly home: string; readonly includeUserRoots: boolean; readonly allowedImportRoots: readonly string[]; readonly maxBytes: number }`; `interface Baseline { readonly text: string; readonly digest: string }`; `composeBaseline(input: BaselineInput): Promise<{ baseline: Baseline | undefined; problems: string[] }>`.
 
-What the baseline contains, in order: `<project>/.claude/CLAUDE.md`; `<claudeHome>/CLAUDE.md` when `includeUserRoots`; every file reached through `@path` imports from those two files and from the `AGENTS.md`, `CLAUDE.md`, `AGENTS.local.md`, `CLAUDE.local.md` files between the project root and the cwd (upstream `agent-instructions` already injects those four files themselves, so they are import seeds only); every `.claude/rules/**/*.md` file without `paths:`. Identical content is included once. A file that would exceed `maxBytes` is left out and named in a `<skipped reason="budget"/>` line.
+What the baseline contains, in order: `<project>/.claude/CLAUDE.md`; `<claudeHome>/CLAUDE.md` when `includeUserRoots`; every file reached through `@path` imports from those two files and from the `AGENTS.md`, `CLAUDE.md`, `AGENTS.local.md`, `CLAUDE.local.md` files between the project root and the cwd (upstream `agent-instructions` already injects those four files themselves, so they are import seeds only); every `.claude/rules/**/*.md` file without `paths:`. Identical content is included once. A file that would exceed `maxBytes` is left out and named in a `<skipped reason="budget"/>` line. An import is also skipped, and named with its reason, when its real path (symbolic links resolved) leaves the project and the allowed roots, when it looks like a credential file (`.env*`, SSH keys, `.pem`/`.key` files, anything under `.ssh`, `.aws`, `.gnupg`, `.kube`, `.docker`, `.npmrc`, `.netrc`), or when it is larger than `maxBytes`.
 
 - [ ] **Step 1: Create the package scaffold**
 
@@ -2512,7 +2782,7 @@ export default defineConfig({
 })
 ```
 
-Run: `pnpm -C /home/hxman/AIR-harness/air install`
+Run: `pnpm -C air install`
 Expected: exit 0; `air/packages/instruction-conventions/node_modules/picomatch` exists.
 
 - [ ] **Step 2: Write the failing tests**
@@ -2520,13 +2790,14 @@ Expected: exit 0; `air/packages/instruction-conventions/node_modules/picomatch` 
 `air/packages/instruction-conventions/tests/imports.spec.ts`:
 
 ```ts
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { MAX_IMPORT_HOPS, findImportPaths, resolveImports } from '../src/imports.ts'
+import { MAX_IMPORT_HOPS, findImportPaths, isSensitivePath, resolveImports } from '../src/imports.ts'
 
 const created: string[] = []
+const MAX_FILE_BYTES = 1_000_000
 
 afterEach(async () => {
   for (const dir of created.splice(0)) await rm(dir, { recursive: true, force: true })
@@ -2554,6 +2825,10 @@ describe('findImportPaths', () => {
     ])
   })
 
+  it('accepts CRLF line endings', () => {
+    expect(findImportPaths('@a.md\r\nText @b.md\r\n')).toEqual(['a.md', 'b.md'])
+  })
+
   it('ignores code spans, fenced blocks, addresses, and a bare @', () => {
     const text = [
       'Mail me at someone@example.com or ping @ later.',
@@ -2570,6 +2845,22 @@ describe('findImportPaths', () => {
   })
 })
 
+describe('isSensitivePath', () => {
+  it.each([
+    ['/home/u/project/.env', true],
+    ['/home/u/project/.env.production', true],
+    ['C:\\Users\\u\\.ssh\\config', true],
+    ['/home/u/.aws/credentials', true],
+    ['/home/u/project/id_ed25519', true],
+    ['/home/u/project/server.pem', true],
+    ['/home/u/project/.npmrc', true],
+    ['/home/u/project/docs/environment.md', false],
+    ['/home/u/project/notes.md', false],
+  ])('classifies %s', (path, expected) => {
+    expect(isSensitivePath(path)).toBe(expected)
+  })
+})
+
 describe('resolveImports', () => {
   it('follows imports relative to the importing file, in document order', async () => {
     const { project, home } = await world()
@@ -2577,20 +2868,21 @@ describe('resolveImports', () => {
     await write(join(project, 'docs/a.md'), 'A imports @nested/c.md')
     await write(join(project, 'docs/nested/c.md'), 'C')
     await write(join(project, 'docs/b.md'), 'B')
-    const result = await resolveImports([{ path: seed, content: 'Read @docs/a.md and @docs/b.md' }], { projectRoot: project, allowedRoots: [], home })
+    const result = await resolveImports([{ path: seed, content: 'Read @docs/a.md and @docs/b.md' }], { projectRoot: project, allowedRoots: [], home, maxFileBytes: MAX_FILE_BYTES })
     expect(result.files.map(file => file.content)).toEqual(['A imports @nested/c.md', 'C', 'B'])
     expect(result.skipped).toEqual([])
   })
 
-  it('includes each file once, does not re-include a seed, and ignores missing files', async () => {
+  it('includes each file once, does not re-include a seed, and ignores missing files and directories', async () => {
     const { project, home } = await world()
-    const seed = await write(join(project, 'CLAUDE.md'), '@a.md @a.md @AGENTS.md @missing.md')
+    const seed = await write(join(project, 'CLAUDE.md'), '@a.md @a.md @AGENTS.md @missing.md @docs')
     const agents = await write(join(project, 'AGENTS.md'), 'Agents imports @a.md')
     await write(join(project, 'a.md'), 'A imports @CLAUDE.md')
+    await mkdir(join(project, 'docs'), { recursive: true })
     const result = await resolveImports([
-      { path: seed, content: '@a.md @a.md @AGENTS.md @missing.md' },
+      { path: seed, content: '@a.md @a.md @AGENTS.md @missing.md @docs' },
       { path: agents, content: 'Agents imports @a.md' },
-    ], { projectRoot: project, allowedRoots: [], home })
+    ], { projectRoot: project, allowedRoots: [], home, maxFileBytes: MAX_FILE_BYTES })
     expect(result.files).toEqual([{ path: join(project, 'a.md'), content: 'A imports @CLAUDE.md' }])
     expect(result.skipped).toEqual([])
   })
@@ -2599,7 +2891,7 @@ describe('resolveImports', () => {
     const { project, home } = await world()
     expect(MAX_IMPORT_HOPS).toBe(4)
     for (let hop = 1; hop <= 5; hop += 1) await write(join(project, `h${hop}.md`), `hop ${hop} @h${hop + 1}.md`)
-    const result = await resolveImports([{ path: join(project, 'CLAUDE.md'), content: '@h1.md' }], { projectRoot: project, allowedRoots: [], home })
+    const result = await resolveImports([{ path: join(project, 'CLAUDE.md'), content: '@h1.md' }], { projectRoot: project, allowedRoots: [], home, maxFileBytes: MAX_FILE_BYTES })
     expect(result.files.map(file => file.path)).toEqual([1, 2, 3, 4].map(hop => join(project, `h${hop}.md`)))
     expect(result.skipped).toEqual([{ path: join(project, 'h5.md'), reason: 'max-hops' }])
   })
@@ -2608,17 +2900,49 @@ describe('resolveImports', () => {
     const { project, home, outside } = await world()
     await write(join(outside, 'shared.md'), 'Shared')
     await write(join(home, 'notes.md'), 'Notes')
-    const content = `@${join(outside, 'shared.md')} @~/notes.md @../outside/shared.md`
-    const seed = { path: join(project, 'CLAUDE.md'), content }
-    const denied = await resolveImports([seed], { projectRoot: project, allowedRoots: [], home })
+    await mkdir(project, { recursive: true })
+    const seed = { path: join(project, 'CLAUDE.md'), content: '@../outside/shared.md @~/notes.md' }
+    const options = { projectRoot: project, home, maxFileBytes: MAX_FILE_BYTES }
+    const denied = await resolveImports([seed], { ...options, allowedRoots: [] })
     expect(denied.files).toEqual([])
     expect(denied.skipped).toEqual([
       { path: join(outside, 'shared.md'), reason: 'outside-project' },
       { path: join(home, 'notes.md'), reason: 'outside-project' },
     ])
-    const allowed = await resolveImports([seed], { projectRoot: project, allowedRoots: [outside, home], home })
+    const allowed = await resolveImports([seed], { ...options, allowedRoots: [outside, home] })
     expect(allowed.files.map(file => file.content)).toEqual(['Shared', 'Notes'])
     expect(allowed.skipped).toEqual([])
+  })
+
+  it('reports an outside path that does not exist without reading it', async () => {
+    const { project, home } = await world()
+    const result = await resolveImports([{ path: join(project, 'CLAUDE.md'), content: '@../nowhere.md' }], { projectRoot: project, allowedRoots: [], home, maxFileBytes: MAX_FILE_BYTES })
+    expect(result).toEqual({ files: [], skipped: [{ path: join(dirname(project), 'nowhere.md'), reason: 'outside-project' }] })
+  })
+
+  it.skipIf(process.platform === 'win32')('does not follow a link inside the project to a file outside it', async () => {
+    const { project, home, outside } = await world()
+    await write(join(outside, 'secret.md'), 'Secret')
+    await mkdir(project, { recursive: true })
+    await symlink(join(outside, 'secret.md'), join(project, 'link.md'))
+    const result = await resolveImports([{ path: join(project, 'CLAUDE.md'), content: '@link.md' }], { projectRoot: project, allowedRoots: [], home, maxFileBytes: MAX_FILE_BYTES })
+    expect(result).toEqual({ files: [], skipped: [{ path: join(project, 'link.md'), reason: 'outside-project' }] })
+  })
+
+  it('skips credential-like files and files over the size limit', async () => {
+    const { project, home } = await world()
+    await write(join(project, '.env'), 'TOKEN=abc')
+    await write(join(project, '.ssh/config'), 'Host *')
+    await write(join(project, 'big.md'), 'x'.repeat(50))
+    await write(join(project, 'small.md'), 'ok')
+    const content = '@.env @.ssh/config @big.md @small.md'
+    const result = await resolveImports([{ path: join(project, 'CLAUDE.md'), content }], { projectRoot: project, allowedRoots: [], home, maxFileBytes: 10 })
+    expect(result.files).toEqual([{ path: join(project, 'small.md'), content: 'ok' }])
+    expect(result.skipped).toEqual([
+      { path: join(project, '.env'), reason: 'sensitive' },
+      { path: join(project, '.ssh', 'config'), reason: 'sensitive' },
+      { path: join(project, 'big.md'), reason: 'too-large' },
+    ])
   })
 })
 ```
@@ -2787,23 +3111,33 @@ describe('composeBaseline', () => {
   it('includes identical or empty content once and notes skipped imports', async () => {
     const input = await world()
     const root = input.projectRoot
-    await write(join(root, '.claude/CLAUDE.md'), 'Same text. @/etc/air-outside.md')
-    await write(join(root, '.claude/rules/dup.md'), 'Same text. @/etc/air-outside.md')
+    await write(join(root, '.claude/CLAUDE.md'), 'Same text. @../../air-outside.md')
+    await write(join(root, '.claude/rules/dup.md'), 'Same text. @../../air-outside.md')
     await write(join(root, '.claude/rules/blank.md'), '   \n')
     const { baseline } = await composeBaseline(input)
     expect(baseline?.text.match(/Same text\./gu)).toHaveLength(1)
-    expect(baseline?.text).toContain('<skipped path="/etc/air-outside.md" reason="outside-project"/>')
+    expect(baseline?.text).toContain(`<skipped path="${join(dirname(root), 'air-outside.md')}" reason="outside-project"/>`)
   })
 
   it('leaves out a file that exceeds the byte budget and names it', async () => {
     const input = await world()
     const root = input.projectRoot
     await write(join(root, '.claude/CLAUDE.md'), 'Short.')
-    await write(join(root, '.claude/rules/we"ird.md'), 'x'.repeat(400))
+    await write(join(root, '.claude/rules/we&ird.md'), 'x'.repeat(400))
     const { baseline } = await composeBaseline({ ...input, maxBytes: 200 })
     expect(baseline?.text).toContain('Short.')
     expect(baseline?.text).not.toContain('xxxx')
-    expect(baseline?.text).toContain(`<skipped path="${join(root, '.claude/rules/we&quot;ird.md')}" reason="budget"/>`)
+    expect(baseline?.text).toContain(`<skipped path="${join(root, '.claude/rules/we&amp;ird.md')}" reason="budget"/>`)
+  })
+
+  it('does not import a credential file named in a convention file', async () => {
+    const input = await world()
+    const root = input.projectRoot
+    await write(join(root, '.claude/CLAUDE.md'), 'Project memory. @../.env')
+    await write(join(root, '.env'), 'API_TOKEN=do-not-send')
+    const { baseline } = await composeBaseline(input)
+    expect(baseline?.text).not.toContain('do-not-send')
+    expect(baseline?.text).toContain(`<skipped path="${join(root, '.env')}" reason="sensitive"/>`)
   })
 
   it('returns rule problems', async () => {
@@ -2818,7 +3152,7 @@ describe('composeBaseline', () => {
 
 - [ ] **Step 3: Run the tests to verify they fail**
 
-Run: `pnpm -C /home/hxman/AIR-harness/air/packages/instruction-conventions test`
+Run: `pnpm -C air/packages/instruction-conventions test`
 Expected: FAIL, three files, each with `Failed to load url ../src/<module>.ts`.
 
 - [ ] **Step 4: Implement the modules**
@@ -2828,7 +3162,7 @@ Expected: FAIL, three files, each with `Failed to load url ../src/<module>.ts`.
 ```ts
 /** Resolves Claude Code `@path` imports found in instruction files. */
 import { dirname, resolve } from 'node:path'
-import { expandHome, isInside, readTextFile } from '@air/dsh-convention-core'
+import { expandHome, fileSize, isInside, readTextFile, realpathIfPresent } from '@air/dsh-convention-core'
 
 /** Claude Code follows imports at most this many files deep from the file that starts the chain. */
 export const MAX_IMPORT_HOPS = 4
@@ -2842,20 +3176,41 @@ export interface InstructionFile {
 /** An import that was found but not read. */
 export interface SkippedImport {
   readonly path: string
-  readonly reason: 'outside-project' | 'max-hops'
+  readonly reason: 'outside-project' | 'max-hops' | 'sensitive' | 'too-large'
 }
 
-/** Containment settings for {@link resolveImports}. */
+/** Containment and size settings for {@link resolveImports}. */
 export interface ImportOptions {
   readonly projectRoot: string
   /** Absolute directories outside the project whose files may be imported. */
   readonly allowedRoots: readonly string[]
   /** Home directory used to expand `@~/...`. */
   readonly home: string
+  /** Largest imported file in bytes; a larger file is skipped without being read. */
+  readonly maxFileBytes: number
 }
 
 const FENCE = /^(?:```|~~~)/u
 const TRAILING_PUNCTUATION = /[.,;:!?)\]]+$/u
+/** Directories that hold credentials; any path through one is never imported. */
+const SENSITIVE_DIRECTORIES = new Set(['.ssh', '.aws', '.gnupg', '.kube', '.docker'])
+const SENSITIVE_FILES = /^(?:\.env(?:\..*)?|id_(?:rsa|dsa|ecdsa|ed25519)(?:\.pub)?|\.npmrc|\.netrc|credentials|.*\.(?:pem|key|p12|pfx))$/iu
+
+/**
+ * Test whether a path looks like a credential file: an `.env*` file, an SSH key, a certificate or key
+ * file, `.npmrc`, `.netrc`, or any file under `.ssh`, `.aws`, `.gnupg`, `.kube`, or `.docker`.
+ * @param path - absolute path with `/` or `\` separators.
+ * @returns true when the file must not be sent to a model through an import.
+ */
+export function isSensitivePath(path: string): boolean {
+  const segments = path.split(/[\\/]/u)
+  const name = segments.at(-1) ?? ''
+  return segments.slice(0, -1).some(segment => SENSITIVE_DIRECTORIES.has(segment.toLowerCase())) || SENSITIVE_FILES.test(name)
+}
+
+function pathKey(path: string): string {
+  return process.platform === 'win32' ? path.toLowerCase() : path
+}
 
 /**
  * List the `@path` tokens in Markdown text. A token starts a line or follows whitespace.
@@ -2884,9 +3239,11 @@ export function findImportPaths(text: string): string[] {
 /**
  * Read every file reachable through `@path` imports from the seed files.
  * Relative paths resolve against the importing file's directory. A file is read once; seed files
- * are never returned. A path that is not a regular file is ignored.
+ * are never returned. A path that is absent or not a regular file is ignored. A file is read only
+ * when its path and its real path (symbolic links resolved) are inside the project root or an allowed
+ * root, it is not a credential-like file, and it is no larger than `maxFileBytes`.
  * @param seeds - files whose content starts the import chains (hop 0).
- * @param options - project root, extra allowed roots, and the home directory.
+ * @param options - project root, extra allowed roots, home directory, and size limit.
  * @returns imported files in depth-first document order, plus the imports that were not read.
  */
 export async function resolveImports(
@@ -2895,24 +3252,43 @@ export async function resolveImports(
 ): Promise<{ files: InstructionFile[]; skipped: SkippedImport[] }> {
   const files: InstructionFile[] = []
   const skipped: SkippedImport[] = []
-  const visited = new Set(seeds.map(seed => resolve(seed.path)))
-  const permitted = (path: string): boolean =>
-    isInside(options.projectRoot, path) || options.allowedRoots.some(root => isInside(root, path))
+  const visited = new Set(seeds.map(seed => pathKey(resolve(seed.path))))
+  const lexicalRoots = [options.projectRoot, ...options.allowedRoots]
+  const realRoots = await Promise.all(lexicalRoots.map(async root => (await realpathIfPresent(root)) ?? root))
+  const permitted = (roots: readonly string[], path: string): boolean => roots.some(root => isInside(root, path))
   const visit = async (file: InstructionFile, hop: number): Promise<void> => {
     for (const written of findImportPaths(file.content)) {
       const target = resolve(dirname(file.path), expandHome(written, options.home))
-      if (visited.has(target)) continue
-      visited.add(target)
-      if (!permitted(target)) {
+      if (visited.has(pathKey(target))) continue
+      visited.add(pathKey(target))
+      if (!permitted(lexicalRoots, target)) {
         skipped.push({ path: target, reason: 'outside-project' })
         continue
       }
-      const content = await readTextFile(target)
-      if (content === undefined) continue
+      const real = await realpathIfPresent(target)
+      if (real === undefined) continue
+      visited.add(pathKey(real))
+      if (!permitted(realRoots, real)) {
+        skipped.push({ path: target, reason: 'outside-project' })
+        continue
+      }
+      if (isSensitivePath(target) || isSensitivePath(real)) {
+        skipped.push({ path: target, reason: 'sensitive' })
+        continue
+      }
+      const size = await fileSize(real)
+      if (size === undefined) continue
+      if (size > options.maxFileBytes) {
+        skipped.push({ path: target, reason: 'too-large' })
+        continue
+      }
       if (hop + 1 > MAX_IMPORT_HOPS) {
         skipped.push({ path: target, reason: 'max-hops' })
         continue
       }
+      const content = await readTextFile(real)
+      /* v8 ignore next -- the size was read a moment ago; only a concurrent delete reaches this. */
+      if (content === undefined) continue
       const imported = { path: target, content }
       files.push(imported)
       await visit(imported, hop + 1)
@@ -2981,11 +3357,11 @@ export async function loadClaudeRules(projectRoot: string): Promise<{ rules: Rul
 /**
  * Select the path-scoped rules that apply to one file.
  * @param rules - rules from {@link loadClaudeRules}.
- * @param relativeFilePath - file path relative to the project root with `/` separators.
+ * @param relativeFilePath - file path relative to the project root with `/` separators (`toPosixRelative`); globs follow POSIX rules on every platform and match case-sensitively.
  * @returns rules with at least one matching glob; always rules are never returned.
  */
 export function matchingRules(rules: readonly Rule[], relativeFilePath: string): Rule[] {
-  return rules.filter(rule => rule.globs.length > 0 && picomatch.isMatch(relativeFilePath, [...rule.globs], { dot: true }))
+  return rules.filter(rule => rule.globs.length > 0 && picomatch.isMatch(relativeFilePath, [...rule.globs], { dot: true, windows: false }))
 }
 ```
 
@@ -3086,6 +3462,7 @@ export async function composeBaseline(input: BaselineInput): Promise<{ baseline:
     projectRoot: input.projectRoot,
     allowedRoots: [...input.allowedImportRoots, ...input.includeUserRoots ? [input.claudeHome] : []],
     home: input.home,
+    maxFileBytes: input.maxBytes,
   })
   const ruleSet = await loadClaudeRules(input.projectRoot)
   const always = ruleSet.rules
@@ -3100,16 +3477,15 @@ export async function composeBaseline(input: BaselineInput): Promise<{ baseline:
 
 - [ ] **Step 5: Run the tests to verify they pass**
 
-Run: `pnpm -C /home/hxman/AIR-harness/air/packages/instruction-conventions test`
+Run: `pnpm -C air/packages/instruction-conventions test`
 Expected: `Test Files 3 passed (3)`.
 
 - [ ] **Step 6: Typecheck and commit**
 
-Run: `pnpm -C /home/hxman/AIR-harness/air/packages/instruction-conventions typecheck`
+Run: `pnpm -C air/packages/instruction-conventions typecheck`
 Expected: exit 0. (`src/index.ts` does not exist yet; `tsc -p tsconfig.json` checks the three modules and the tests.)
 
-```bash
-cd /home/hxman/AIR-harness
+```sh
 git add air/packages/instruction-conventions air/pnpm-lock.yaml
 git commit -m "feat(air): resolve @path imports and .claude/rules into an instruction baseline"
 ```
@@ -3185,7 +3561,7 @@ export function stubAgent(ctx: Context, cwd: string | undefined): StubAgent {
 }
 ```
 
-This mirrors `stubAgent` in `packages/goal/command-goal/tests/command-goal.spec.ts`; if the `Agent` interface has gained a member since `dsh-v0.2.0-rc.2`, copy the addition from that file.
+This mirrors `stubAgent` in `packages/goal/command-goal/tests/command-goal.spec.ts` (compared member by member at `dsh-v0.2.1-alpha.1`); if the `Agent` interface has gained a member since, copy the addition from that file.
 
 - [ ] **Step 2: Write the failing plugin tests**
 
@@ -3193,8 +3569,8 @@ This mirrors `stubAgent` in `packages/goal/command-goal/tests/command-goal.spec.
 
 ```ts
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
-import { dirname, join } from 'node:path'
+import { homedir, tmpdir } from 'node:os'
+import { dirname, join, resolve, sep } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import type { Agent, PreStepDecision } from '@deepseek-ai/dsh-agent'
@@ -3356,9 +3732,25 @@ describe('baseline injection on agent/pre-step', () => {
     await write(join(root, '.claude/CLAUDE.md'), 'Project memory.')
     expect(await preStep(ctx, agent, [only], { decision: { kind: 'reject' } })).toEqual({ kind: 'reject' })
     expect(entered(await preStep(ctx, agent, [], { step: 1 }))).toEqual([])
-    expect(entered(await preStep(ctx, agent, [], { step: 2 }))).toHaveLength(1)
     const { agent: detached } = stubAgent(ctx, undefined)
     expect(entered(await preStep(ctx, detached, [only]))).toEqual([only])
+  })
+
+  it('reads the convention files at step 1 only, once per turn', async () => {
+    const root = await project()
+    await write(join(root, '.claude/CLAUDE.md'), 'Project memory.')
+    const ctx = await mount()
+    const { agent } = stubAgent(ctx, root)
+    const later = prompt('later step')
+    expect(entered(await preStep(ctx, agent, [later], { step: 2 }))).toEqual([later])
+    expect(entered(await preStep(ctx, agent, [later], { step: 1 }))).toHaveLength(2)
+  })
+
+  it('lets the turn continue when a convention file cannot be read', async () => {
+    const ctx = await mount()
+    const { agent } = stubAgent(ctx, 'bad\0cwd')
+    const only = prompt('hello')
+    expect(entered(await preStep(ctx, agent, [only]))).toEqual([only])
   })
 
   it('stops when the turn was cancelled while files were read', async () => {
@@ -3424,7 +3816,7 @@ describe('path-scoped rules on tools/post-execute', () => {
     const { agent: detached } = stubAgent(ctx, undefined)
     expect((await run(ctx, 'bash', { command: 'ls src/a.ts' }, agent)).additionalContexts).toBeUndefined()
     expect((await run(ctx, 'read', { file_path: 'README.md' }, agent)).additionalContexts).toBeUndefined()
-    expect((await run(ctx, 'read', { file_path: '/etc/air-outside/a.ts' }, agent)).additionalContexts).toBeUndefined()
+    expect((await run(ctx, 'read', { file_path: resolve(root, '..', 'air-outside', 'a.ts') }, agent)).additionalContexts).toBeUndefined()
     const failed = await run(ctx, 'write', { file_path: 'src/a.ts' }, agent)
     expect(failed.isError).toBe(true)
     expect(failed.additionalContexts).toBeUndefined()
@@ -3435,15 +3827,17 @@ describe('path-scoped rules on tools/post-execute', () => {
 
 describe('resolveConfig', () => {
   it('applies defaults and expands allowed import roots', () => {
-    const resolved = instructionConventions.resolveConfig({ maxBytes: 100, claudeHome: '/c', allowedImportRoots: ['/shared'] })
+    const claudeHome = resolve(sep, 'c')
+    const shared = resolve(sep, 'shared')
+    const resolved = instructionConventions.resolveConfig({ maxBytes: 100, claudeHome, allowedImportRoots: [shared] })
     expect(resolved).toMatchObject({
       maxBytes: 100,
-      claudeHome: '/c',
+      claudeHome,
       includeUserRoots: false,
-      allowedImportRoots: ['/shared'],
+      allowedImportRoots: [shared],
       projectRootMarkers: ['.git'],
     })
-    expect(instructionConventions.resolveConfig({ maxBytes: 1, allowedImportRoots: ['~/notes'] }).allowedImportRoots[0]).toMatch(/notes$/u)
+    expect(instructionConventions.resolveConfig({ maxBytes: 1, allowedImportRoots: ['~/notes'] }).allowedImportRoots).toEqual([join(homedir(), 'notes')])
   })
 
   it('rejects invalid values', () => {
@@ -3456,7 +3850,7 @@ describe('resolveConfig', () => {
 
 - [ ] **Step 3: Run the plugin tests to verify they fail**
 
-Run: `pnpm -C /home/hxman/AIR-harness/air/packages/instruction-conventions exec vitest run tests/plugin.spec.ts`
+Run: `pnpm -C air/packages/instruction-conventions exec vitest run tests/plugin.spec.ts`
 Expected: FAIL with `Failed to load url ../src/index.ts`.
 
 - [ ] **Step 4: Implement the plugin**
@@ -3467,20 +3861,21 @@ Expected: FAIL with `Failed to load url ../src/index.ts`.
 /**
  * Companion to upstream `agent-instructions`. It injects the convention files upstream does not read:
  * `.claude/CLAUDE.md`, the user's `~/.claude/CLAUDE.md` (opt-in), files reached through `@path`
- * imports, and `.claude/rules`. Rules without `paths:` enter with the baseline; rules with `paths:`
- * are attached to the result of the first `read`, `write`, or `edit` call on a matching file.
+ * imports, and `.claude/rules`. Rules without `paths:` enter with the baseline, which is composed once per
+ * turn at step 1; rules with `paths:` are attached to the result of the first `read`, `write`, or `edit`
+ * call on a matching file.
  * Every injected text is a user message with source kind `air-instructions`, so it is in the session log.
  *
  * @module @air/dsh-instruction-conventions
  */
 import { homedir } from 'node:os'
-import { isAbsolute, relative, resolve, sep } from 'node:path'
+import { isAbsolute, resolve } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import Schema from '@deepseek-ai/schemastery'
 import type { Agent, PreStepDecision } from '@deepseek-ai/dsh-agent'
 import { createUserMessage, type Message } from '@deepseek-ai/dsh-llm'
 import type { PostToolDecision, ToolExecution } from '@deepseek-ai/dsh-tools'
-import { expandHome, findProjectRoot, isInside, resolveUserHomes } from '@air/dsh-convention-core'
+import { expandHome, findProjectRoot, isInside, resolveUserHomes, toPosixRelative } from '@air/dsh-convention-core'
 import { composeBaseline } from './baseline.ts'
 import { loadClaudeRules, matchingRules, type Rule } from './rules.ts'
 
@@ -3549,12 +3944,13 @@ export function resolveConfig(config: Config): ResolvedConfig {
     throw new TypeError('air-instruction-conventions: maxBytes must be a positive integer')
   }
   const home = homedir()
-  const allowedImportRoots = (config.allowedImportRoots ?? []).map(root => expandHome(root, home))
-  for (const root of allowedImportRoots) {
-    if (!isAbsolute(root)) {
+  const allowedImportRoots = (config.allowedImportRoots ?? []).map((root) => {
+    const expanded = expandHome(root, home)
+    if (!isAbsolute(expanded)) {
       throw new TypeError(`air-instruction-conventions: allowedImportRoots entry "${root}" must be an absolute path or start with ~/`)
     }
-  }
+    return resolve(expanded)
+  })
   const projectRootMarkers = config.projectRootMarkers ?? ['.git']
   if (projectRootMarkers.length === 0) {
     throw new TypeError('air-instruction-conventions: projectRootMarkers must not be empty')
@@ -3630,23 +4026,37 @@ export function apply(ctx: Context, config: Config): void {
     })
   }
 
+  /** Compose the baseline; a read failure is reported and the turn continues without it. */
+  const compose = async (cwd: string): Promise<Awaited<ReturnType<typeof composeBaseline>> | undefined> => {
+    try {
+      const projectRoot = await findProjectRoot(cwd, resolved.projectRootMarkers)
+      return await composeBaseline({
+        cwd,
+        projectRoot,
+        claudeHome: resolved.claudeHome,
+        home: resolved.home,
+        includeUserRoots: resolved.includeUserRoots,
+        allowedImportRoots: resolved.allowedImportRoots,
+        maxBytes: resolved.maxBytes,
+      })
+    } catch (error: unknown) {
+      report([`convention files could not be read: ${(error as Error).message}`])
+      return undefined
+    }
+  }
+
   ctx.on('agent/pre-step', async ({ agent, messages, step, signal }, next): Promise<PreStepDecision> => {
     const decision = await next()
-    // An empty first step owns a no-step turn; adding context would turn it into a request.
-    if (decision.kind === 'reject' || (step === 1 && decision.messages.length === 0)) return decision
+    // Compose once per turn: later steps of the turn keep the files they started with, and the provider's
+    // prompt cache survives an edit made mid-turn. An empty first step owns a no-step turn; adding context
+    // would turn it into a request.
+    if (step !== 1 || decision.kind === 'reject' || decision.messages.length === 0) return decision
     const cwd = agent.session.header.cwd
     if (cwd === undefined) return decision
-    const projectRoot = await findProjectRoot(cwd, resolved.projectRootMarkers)
-    const { baseline, problems } = await composeBaseline({
-      cwd,
-      projectRoot,
-      claudeHome: resolved.claudeHome,
-      home: resolved.home,
-      includeUserRoots: resolved.includeUserRoots,
-      allowedImportRoots: resolved.allowedImportRoots,
-      maxBytes: resolved.maxBytes,
-    })
+    const composed = await compose(cwd)
     signal.throwIfAborted()
+    if (composed === undefined) return decision
+    const { baseline, problems } = composed
     report(problems)
     if (baseline === undefined) return decision
     if (latestBaselineDigest([...agent.session.deriveMessages(), ...decision.messages]) === baseline.digest) return decision
@@ -3670,7 +4080,7 @@ export function apply(ctx: Context, config: Config): void {
     const ruleSet = await loadClaudeRules(projectRoot)
     report(ruleSet.problems)
     const keys = deliveredRules(agent.session)
-    const fresh = matchingRules(ruleSet.rules, relative(projectRoot, absolute).split(sep).join('/'))
+    const fresh = matchingRules(ruleSet.rules, toPosixRelative(projectRoot, absolute))
       .filter(rule => !keys.has(ruleKey(rule.relativePath, rule.digest)))
     if (fresh.length === 0) return decision
     for (const rule of fresh) keys.add(ruleKey(rule.relativePath, rule.digest))
@@ -3681,7 +4091,7 @@ export function apply(ctx: Context, config: Config): void {
 
 - [ ] **Step 5: Run the unit tests to verify they pass**
 
-Run: `pnpm -C /home/hxman/AIR-harness/air/packages/instruction-conventions exec vitest run tests/imports.spec.ts tests/rules.spec.ts tests/baseline.spec.ts tests/plugin.spec.ts`
+Run: `pnpm -C air/packages/instruction-conventions exec vitest run tests/imports.spec.ts tests/rules.spec.ts tests/baseline.spec.ts tests/plugin.spec.ts`
 Expected: `Test Files 4 passed (4)`.
 
 Two places depend on upstream runtime details; if a test fails there, check these first:
@@ -3759,10 +4169,10 @@ it('loads the built package through native Loader resolution', async () => {
 
 - [ ] **Step 7: Build, then run the whole suite with coverage**
 
-Run: `pnpm -C /home/hxman/AIR-harness/air/packages/instruction-conventions build && pnpm -C /home/hxman/AIR-harness/air/packages/instruction-conventions exec vitest run --coverage --coverage.include='src/**' --coverage.thresholds.100`
+Run: `pnpm -C air/packages/instruction-conventions build`, then `pnpm -C air/packages/instruction-conventions exec vitest run --coverage --coverage.include='src/**' --coverage.thresholds.100`
 Expected: `Test Files 5 passed (5)`; `baseline.ts`, `imports.ts`, `index.ts`, `rules.ts` at 100 in every column.
 
-Run: `pnpm -C /home/hxman/AIR-harness/air/packages/instruction-conventions typecheck && pnpm -C /home/hxman/AIR-harness/air run lint`
+Run: `pnpm -C air/packages/instruction-conventions typecheck`, then `pnpm -C air run lint`
 Expected: exit 0 for both.
 
 - [ ] **Step 8: Write the README**
@@ -3784,9 +4194,9 @@ A companion to upstream `agent-instructions`, mounted in the same agent preset. 
 | `.claude/rules/**/*.md` without `paths:` | baseline |
 | `.claude/rules/**/*.md` with `paths:` | after the first successful `read`, `write`, or `edit` on a matching file |
 
-Imports follow Claude Code semantics: at most 4 hops, each file once, code spans and fenced blocks ignored, relative paths resolved against the importing file. An import outside the project root is read only when its path is under an `allowedImportRoots` entry (or under `claudeHome` with `includeUserRoots`); otherwise the baseline names it in a `<skipped reason="outside-project"/>` line.
+Imports follow Claude Code semantics: at most 4 hops, each file once, code spans and fenced blocks ignored, relative paths resolved against the importing file. An import is read only when both its path and its real path (symbolic links resolved) are inside the project root or an `allowedImportRoots` entry (or under `claudeHome` with `includeUserRoots`), it is not a credential-like file (`.env*`, SSH keys, `.pem`/`.key`, anything under `.ssh`, `.aws`, `.gnupg`, `.kube`, `.docker`, `.npmrc`, `.netrc`), and it is no larger than `maxBytes`; otherwise the baseline names it in a `<skipped reason="outside-project|sensitive|too-large|max-hops"/>` line.
 
-The baseline is one user message with source `{ kind: 'air-instructions', form: 'instructions', baseline: true, digest }`, added on `agent/pre-step` after the messages the step claimed. It is added again only when the digest of the assembled text differs from the latest baseline in the session, which also covers resume and compaction. A path-scoped rule is a user message with source `{ kind: 'air-instructions', form: 'instructions', rule, digest }`, returned as `additionalContexts` from `tools/post-execute`, once per session and rule content.
+The baseline is one user message with source `{ kind: 'air-instructions', form: 'instructions', baseline: true, digest }`, added on `agent/pre-step` after the messages the step claimed, at step 1 of each turn only. It is added again only when the digest of the assembled text differs from the latest baseline in the session, which also covers resume and compaction. A convention file that cannot be read is logged and the turn continues without the baseline. A path-scoped rule is a user message with source `{ kind: 'air-instructions', form: 'instructions', rule, digest }`, returned as `additionalContexts` from `tools/post-execute`, once per session and rule content.
 
 Config: `maxBytes` (required; the AIR bundle sets 32768), `claudeHome`, `includeUserRoots` (default `false`), `allowedImportRoots` (default `[]`), `projectRootMarkers` (default `['.git']`).
 
@@ -3801,14 +4211,14 @@ Before its first request the model receives an `<air_instructions>` block listin
 - The files upstream injects (`AGENTS.md`, `CLAUDE.md` and their local variants) keep their `@path` text; the imported content arrives in the separate `<air_instructions>` block.
 - Identical text is removed only inside this plugin's block. A file that upstream also injects under another path can appear twice.
 - A file larger than the remaining `maxBytes` budget is left out whole and named in a `<skipped reason="budget"/>` line.
-- Convention files are re-read on every step; a changed file causes a new baseline message, which invalidates the provider's prompt cache from that point.
-- Files are read from the host filesystem, not through `ctx.fs`. Containment compares normalised paths and does not resolve symbolic links.
+- Convention files are re-read once per turn; a changed file causes a new baseline message, which invalidates the provider's prompt cache from that point. An edit made during a turn is seen on the next turn.
+- The credential-file list is a name heuristic, not a scanner; keep secrets out of folders you import from.
+- Files are read from the host filesystem, not through `ctx.fs`. Path-scoped rules match case-sensitively with POSIX glob rules on every platform, including Windows.
 ```
 
 - [ ] **Step 9: Commit**
 
-```bash
-cd /home/hxman/AIR-harness
+```sh
 git add air/packages/instruction-conventions
 git commit -m "feat(air): inject .claude/CLAUDE.md, imports, and rules as air-instructions messages"
 ```
@@ -3832,16 +4242,17 @@ git commit -m "feat(air): inject .claude/CLAUDE.md, imports, and rules as air-in
 - Consumes from `@air/dsh-convention-core`: `isRecord`, `readTextFile`. From upstream: `Branded<B>` (`@deepseek-ai/dsh-brand`).
 - Produces (package-internal modules used by Task 7):
   - `config.ts`:
-    - `type ServerSpec = { readonly transport: 'stdio'; readonly serverName: string; readonly command: string; readonly args: string[]; readonly env: Record<string, string>; readonly cwd: string } | { readonly transport: 'streamable-http'; readonly serverName: string; readonly url: string; readonly headers: Record<string, string> }`
+    - `type ServerSpec = { readonly transport: 'stdio'; readonly serverName: string; readonly command: string; readonly args: string[]; readonly env: Record<string, string>; readonly cwd: string; readonly definition: string } | { readonly transport: 'streamable-http'; readonly serverName: string; readonly url: string; readonly headers: Record<string, string>; readonly definition: string }` (`definition` is the entry as written, `${VAR}` unexpanded, in canonical JSON)
     - `interface ParseOptions { readonly cwd: string; readonly env: Readonly<Record<string, string | undefined>> }`
+    - `canonicalJson(value: unknown): string` (object keys sorted at every depth)
     - `expandEnv(value: string, env: Readonly<Record<string, string | undefined>>): string` (`${VAR}` and `${VAR:-default}`; throws when a variable without a default is unset)
     - `parseMcpJson(text: string, options: ParseOptions): { servers: ServerSpec[]; problems: string[] }`
   - `approvals.ts`:
     - `type McpApprovalKey = Branded<'McpApprovalKey'>`
-    - `approvalKey(projectRoot: string, spec: ServerSpec): McpApprovalKey` (SHA-256 over project root, name, transport, command or URL, arguments, and sorted env or header entries)
+    - `approvalKey(projectRoot: string, spec: ServerSpec): McpApprovalKey` (SHA-256 over the project root, the server name, and `spec.definition`; lower-cased project root on Windows)
     - `interface ApprovalRecord { readonly projectRoot: string; readonly server: string; readonly approvedAt: string }`
-    - `class ApprovalStore { constructor(file: string); has(key: McpApprovalKey): Promise<boolean>; add(key: McpApprovalKey, record: ApprovalRecord): Promise<void>; remove(key: McpApprovalKey): Promise<void> }`
-    - File format: `{ "version": 1, "approved": { "<key>": ApprovalRecord } }`, mode `0600`.
+    - `class ApprovalStore { constructor(file: string); has(key: McpApprovalKey): Promise<boolean>; add(key: McpApprovalKey, record: ApprovalRecord): Promise<void>; remove(key: McpApprovalKey): Promise<void> }` (writes from one process run one at a time; each write goes through a uniquely named temporary file and a rename)
+    - File format: `{ "version": 1, "approved": { "<key>": ApprovalRecord } }`, mode `0600` on POSIX.
 
 - [ ] **Step 1: Create the package scaffold**
 
@@ -3957,7 +4368,7 @@ export default defineConfig({
 })
 ```
 
-Run: `pnpm -C /home/hxman/AIR-harness/air install`
+Run: `pnpm -C air install`
 Expected: exit 0; `air/packages/mcp-conventions/node_modules/@deepseek-ai/dsh-mcp-client/lib/index.js` exists.
 
 - [ ] **Step 2: Write the failing tests**
@@ -3966,9 +4377,16 @@ Expected: exit 0; `air/packages/mcp-conventions/node_modules/@deepseek-ai/dsh-mc
 
 ```ts
 import { describe, expect, it } from 'vitest'
-import { expandEnv, parseMcpJson } from '../src/config.ts'
+import { canonicalJson, expandEnv, parseMcpJson } from '../src/config.ts'
 
 const options = { cwd: '/work/project', env: { TOKEN: 'secret', HOST: 'example.test' } }
+
+describe('canonicalJson', () => {
+  it('sorts object keys at every depth and keeps array order', () => {
+    expect(canonicalJson({ b: 1, a: { d: [3, 1], c: 'x' } })).toBe('{"a":{"c":"x","d":[3,1]},"b":1}')
+    expect(canonicalJson({ a: 1, b: 2 })).toBe(canonicalJson({ b: 2, a: 1 }))
+  })
+})
 
 describe('expandEnv', () => {
   it('substitutes set variables and defaults', () => {
@@ -3984,26 +4402,32 @@ describe('expandEnv', () => {
 })
 
 describe('parseMcpJson', () => {
-  it('parses stdio and http servers', () => {
-    const text = JSON.stringify({
-      mcpServers: {
-        files: { command: 'npx', args: ['-y', 'server-files', '${HOST}'], env: { API_TOKEN: '${TOKEN}' } },
-        bare: { type: 'stdio', command: 'my-server' },
-        remote: { type: 'http', url: 'https://${HOST}/mcp', headers: { Authorization: 'Bearer ${TOKEN}' } },
-        inferred: { url: 'https://example.test/other' },
-        named: { type: 'streamable-http', url: 'https://example.test/third' },
-      },
-    })
-    expect(parseMcpJson(text, options)).toEqual({
+  it('parses stdio and http servers and records each definition as written', () => {
+    const entries = {
+      files: { command: 'npx', args: ['-y', 'server-files', '${HOST}'], env: { API_TOKEN: '${TOKEN}' } },
+      bare: { type: 'stdio', command: 'my-server' },
+      remote: { type: 'http', url: 'https://${HOST}/mcp', headers: { Authorization: 'Bearer ${TOKEN}' } },
+      inferred: { url: 'https://example.test/other' },
+      named: { type: 'streamable-http', url: 'https://example.test/third' },
+    }
+    expect(parseMcpJson(JSON.stringify({ mcpServers: entries }), options)).toEqual({
       servers: [
-        { transport: 'stdio', serverName: 'files', command: 'npx', args: ['-y', 'server-files', 'example.test'], env: { API_TOKEN: 'secret' }, cwd: '/work/project' },
-        { transport: 'stdio', serverName: 'bare', command: 'my-server', args: [], env: {}, cwd: '/work/project' },
-        { transport: 'streamable-http', serverName: 'remote', url: 'https://example.test/mcp', headers: { Authorization: 'Bearer secret' } },
-        { transport: 'streamable-http', serverName: 'inferred', url: 'https://example.test/other', headers: {} },
-        { transport: 'streamable-http', serverName: 'named', url: 'https://example.test/third', headers: {} },
+        { transport: 'stdio', serverName: 'files', command: 'npx', args: ['-y', 'server-files', 'example.test'], env: { API_TOKEN: 'secret' }, cwd: '/work/project', definition: canonicalJson(entries.files) },
+        { transport: 'stdio', serverName: 'bare', command: 'my-server', args: [], env: {}, cwd: '/work/project', definition: canonicalJson(entries.bare) },
+        { transport: 'streamable-http', serverName: 'remote', url: 'https://example.test/mcp', headers: { Authorization: 'Bearer secret' }, definition: canonicalJson(entries.remote) },
+        { transport: 'streamable-http', serverName: 'inferred', url: 'https://example.test/other', headers: {}, definition: canonicalJson(entries.inferred) },
+        { transport: 'streamable-http', serverName: 'named', url: 'https://example.test/third', headers: {}, definition: canonicalJson(entries.named) },
       ],
       problems: [],
     })
+  })
+
+  it('keeps ${VAR} text in the definition so a rotated value does not change it', () => {
+    const text = JSON.stringify({ mcpServers: { files: { command: 'npx', env: { API_TOKEN: '${TOKEN}' } } } })
+    const first = parseMcpJson(text, options).servers[0]
+    const second = parseMcpJson(text, { ...options, env: { TOKEN: 'rotated' } }).servers[0]
+    expect(first?.definition).toBe(second?.definition)
+    expect(first?.definition).toContain('${TOKEN}')
   })
 
   it('reports each invalid server and keeps the valid ones', () => {
@@ -4041,6 +4465,11 @@ describe('parseMcpJson', () => {
     expect(parseMcpJson('[]', options)).toEqual({ servers: [], problems: ['.mcp.json must contain an "mcpServers" object'] })
     expect(parseMcpJson('{"mcpServers": []}', options)).toEqual({ servers: [], problems: ['.mcp.json must contain an "mcpServers" object'] })
   })
+
+  it('accepts a byte-order mark and CRLF line endings', () => {
+    const text = '﻿{\r\n  "mcpServers": { "ok": { "command": "server" } }\r\n}\r\n'
+    expect(parseMcpJson(text, options).servers.map(server => server.serverName)).toEqual(['ok'])
+  })
 })
 ```
 
@@ -4049,10 +4478,10 @@ describe('parseMcpJson', () => {
 ```ts
 import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve, sep } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { ApprovalStore, approvalKey } from '../src/approvals.ts'
-import type { ServerSpec } from '../src/config.ts'
+import { canonicalJson, type ServerSpec } from '../src/config.ts'
 
 const created: string[] = []
 
@@ -4066,49 +4495,80 @@ async function approvalsFile(): Promise<string> {
   return join(dir, 'nested', 'mcp-approvals.json')
 }
 
-const stdio: ServerSpec = { transport: 'stdio', serverName: 'files', command: 'npx', args: ['server'], env: { B: '2', A: '1' }, cwd: '/p' }
-const http: ServerSpec = { transport: 'streamable-http', serverName: 'remote', url: 'https://example.test/mcp', headers: { Z: '1', A: '2' } }
+const root = resolve(sep, 'p')
+const stdioEntry = { command: 'npx', args: ['server'], env: { B: '${B}', A: '1' } }
+const httpEntry = { type: 'http', url: 'https://example.test/mcp', headers: { Z: '1', A: '${A}' } }
+const stdio: ServerSpec = { transport: 'stdio', serverName: 'files', command: 'npx', args: ['server'], env: { B: '2', A: '1' }, cwd: root, definition: canonicalJson(stdioEntry) }
+const http: ServerSpec = { transport: 'streamable-http', serverName: 'remote', url: 'https://example.test/mcp', headers: { Z: '1', A: '2' }, definition: canonicalJson(httpEntry) }
 
 describe('approvalKey', () => {
-  it('is a stable SHA-256 that ignores env and header order and the cwd', () => {
-    const key = approvalKey('/p', stdio)
+  it('is a stable SHA-256 of the project, server name, and definition as written', () => {
+    const key = approvalKey(root, stdio)
     expect(key).toMatch(/^[0-9a-f]{64}$/u)
-    expect(approvalKey('/p', { ...stdio, env: { A: '1', B: '2' }, cwd: '/p/sub' })).toBe(key)
-    expect(approvalKey('/p', { ...http, headers: { A: '2', Z: '1' } })).toBe(approvalKey('/p', http))
+    expect(approvalKey(root, { ...stdio, cwd: join(root, 'sub') })).toBe(key)
+    expect(approvalKey(root, { ...stdio, env: { A: '1', B: 'rotated' } })).toBe(key)
+    expect(approvalKey(root, { ...http, headers: { A: 'rotated', Z: '1' } })).toBe(approvalKey(root, http))
   })
 
-  it('changes with the project, command, arguments, env values, URL, and headers', () => {
-    const key = approvalKey('/p', stdio)
-    expect(approvalKey('/q', stdio)).not.toBe(key)
-    expect(approvalKey('/p', { ...stdio, command: 'node' })).not.toBe(key)
-    expect(approvalKey('/p', { ...stdio, args: ['server', '--unsafe'] })).not.toBe(key)
-    expect(approvalKey('/p', { ...stdio, env: { A: '1', B: '3' } })).not.toBe(key)
-    expect(approvalKey('/p', { ...http, url: 'https://evil.test/mcp' })).not.toBe(approvalKey('/p', http))
-    expect(approvalKey('/p', { ...http, headers: {} })).not.toBe(approvalKey('/p', http))
+  it('changes with the project, the server name, and any edit of the definition', () => {
+    const key = approvalKey(root, stdio)
+    expect(approvalKey(resolve(sep, 'q'), stdio)).not.toBe(key)
+    expect(approvalKey(root, { ...stdio, serverName: 'other' })).not.toBe(key)
+    expect(approvalKey(root, { ...stdio, definition: canonicalJson({ ...stdioEntry, command: 'node' }) })).not.toBe(key)
+    expect(approvalKey(root, { ...stdio, definition: canonicalJson({ ...stdioEntry, args: ['server', '--unsafe'] }) })).not.toBe(key)
+    expect(approvalKey(root, { ...http, definition: canonicalJson({ ...httpEntry, url: 'https://evil.test/mcp' }) })).not.toBe(approvalKey(root, http))
+  })
+
+  it('treats a Windows project root without regard to letter case', () => {
+    const lower = approvalKey(root, stdio)
+    expect(approvalKey(root.toUpperCase(), stdio) === lower).toBe(process.platform === 'win32')
   })
 })
 
 describe('ApprovalStore', () => {
-  it('records and removes approvals in a private file', async () => {
+  it('records and removes approvals', async () => {
     const file = await approvalsFile()
     const store = new ApprovalStore(file)
-    const key = approvalKey('/p', stdio)
-    const other = approvalKey('/p', http)
+    const key = approvalKey(root, stdio)
+    const other = approvalKey(root, http)
     expect(await store.has(key)).toBe(false)
-    await store.add(key, { projectRoot: '/p', server: 'files', approvedAt: '2026-10-01T00:00:00.000Z' })
-    await store.add(other, { projectRoot: '/p', server: 'remote', approvedAt: '2026-10-01T00:00:01.000Z' })
+    await store.add(key, { projectRoot: root, server: 'files', approvedAt: '2026-10-01T00:00:00.000Z' })
+    await store.add(other, { projectRoot: root, server: 'remote', approvedAt: '2026-10-01T00:00:01.000Z' })
     expect(await store.has(key)).toBe(true)
     expect(JSON.parse(await readFile(file, 'utf8'))).toEqual({
       version: 1,
       approved: {
-        [key]: { projectRoot: '/p', server: 'files', approvedAt: '2026-10-01T00:00:00.000Z' },
-        [other]: { projectRoot: '/p', server: 'remote', approvedAt: '2026-10-01T00:00:01.000Z' },
+        [key]: { projectRoot: root, server: 'files', approvedAt: '2026-10-01T00:00:00.000Z' },
+        [other]: { projectRoot: root, server: 'remote', approvedAt: '2026-10-01T00:00:01.000Z' },
       },
     })
-    expect((await stat(file)).mode & 0o777).toBe(0o600)
     await store.remove(key)
     expect(await store.has(key)).toBe(false)
     expect(await new ApprovalStore(file).has(other)).toBe(true)
+  })
+
+  it.skipIf(process.platform === 'win32')('writes a private file', async () => {
+    const file = await approvalsFile()
+    await new ApprovalStore(file).add(approvalKey(root, stdio), { projectRoot: root, server: 'files', approvedAt: '2026-10-01T00:00:00.000Z' })
+    expect((await stat(file)).mode & 0o777).toBe(0o600)
+  })
+
+  it('keeps every approval when several are added at once', async () => {
+    const store = new ApprovalStore(await approvalsFile())
+    const specs = ['a', 'b', 'c', 'd'].map(serverName => ({ ...stdio, serverName }))
+    await Promise.all(specs.map(spec => store.add(approvalKey(root, spec), { projectRoot: root, server: spec.serverName, approvedAt: '2026-10-01T00:00:00.000Z' })))
+    for (const spec of specs) expect(await store.has(approvalKey(root, spec))).toBe(true)
+  })
+
+  it('keeps accepting writes after one failed', async () => {
+    const file = await approvalsFile()
+    const store = new ApprovalStore(file)
+    await store.add(approvalKey(root, stdio), { projectRoot: root, server: 'files', approvedAt: '2026-10-01T00:00:00.000Z' })
+    await writeFile(file, '{ truncated')
+    await expect(store.add(approvalKey(root, http), { projectRoot: root, server: 'remote', approvedAt: '2026-10-01T00:00:01.000Z' })).rejects.toThrow()
+    await writeFile(file, '{"version": 1, "approved": {}}')
+    await store.add(approvalKey(root, http), { projectRoot: root, server: 'remote', approvedAt: '2026-10-01T00:00:01.000Z' })
+    expect(await store.has(approvalKey(root, http))).toBe(true)
   })
 
   it('fails loud on a file that is not an approvals file', async () => {
@@ -4116,18 +4576,18 @@ describe('ApprovalStore', () => {
     created.push(join(file, '..'))
     const store = new ApprovalStore(file)
     await writeFile(file, '{ truncated')
-    await expect(store.has(approvalKey('/p', stdio))).rejects.toThrow()
+    await expect(store.has(approvalKey(root, stdio))).rejects.toThrow()
     await writeFile(file, '{"version": 1, "approved": []}')
-    await expect(store.has(approvalKey('/p', stdio))).rejects.toThrow('is not an approvals file')
+    await expect(store.has(approvalKey(root, stdio))).rejects.toThrow('is not an approvals file')
     await writeFile(file, '[]')
-    await expect(store.has(approvalKey('/p', stdio))).rejects.toThrow('is not an approvals file')
+    await expect(store.has(approvalKey(root, stdio))).rejects.toThrow('is not an approvals file')
   })
 })
 ```
 
 - [ ] **Step 3: Run the tests to verify they fail**
 
-Run: `pnpm -C /home/hxman/AIR-harness/air/packages/mcp-conventions test`
+Run: `pnpm -C air/packages/mcp-conventions test`
 Expected: FAIL with `Failed to load url ../src/config.ts` and `Failed to load url ../src/approvals.ts`.
 
 - [ ] **Step 4: Implement the modules**
@@ -4148,12 +4608,16 @@ export type ServerSpec =
     readonly env: Record<string, string>
     /** Working directory of the server process: the session cwd. */
     readonly cwd: string
+    /** The entry as written in the file (`${VAR}` unexpanded) in canonical JSON; the approval identity. */
+    readonly definition: string
   }
   | {
     readonly transport: 'streamable-http'
     readonly serverName: string
     readonly url: string
     readonly headers: Record<string, string>
+    /** The entry as written in the file (`${VAR}` unexpanded) in canonical JSON; the approval identity. */
+    readonly definition: string
   }
 
 /** Values that are not part of the file. */
@@ -4167,6 +4631,20 @@ export interface ParseOptions {
 /** Same grammar upstream `mcp-client` accepts for `serverName`. */
 const SERVER_NAME = /^[A-Za-z0-9_-]{1,32}$/u
 const VARIABLE = /\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}/gu
+
+/**
+ * Serialize parsed JSON with object keys sorted at every depth, so two files that differ only in key
+ * order produce the same text.
+ * @param value - a value produced by `JSON.parse`.
+ * @returns the canonical JSON text.
+ */
+export function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`
+  if (isRecord(value)) {
+    return `{${Object.keys(value).sort().map(key => `${JSON.stringify(key)}:${canonicalJson(value[key])}`).join(',')}}`
+  }
+  return JSON.stringify(value)
+}
 
 /**
  * Expand `${VAR}` and `${VAR:-default}`.
@@ -4205,6 +4683,7 @@ function stringMap(value: unknown, field: string, options: ParseOptions): Record
 function parseServer(serverName: string, raw: unknown, options: ParseOptions): ServerSpec {
   if (!SERVER_NAME.test(serverName)) throw new Error('server name must match [A-Za-z0-9_-]{1,32}')
   if (!isRecord(raw)) throw new Error('server entry must be an object')
+  const definition = canonicalJson(raw)
   const url = raw['url']
   const command = raw['command']
   const type = raw['type'] ?? (typeof url === 'string' ? 'http' : 'stdio')
@@ -4217,6 +4696,7 @@ function parseServer(serverName: string, raw: unknown, options: ParseOptions): S
       args: stringList(raw['args'], 'args', options),
       env: stringMap(raw['env'], 'env', options),
       cwd: options.cwd,
+      definition,
     }
   }
   if (type === 'http' || type === 'streamable-http') {
@@ -4226,6 +4706,7 @@ function parseServer(serverName: string, raw: unknown, options: ParseOptions): S
       serverName,
       url: expandEnv(url, options.env),
       headers: stringMap(raw['headers'], 'headers', options),
+      definition,
     }
   }
   throw new Error(`transport type ${JSON.stringify(type)} is not supported; use stdio or http`)
@@ -4233,14 +4714,14 @@ function parseServer(serverName: string, raw: unknown, options: ParseOptions): S
 
 /**
  * Parse a `.mcp.json` document.
- * @param text - file content.
+ * @param text - file content; a leading byte-order mark (written by some Windows editors) is ignored.
  * @param options - session cwd and environment.
  * @returns valid servers in file order, and one problem line per rejected entry or document error.
  */
 export function parseMcpJson(text: string, options: ParseOptions): { servers: ServerSpec[]; problems: string[] } {
   let document: unknown
   try {
-    document = JSON.parse(text)
+    document = JSON.parse(text.replace(/^﻿/u, ''))
   } catch (error: unknown) {
     return { servers: [], problems: [`.mcp.json is not valid JSON: ${(error as Error).message}`] }
   }
@@ -4263,9 +4744,9 @@ export function parseMcpJson(text: string, options: ParseOptions): { servers: Se
 
 ```ts
 /** The consent record for project MCP servers: which exact server definitions a person approved. */
-import { createHash } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { mkdir, rename, writeFile } from 'node:fs/promises'
-import { dirname } from 'node:path'
+import { dirname, resolve } from 'node:path'
 import type { Branded } from '@deepseek-ai/dsh-brand'
 import { isRecord, readTextFile } from '@air/dsh-convention-core'
 import type { ServerSpec } from './config.ts'
@@ -4273,24 +4754,22 @@ import type { ServerSpec } from './config.ts'
 /** Identity of one approved server definition in one project. */
 export type McpApprovalKey = Branded<'McpApprovalKey'>
 
-function sortedEntries(map: Record<string, string>): [string, string][] {
-  return Object.entries(map).sort(([left], [right]) => {
-    if (left === right) return 0
-    return left < right ? -1 : 1
-  })
+function normalizedRoot(projectRoot: string): string {
+  const absolute = resolve(projectRoot)
+  return process.platform === 'win32' ? absolute.toLowerCase() : absolute
 }
 
 /**
- * Compute the approval identity of a server. Any change to the project root, name, command, URL,
- * arguments, env values, or headers produces a different key, so a changed definition needs a new approval.
+ * Compute the approval identity of a server. The key covers the project root, the server name, and
+ * the entry exactly as written in `.mcp.json` (variables unexpanded), so editing the command,
+ * arguments, URL, or any variable name requires a new approval, while rotating the value of a
+ * `${VAR}` does not. On Windows the project root compares without regard to letter case.
  * @param projectRoot - absolute project root that holds the `.mcp.json`.
- * @param spec - parsed server with variables expanded.
+ * @param spec - parsed server.
  * @returns a 64-digit hex SHA-256.
  */
 export function approvalKey(projectRoot: string, spec: ServerSpec): McpApprovalKey {
-  const canonical = spec.transport === 'stdio'
-    ? [projectRoot, spec.serverName, 'stdio', spec.command, spec.args, sortedEntries(spec.env)]
-    : [projectRoot, spec.serverName, 'streamable-http', spec.url, sortedEntries(spec.headers)]
+  const canonical = [normalizedRoot(projectRoot), spec.serverName, spec.definition]
   return createHash('sha256').update(JSON.stringify(canonical)).digest('hex') as McpApprovalKey
 }
 
@@ -4302,8 +4781,14 @@ export interface ApprovalRecord {
   readonly approvedAt: string
 }
 
-/** Reads and rewrites the approvals file. Every call re-reads the file, so edits by another process are seen. */
+/**
+ * Reads and rewrites the approvals file. Reads see edits by another process. Writes from this process
+ * run one at a time, so concurrent approvals do not overwrite each other; two processes writing at the
+ * same instant can still lose one approval, which then has to be given again.
+ */
 export class ApprovalStore {
+  private queue: Promise<unknown> = Promise.resolve()
+
   /** @param file - absolute path of the approvals file; it is created on the first approval. */
   constructor(private readonly file: string) {}
 
@@ -4323,7 +4808,7 @@ export class ApprovalStore {
    * @param record - readable description stored with the key.
    */
   async add(key: McpApprovalKey, record: ApprovalRecord): Promise<void> {
-    await this.write({ ...await this.read(), [key]: record })
+    await this.serialized(async () => { await this.write({ ...await this.read(), [key]: record }) })
   }
 
   /**
@@ -4331,8 +4816,17 @@ export class ApprovalStore {
    * @param key - approval identity.
    */
   async remove(key: McpApprovalKey): Promise<void> {
-    const approved = await this.read()
-    await this.write(Object.fromEntries(Object.entries(approved).filter(([existing]) => existing !== key)))
+    await this.serialized(async () => {
+      const approved = await this.read()
+      await this.write(Object.fromEntries(Object.entries(approved).filter(([existing]) => existing !== key)))
+    })
+  }
+
+  private serialized(task: () => Promise<void>): Promise<void> {
+    const run = this.queue.then(task)
+    // A failed write is reported to its own caller; the queue only orders the writes after it.
+    this.queue = run.catch(() => undefined)
+    return run
   }
 
   private async read(): Promise<Record<string, unknown>> {
@@ -4346,7 +4840,8 @@ export class ApprovalStore {
 
   private async write(approved: Record<string, unknown>): Promise<void> {
     await mkdir(dirname(this.file), { recursive: true })
-    const temporary = `${this.file}.${process.pid}.tmp`
+    const temporary = `${this.file}.${process.pid}.${randomUUID()}.tmp`
+    // Mode 0600 applies on POSIX; on Windows the file inherits the private ACL of the user profile.
     await writeFile(temporary, `${JSON.stringify({ version: 1, approved }, undefined, 2)}\n`, { mode: 0o600 })
     await rename(temporary, this.file)
   }
@@ -4355,16 +4850,15 @@ export class ApprovalStore {
 
 - [ ] **Step 5: Run the tests to verify they pass**
 
-Run: `pnpm -C /home/hxman/AIR-harness/air/packages/mcp-conventions test`
+Run: `pnpm -C air/packages/mcp-conventions test`
 Expected: `Test Files 2 passed (2)`.
 
 - [ ] **Step 6: Typecheck and commit**
 
-Run: `pnpm -C /home/hxman/AIR-harness/air/packages/mcp-conventions typecheck`
+Run: `pnpm -C air/packages/mcp-conventions typecheck`
 Expected: exit 0.
 
-```bash
-cd /home/hxman/AIR-harness
+```sh
 git add air/packages/mcp-conventions air/pnpm-lock.yaml
 git commit -m "feat(air): parse .mcp.json and record per-project MCP server approvals"
 ```
@@ -4386,9 +4880,9 @@ git commit -m "feat(air): parse .mcp.json and record per-project MCP server appr
 - Consumes from upstream: `ctx.on('agent/created', ({ agent }) => Promise<undefined>)` (serial; awaited before the Agent's queued input runs); `ctx.on('agent/disposed', ({ agent }) => void)`; `createScope(ctx, agent): Scope` with `scope.ctx.plugin(...)` and `scope.dispose(): Promise<void>`; `import * as McpClient from '@deepseek-ai/dsh-mcp-client'` with `McpClient.Config(input)`; `ctx.commands.register(definition): () => void`; `dshHomePath(...segments): string`.
 - Produces:
   - Cordis plugin module `@air/dsh-mcp-conventions`: `name = 'air-mcp-conventions'`, `inject = ['agents', 'tools', 'commands']`, `Config`, `apply(ctx, config)`.
-  - `interface Config { approvalsFile?: string; startupTimeoutMs?: number; toolCallTimeoutMs?: number; projectRootMarkers?: string[] }` with defaults `dshHomePath('air', 'mcp-approvals.json')`, `15000`, `60000`, `['.git']`.
+  - `interface Config { approvalsFile?: string; startupTimeoutMs?: number; toolCallTimeoutMs?: number; projectRootMarkers?: string[]; reviewTools?: boolean }` with defaults `dshHomePath('air', 'mcp-approvals.json')`, `15000`, `60000`, `['.git']`, `false`. With `reviewTools: true` each mounted `mcp-client` child is the upstream plugin with `inject` extended by `mcpToolReview`, so it stays pending until plan 02's reviewer exists; plan 01 does not depend on plan 02.
   - `resolveConfig(config: Config): ResolvedConfig`.
-  - Global command `/mcp`: no input lists servers; `approve <server>` records approval and starts the server for the calling Agent; `revoke <server>` removes approval and stops it.
+  - Global command `/mcp`: no input lists servers; `approve <server>` records approval and starts the server for the calling Agent; `revoke <server>` removes approval and stops it. Run it before the first message and the tools exist for the first request; an unreadable approvals file or `.mcp.json` approves nothing and never fails Agent creation.
   - Model-facing tools `mcp__<server>__<tool>` registered in the Agent's scope by upstream `mcp-client`.
   - Bundle row used in Task 9: `{ id: air-mcp-conventions, name: '@air/dsh-mcp-conventions' }`.
 
@@ -4446,7 +4940,11 @@ export function stubAgent(ctx: Context, cwd: string | undefined): StubAgent {
 
 ```js
 /** Line-delimited JSON-RPC MCP server over stdio with one tool, `echo`. */
+import { writeFileSync } from 'node:fs'
 import { createInterface } from 'node:readline'
+
+// Tests set ECHO_PID_FILE to learn which processes this server started and to check that they exit.
+if (process.env.ECHO_PID_FILE) writeFileSync(`${process.env.ECHO_PID_FILE}.${process.pid}`, '')
 
 const reply = (id, body) => process.stdout.write(`${JSON.stringify({ jsonrpc: '2.0', id, ...body })}\n`)
 
@@ -4493,9 +4991,9 @@ The reply to unknown methods matters: the upstream client first probes `server/d
 `air/packages/mcp-conventions/tests/plugin.spec.ts`:
 
 ```ts
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
@@ -4513,6 +5011,9 @@ import { stubAgent } from './harness.ts'
 const echoServer = join(import.meta.dirname, 'fixtures', 'echo-server.mjs')
 const created: string[] = []
 const contexts: Context[] = []
+
+// A plain string selects the untyped `provide` overload: the reviewer service is declared by the MCP trust plan, not by this one.
+const REVIEW_SERVICE: string = 'mcpToolReview'
 
 afterEach(async () => {
   for (const ctx of contexts.splice(0)) await ctx.fiber.dispose()
@@ -4537,7 +5038,7 @@ async function world(mcpJson?: unknown): Promise<World> {
 
 const demo = { mcpServers: { demo: { command: process.execPath, args: [echoServer] } } }
 
-async function mount(approvalsFile: string, startupTimeoutMs = 15_000) {
+async function mount(approvalsFile: string, startupTimeoutMs = 15_000, extra: mcpConventions.Config = {}) {
   const ctx = new Context()
   contexts.push(ctx)
   await ctx.plugin(SystemPrompt)
@@ -4545,7 +5046,7 @@ async function mount(approvalsFile: string, startupTimeoutMs = 15_000) {
   await ctx.plugin(SessionStore)
   await ctx.plugin(CommandRuntime)
   await ctx.plugin(AgentRegistry)
-  const fiber = await ctx.plugin(mcpConventions, { approvalsFile, startupTimeoutMs })
+  const fiber = await ctx.plugin(mcpConventions, { approvalsFile, startupTimeoutMs, ...extra })
   return { ctx, fiber }
 }
 
@@ -4573,6 +5074,16 @@ async function approveInFile(approvalsFile: string, root: string, mcpJson: unkno
       server: spec.serverName,
       approvedAt: '2026-10-01T00:00:00.000Z',
     })
+  }
+}
+
+function isAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch {
+    // Signal 0 throws ESRCH once the process has exited, on Windows as on POSIX.
+    return false
   }
 }
 
@@ -4619,20 +5130,28 @@ describe('air-mcp-conventions', () => {
     expect((await command(ctx, agent, '/mcp revoke demo')).kind).toBe('success')
   })
 
-  it('stops servers when the Agent is disposed and when the plugin unloads', async () => {
-    const { root, approvalsFile } = await world(demo)
-    await approveInFile(approvalsFile, root, demo)
+  it('stops server processes when the Agent is disposed and when the plugin unloads', async () => {
+    const { root, approvalsFile } = await world()
+    const base = dirname(root)
+    const withPid = { mcpServers: { demo: { command: process.execPath, args: [echoServer], env: { ECHO_PID_FILE: join(base, 'echo.pid') } } } }
+    await writeFile(join(root, '.mcp.json'), JSON.stringify(withPid))
+    const pids = async (): Promise<number[]> => (await readdir(base))
+      .filter(name => name.startsWith('echo.pid.'))
+      .map(name => Number(name.slice('echo.pid.'.length)))
+    await approveInFile(approvalsFile, root, withPid)
     const { ctx, fiber } = await mount(approvalsFile)
     const first = await live(ctx, root)
     const second = await live(ctx, root)
     const detached = await live(ctx, undefined)
     expect(toolNames(ctx, first)).toEqual(['mcp__demo__echo'])
+    expect(await pids()).toHaveLength(2)
     ctx.emit('agent/disposed', { agent: first })
     ctx.emit('agent/disposed', { agent: detached })
     await vi.waitFor(() => { expect(toolNames(ctx, first)).toEqual([]) }, { timeout: 5000 })
     expect(toolNames(ctx, second)).toEqual(['mcp__demo__echo'])
     await fiber.dispose()
     expect(toolNames(ctx, second)).toEqual([])
+    await vi.waitFor(async () => { expect((await pids()).some(isAlive)).toBe(false) }, { timeout: 5000 })
   })
 
   it('reports a server that fails to start, times out, or is unreachable', async () => {
@@ -4659,6 +5178,26 @@ describe('air-mcp-conventions', () => {
 
     const next = await live(ctx, root)
     expect(toolNames(ctx, next)).toEqual([])
+  })
+
+  it('keeps the Agent usable when the approvals file is corrupt and says so in /mcp', async () => {
+    const { root, approvalsFile } = await world(demo)
+    await mkdir(dirname(approvalsFile), { recursive: true })
+    await writeFile(approvalsFile, '{ truncated')
+    const { ctx } = await mount(approvalsFile)
+    const agent = await live(ctx, root)
+    expect(toolNames(ctx, agent)).toEqual([])
+    const listed = await command(ctx, agent, '/mcp')
+    expect(listed.text).toContain('): not approved')
+    expect(listed.text).toMatch(/Problem: the approvals file could not be read: /u)
+    expect((await command(ctx, agent, '/mcp')).text.match(/Problem: the approvals file/gu)).toHaveLength(1)
+  })
+
+  it('does not fail Agent creation when the project file cannot be read', async () => {
+    const { approvalsFile } = await world(demo)
+    const { ctx } = await mount(approvalsFile)
+    const agent = await live(ctx, 'bad\0cwd')
+    expect(toolNames(ctx, agent)).toEqual([])
   })
 
   it('lists problems and projects without servers', async () => {
@@ -4693,11 +5232,40 @@ describe('air-mcp-conventions', () => {
   })
 })
 
+describe('reviewTools', () => {
+  it('keeps a server pending until the MCP tool reviewer exists', async () => {
+    const { root, approvalsFile } = await world(demo)
+    const { ctx } = await mount(approvalsFile, 500, { reviewTools: true })
+    const agent = await live(ctx, root)
+    const pending = await command(ctx, agent, '/mcp approve demo')
+    expect(pending.kind).toBe('error')
+    expect(pending.text).toContain('did not start within 500 ms')
+    expect(pending.text).toContain('MCP tool reviewer')
+    expect(toolNames(ctx, agent)).toEqual([])
+  })
+
+  it('starts the server once the MCP tool reviewer exists', async () => {
+    const { root, approvalsFile } = await world(demo)
+    const { ctx } = await mount(approvalsFile, 15_000, { reviewTools: true })
+    ctx.provide(REVIEW_SERVICE, {})
+    const agent = await live(ctx, root)
+    expect(await command(ctx, agent, '/mcp approve demo')).toEqual({ kind: 'success', text: 'Approved and started "demo".' })
+    expect(toolNames(ctx, agent)).toEqual(['mcp__demo__echo'])
+  })
+
+  it('does not wait for a reviewer by default', async () => {
+    const { root, approvalsFile } = await world(demo)
+    const { ctx } = await mount(approvalsFile, 500)
+    const agent = await live(ctx, root)
+    expect((await command(ctx, agent, '/mcp approve demo')).kind).toBe('success')
+  })
+})
+
 describe('resolveConfig', () => {
   it('applies defaults under the harness home', () => {
     const resolved = mcpConventions.resolveConfig({})
     expect(resolved.approvalsFile.endsWith(join('air', 'mcp-approvals.json'))).toBe(true)
-    expect(resolved).toMatchObject({ startupTimeoutMs: 15000, toolCallTimeoutMs: 60000, projectRootMarkers: ['.git'] })
+    expect(resolved).toMatchObject({ startupTimeoutMs: 15000, toolCallTimeoutMs: 60000, projectRootMarkers: ['.git'], reviewTools: false })
   })
 
   it('rejects invalid values', () => {
@@ -4710,7 +5278,7 @@ describe('resolveConfig', () => {
 
 - [ ] **Step 3: Run the plugin tests to verify they fail**
 
-Run: `pnpm -C /home/hxman/AIR-harness/air/packages/mcp-conventions exec vitest run tests/plugin.spec.ts`
+Run: `pnpm -C air/packages/mcp-conventions exec vitest run tests/plugin.spec.ts`
 Expected: FAIL with `Failed to load url ../src/index.ts`.
 
 - [ ] **Step 4: Implement the plugin**
@@ -4744,6 +5312,9 @@ export const inject = ['agents', 'tools', 'commands']
 
 const USAGE = 'Usage: /mcp [approve <server> | revoke <server>]'
 
+/** Service the MCP trust plan provides; an `mcp-client` child that must be reviewed waits for it. */
+const REVIEW_SERVICE = 'mcpToolReview'
+
 /** Plugin configuration. */
 export interface Config {
   /** Approvals file. Defaults to `<DSH_HOME>/air/mcp-approvals.json`. */
@@ -4754,6 +5325,8 @@ export interface Config {
   toolCallTimeoutMs?: number
   /** Entry names that identify the project root. Defaults to `['.git']`. */
   projectRootMarkers?: string[]
+  /** Whether each mounted `mcp-client` child declares `inject: ['mcpToolReview']` and waits for the MCP trust plan's reviewer. Defaults to false. */
+  reviewTools?: boolean
 }
 
 export const Config: Schema<Config> = Schema.object({
@@ -4761,6 +5334,7 @@ export const Config: Schema<Config> = Schema.object({
   startupTimeoutMs: Schema.number().default(15000).description('Milliseconds a server may take to start.'),
   toolCallTimeoutMs: Schema.number().default(60000).description('Milliseconds allowed per tool call.'),
   projectRootMarkers: Schema.array(Schema.string()).default(['.git']).description('Entry names that identify the project root.'),
+  reviewTools: Schema.boolean().default(false).description('Hold each server until the MCP tool reviewer service exists, so its tools are reviewed before they register.'),
 })
 
 /** Configuration after defaulting and validation. */
@@ -4769,6 +5343,7 @@ export interface ResolvedConfig {
   readonly startupTimeoutMs: number
   readonly toolCallTimeoutMs: number
   readonly projectRootMarkers: readonly string[]
+  readonly reviewTools: boolean
 }
 
 /**
@@ -4783,6 +5358,7 @@ export function resolveConfig(config: Config): ResolvedConfig {
     startupTimeoutMs: config.startupTimeoutMs ?? 15000,
     toolCallTimeoutMs: config.toolCallTimeoutMs ?? 60000,
     projectRootMarkers: config.projectRootMarkers ?? ['.git'],
+    reviewTools: config.reviewTools ?? false,
   }
   if (!Number.isInteger(resolved.startupTimeoutMs) || resolved.startupTimeoutMs < 1) {
     throw new TypeError('air-mcp-conventions: startupTimeoutMs must be a positive integer')
@@ -4799,7 +5375,8 @@ export function resolveConfig(config: Config): ResolvedConfig {
 interface AgentState {
   readonly projectRoot: string
   readonly servers: readonly ServerSpec[]
-  readonly problems: readonly string[]
+  /** File problems and approvals-file problems, shown by `/mcp`. */
+  readonly problems: string[]
   /** Running servers by name; each scope owns one `mcp-client` child. */
   readonly mounted: Map<string, Scope>
 }
@@ -4813,6 +5390,22 @@ export function apply(ctx: Context, config: Config = {}): void {
   const resolved = resolveConfig(config)
   const approvals = new ApprovalStore(resolved.approvalsFile)
   const states = new Map<Agent, AgentState>()
+  // Declaring the reviewer service in `inject` keeps the child pending until the service exists. The
+  // object repeats the merge the Loader performs for a row-level `inject`.
+  const client = resolved.reviewTools
+    ? { name: 'mcp-client-reviewed', inject: [...McpClient.inject, REVIEW_SERVICE], apply: McpClient.apply }
+    : McpClient
+
+  /** An unreadable approvals file approves nothing and is shown by `/mcp`; it never fails Agent creation. */
+  const isApproved = async (state: AgentState, spec: ServerSpec): Promise<boolean> => {
+    try {
+      return await approvals.has(approvalKey(state.projectRoot, spec))
+    } catch (error: unknown) {
+      const problem = `the approvals file could not be read: ${(error as Error).message}`
+      if (!state.problems.includes(problem)) state.problems.push(problem)
+      return false
+    }
+  }
 
   /** Start one server in the Agent's scope. Returns the failure text, or undefined on success. */
   const mount = async (agent: Agent, state: AgentState, spec: ServerSpec): Promise<string | undefined> => {
@@ -4821,13 +5414,14 @@ export function apply(ctx: Context, config: Config = {}): void {
     const clientConfig = spec.transport === 'stdio'
       ? McpClient.Config({ transport: 'stdio', serverName: spec.serverName, command: spec.command, args: spec.args, env: spec.env, cwd: spec.cwd, ...common })
       : McpClient.Config({ transport: 'streamable-http', serverName: spec.serverName, url: spec.url, headers: spec.headers, ...common })
-    const start = async (): Promise<void> => { await scope.ctx.plugin(McpClient, clientConfig) }
+    const start = async (): Promise<void> => { await scope.ctx.plugin(client, clientConfig) }
     let timer: NodeJS.Timeout | undefined
     try {
       await Promise.race([
         start(),
         new Promise<never>((_resolve, reject) => {
-          timer = setTimeout(() => { reject(new Error(`did not start within ${resolved.startupTimeoutMs} ms`)) }, resolved.startupTimeoutMs)
+          const reason = resolved.reviewTools ? '; MCP tool review is required and its reviewer is not loaded' : ''
+          timer = setTimeout(() => { reject(new Error(`did not start within ${resolved.startupTimeoutMs} ms${reason}`)) }, resolved.startupTimeoutMs)
         }),
       ])
       state.mounted.set(spec.serverName, scope)
@@ -4853,12 +5447,12 @@ export function apply(ctx: Context, config: Config = {}): void {
       const target = spec.transport === 'stdio' ? [spec.command, ...spec.args].join(' ') : spec.url
       let status = 'not approved'
       if (state.mounted.has(spec.serverName)) status = 'running'
-      else if (await approvals.has(approvalKey(state.projectRoot, spec))) status = 'approved, not running'
+      else if (await isApproved(state, spec)) status = 'approved, not running'
       lines.push(`${spec.serverName} (${spec.transport}: ${target}): ${status}`)
     }
     if (lines.length === 0) lines.push(`No servers are declared in ${join(state.projectRoot, '.mcp.json')}.`)
     for (const problem of state.problems) lines.push(`Problem: ${problem}`)
-    lines.push('Use /mcp approve <server> to start a server from this project, or /mcp revoke <server> to stop trusting it.')
+    lines.push('Use /mcp approve <server> to start a server from this project, or /mcp revoke <server> to stop trusting it. Approve before your first message so the tools exist for the first request.')
     return lines.join('\n')
   }
 
@@ -4891,21 +5485,35 @@ export function apply(ctx: Context, config: Config = {}): void {
       : { kind: 'error', text: `Approved "${spec.serverName}", but it did not start: ${failure}` }
   }
 
-  ctx.on('agent/created', async ({ agent }) => {
-    const cwd = agent.session.header.cwd
-    if (cwd === undefined) return
+  /** Read `.mcp.json` and start the approved servers. A failure is logged and never fails Agent creation. */
+  const attach = async (agent: Agent, cwd: string): Promise<void> => {
     const projectRoot = await findProjectRoot(cwd, resolved.projectRootMarkers)
     const text = await readTextFile(join(projectRoot, '.mcp.json'))
     const parsed = text === undefined ? { servers: [], problems: [] } : parseMcpJson(text, { cwd, env: process.env })
     const state: AgentState = { projectRoot, servers: parsed.servers, problems: parsed.problems, mounted: new Map() }
     states.set(agent, state)
     for (const problem of state.problems) ctx.logger.warn(`air-mcp-conventions: ${problem}`)
-    // Servers start in parallel; a failure is logged and never fails Agent creation.
+    let pending = 0
+    // Servers start in parallel.
     await Promise.all(state.servers.map(async (spec) => {
-      if (!await approvals.has(approvalKey(projectRoot, spec))) return
+      if (!await isApproved(state, spec)) {
+        pending += 1
+        return
+      }
       const failure = await mount(agent, state, spec)
       if (failure !== undefined) ctx.logger.warn(`air-mcp-conventions: server "${spec.serverName}" did not start: ${failure}`)
     }))
+    if (pending > 0) ctx.logger.info(`air-mcp-conventions: ${pending} server(s) in ${join(projectRoot, '.mcp.json')} await approval; run /mcp in the session`)
+  }
+
+  ctx.on('agent/created', async ({ agent }) => {
+    const cwd = agent.session.header.cwd
+    if (cwd === undefined) return
+    try {
+      await attach(agent, cwd)
+    } catch (error: unknown) {
+      ctx.logger.warn(`air-mcp-conventions: ${(error as Error).message}`)
+    }
   })
 
   ctx.on('agent/disposed', ({ agent }) => {
@@ -4927,11 +5535,11 @@ export function apply(ctx: Context, config: Config = {}): void {
 
 - [ ] **Step 5: Run the unit tests to verify they pass**
 
-Run: `pnpm -C /home/hxman/AIR-harness/air/packages/mcp-conventions exec vitest run tests/config.spec.ts tests/approvals.spec.ts tests/plugin.spec.ts`
+Run: `pnpm -C air/packages/mcp-conventions exec vitest run tests/config.spec.ts tests/approvals.spec.ts tests/plugin.spec.ts`
 Expected: `Test Files 3 passed (3)`.
 
-If the `demo` server does not start, run the fixture by hand to see the handshake the upstream client sends:
-`printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}' '{"jsonrpc":"2.0","id":2,"method":"tools/list"}' | node air/packages/mcp-conventions/tests/fixtures/echo-server.mjs`
+If the `demo` server does not start, run the fixture by hand to see the handshake the upstream client sends (the command works in PowerShell and bash):
+`node -e "const c=require('node:child_process').spawn(process.execPath,['air/packages/mcp-conventions/tests/fixtures/echo-server.mjs']);c.stdout.pipe(process.stdout);c.stdin.end(JSON.stringify({jsonrpc:'2.0',id:1,method:'initialize',params:{protocolVersion:'2025-06-18'}})+'\n'+JSON.stringify({jsonrpc:'2.0',id:2,method:'tools/list'})+'\n')"`
 Expected: two JSON lines, the second listing `echo`. Then compare the request methods with `packages/mcp/mcp-client/tests/fixtures/negotiation-lifecycle.mjs` and add a `case` for any method the client requires.
 
 - [ ] **Step 6: Write the native Loader test**
@@ -5012,14 +5620,11 @@ it('loads the built package through native Loader resolution', async () => {
 
 - [ ] **Step 7: Build, then run the whole suite with coverage**
 
-Run: `pnpm -C /home/hxman/AIR-harness/air/packages/mcp-conventions build && pnpm -C /home/hxman/AIR-harness/air/packages/mcp-conventions exec vitest run --coverage --coverage.include='src/**' --coverage.thresholds.100`
+Run: `pnpm -C air/packages/mcp-conventions build`, then `pnpm -C air/packages/mcp-conventions exec vitest run --coverage --coverage.include='src/**' --coverage.thresholds.100`
 Expected: `Test Files 4 passed (4)`; `approvals.ts`, `config.ts`, `index.ts` at 100 in every column.
 
-Run: `pnpm -C /home/hxman/AIR-harness/air/packages/mcp-conventions typecheck && pnpm -C /home/hxman/AIR-harness/air run lint`
+Run: `pnpm -C air/packages/mcp-conventions typecheck`, then `pnpm -C air run lint`
 Expected: exit 0 for both.
-
-Run: `pgrep -fa echo-server.mjs; echo "exit $?"`
-Expected: no process listed, `exit 1` (every fixture server exited with its scope).
 
 - [ ] **Step 8: Write the README**
 
@@ -5034,7 +5639,7 @@ A host-level plugin that imports Claude Code project MCP configuration. When an 
 
 Supported entries: `command`, `args`, `env` (stdio) and `url`, `headers` with `type: "http"` (Streamable HTTP). `${VAR}` and `${VAR:-default}` are expanded from the process environment in `command`, `args`, `env`, `url`, and `headers`. A stdio server runs with the session cwd as its working directory.
 
-Consent: a repository file can name any command, so nothing in `.mcp.json` runs until a person approves it. Approvals are stored in `<DSH_HOME>/air/mcp-approvals.json` (mode 0600), keyed by a SHA-256 over the project root, server name, command or URL, arguments, and expanded env or header values. Changing any of these requires a new approval.
+Consent: a repository file can name any command, so nothing in `.mcp.json` runs until a person approves it. Approvals are stored in `<DSH_HOME>/air/mcp-approvals.json` (mode 0600 on POSIX; on Windows the file inherits the private ACL of the user profile), keyed by a SHA-256 over the project root, the server name, and the entry exactly as written in `.mcp.json`. Editing the command, arguments, URL, or any `${VAR}` name requires a new approval; rotating the value of a `${VAR}` does not. Run `/mcp approve <server>` before the first message of a session so the tools exist for the first request; the session logs a note at creation when servers await approval.
 
 | Command | Effect |
 |---|---|
@@ -5042,7 +5647,7 @@ Consent: a repository file can name any command, so nothing in `.mcp.json` runs 
 | `/mcp approve <server>` | record approval and start the server for this session |
 | `/mcp revoke <server>` | remove approval and stop the server in this session |
 
-Config: `approvalsFile`, `startupTimeoutMs` (default 15000), `toolCallTimeoutMs` (default 60000), `projectRootMarkers` (default `['.git']`).
+Config: `approvalsFile`, `startupTimeoutMs` (default 15000), `toolCallTimeoutMs` (default 60000), `projectRootMarkers` (default `['.git']`), `reviewTools` (default `false`). With `reviewTools: true` every mounted `mcp-client` waits for the `mcpToolReview` service of the MCP trust plan, so imported servers cannot register tools unreviewed; the AIR bundle turns it on when that plan is installed.
 
 ## Model Experience
 
@@ -5050,19 +5655,19 @@ The model sees each approved server's tools as `mcp__<server>__<tool>`, plus the
 
 ## Known Limitations
 
-- Only the project `.mcp.json` is read. `~/.claude.json`, Claude Desktop configuration, and `.mcpb` bundles are not imported.
+- Only the project `.mcp.json` is read, as UTF-8 (a UTF-8 byte-order mark is accepted; a UTF-16 file saved by Windows PowerShell 5 is not). `~/.claude.json`, Claude Desktop configuration, and `.mcpb` bundles are not imported.
+- On Windows a bare `npx` or `uvx` command works because the upstream client launches servers through `cross-spawn`; a server inherits only a small set of environment variables plus the `env` it declares.
 - `type: "sse"` servers and OAuth are not supported (upstream `mcp-client` has neither).
 - An approval covers expanded env and header values, so rotating a token referenced through `${VAR}` requires a new approval.
 - Every Agent starts its own server processes, including delegated child Agents working in the same project.
 - `.mcp.json` is read once, when the Agent is created; edit the file and start a new session to pick up changes. Revoking in one session does not stop the server in other running sessions.
-- A corrupt approvals file fails Agent creation with an error that names the file; delete or repair the file.
+- A corrupt approvals file approves nothing: `/mcp` shows a problem line that names the file, and servers do not start until the file is repaired or deleted. Two processes writing the file at the same instant can lose one approval.
 - Tool definitions are not pinned or reviewed here; that is the MCP trust plan.
 ```
 
 - [ ] **Step 9: Commit**
 
-```bash
-cd /home/hxman/AIR-harness
+```sh
 git add air/packages/mcp-conventions
 git commit -m "feat(air): mount approved .mcp.json servers per Agent and add the /mcp command"
 ```
@@ -5096,7 +5701,7 @@ git commit -m "feat(air): mount approved .mcp.json servers per Agent and add the
   - Message source kind `air-command`: `interface AirCommandSource { readonly kind: 'air-command'; readonly name: string; readonly form: 'instructions' }`.
   - Bundle row used in Task 9: `{ id: air-command-conventions, name: '@air/dsh-command-conventions' }`.
 
-Argument rules (Claude Code skill and command placeholders): `$ARGUMENTS` is the whole input, trimmed; `$ARGUMENTS[N]` and `$N` are one argument after shell-like splitting, counted from `positionalBase` (0 matches current Claude Code; set 1 for command files written for the older `$1` convention); `$name` is the argument at the position of `name` in the frontmatter `arguments:` list. A missing argument becomes an empty string. When the body has no placeholder and the input is not empty, `ARGUMENTS: <input>` is appended.
+Argument rules (Claude Code skill and command placeholders): `$ARGUMENTS` is the whole input, trimmed; `$ARGUMENTS[N]` and `$N` are one argument after shell-like splitting, counted from `positionalBase` (0 matches current Claude Code; set 1 for command files written for the older `$1` convention); `$name` is the argument at the position of `name` in the frontmatter `arguments:` list. A missing argument becomes an empty string. When the body has no placeholder and the input is not empty, `ARGUMENTS: <input>` is appended. Substitution is a single pass: placeholder text inside an argument is inserted literally and never expanded again, and `$&`-style replacement patterns in the input stay literal. Splitting treats a backslash as an escape only before a quote or whitespace, so Windows paths such as `C:\Users\me\a.txt` and `\\server\share` survive.
 
 - [ ] **Step 1: Create the package scaffold**
 
@@ -5204,7 +5809,7 @@ export default defineConfig({
 })
 ```
 
-Run: `pnpm -C /home/hxman/AIR-harness/air install`
+Run: `pnpm -C air install`
 Expected: exit 0; `air/packages/command-conventions/node_modules/@deepseek-ai/dsh-commands/lib/index.js` exists.
 
 - [ ] **Step 2: Write the failing argument tests**
@@ -5222,6 +5827,9 @@ describe('splitArguments', () => {
     ['123 high', ['123', 'high']],
     ['  "two words"  \'single quoted\' plain ', ['two words', 'single quoted', 'plain']],
     ['a\\ b c', ['a b', 'c']],
+    ['say \\"hi\\"', ['say', '"hi"']],
+    ['C:\\Users\\me\\f.txt "D:\\my dir\\x"', ['C:\\Users\\me\\f.txt', 'D:\\my dir\\x']],
+    ['\\\\server\\share', ['\\\\server\\share']],
     ['"" x', ['', 'x']],
     ['pre"fix ed"post', ['prefix edpost']],
     ['"unterminated rest', ['unterminated rest']],
@@ -5248,6 +5856,14 @@ describe('substituteArguments', () => {
     expect(substituteArguments('Issue $issue then $branch', '42', ['issue', 'branch'], 0)).toBe('Issue 42 then ')
   })
 
+  it('inserts the input literally and in one pass', () => {
+    expect(substituteArguments('A: $ARGUMENTS B: $1', '$0 x', [], 0)).toBe('A: $0 x B: x')
+    expect(substituteArguments('Run $ARGUMENTS', '$& $\'', [], 0)).toBe('Run $& $\'')
+    expect(substituteArguments('All: $ARGUMENTS', 'a\nb', [], 0)).toBe('All: a\nb')
+    expect(substituteArguments('Tenth: $10 or $ARGUMENTS[10]', 'a', [], 0)).toBe('Tenth:  or ')
+    expect(substituteArguments('Open bracket: $ARGUMENTS[ now', 'x', [], 0)).toBe('Open bracket: x[ now')
+  })
+
   it('appends the input when the body has no placeholder', () => {
     expect(substituteArguments('Review the diff.', 'only tests', [], 0)).toBe('Review the diff.\n\nARGUMENTS: only tests')
     expect(substituteArguments('Review the diff for $USER.', 'only tests', [], 0)).toBe('Review the diff for $USER.\n\nARGUMENTS: only tests')
@@ -5258,7 +5874,7 @@ describe('substituteArguments', () => {
 
 - [ ] **Step 3: Run the argument tests to verify they fail**
 
-Run: `pnpm -C /home/hxman/AIR-harness/air/packages/command-conventions exec vitest run tests/args.spec.ts`
+Run: `pnpm -C air/packages/command-conventions exec vitest run tests/args.spec.ts`
 Expected: FAIL with `Failed to load url ../src/args.ts`.
 
 - [ ] **Step 4: Implement argument handling**
@@ -5268,9 +5884,13 @@ Expected: FAIL with `Failed to load url ../src/args.ts`.
 ```ts
 /** Argument splitting and placeholder substitution for command files. */
 
+/** Characters a backslash may escape; any other backslash is literal, which keeps Windows paths intact. */
+const ESCAPABLE = /["'\s]/u
+
 /**
  * Split command input into arguments. Whitespace separates arguments; single or double quotes
- * group text, and a backslash keeps the next character. An unterminated quote runs to the end.
+ * group text, and a backslash before a quote or whitespace keeps that character. Any other backslash is
+ * literal, so `C:\Users\me\a.txt` is one argument. An unterminated quote runs to the end.
  * @param raw - text typed after the command name.
  * @returns the arguments in order.
  */
@@ -5287,7 +5907,7 @@ export function splitArguments(raw: string): string[] {
     } else if (char === '"' || char === '\'') {
       quote = char
       started = true
-    } else if (char === '\\' && index + 1 < raw.length) {
+    } else if (char === '\\' && ESCAPABLE.test(raw.charAt(index + 1))) {
       index += 1
       current += raw.charAt(index)
       started = true
@@ -5345,7 +5965,7 @@ export function substituteArguments(
 
 - [ ] **Step 5: Run the argument tests to verify they pass**
 
-Run: `pnpm -C /home/hxman/AIR-harness/air/packages/command-conventions exec vitest run tests/args.spec.ts`
+Run: `pnpm -C air/packages/command-conventions exec vitest run tests/args.spec.ts`
 Expected: `Test Files 1 passed (1)`.
 
 - [ ] **Step 6: Write the harness and the failing plugin tests**
@@ -5403,7 +6023,7 @@ export function stubAgent(ctx: Context, cwd: string | undefined): StubAgent {
 ```ts
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { dirname, join } from 'node:path'
+import { dirname, join, resolve, sep } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
@@ -5551,6 +6171,13 @@ describe('air-command-conventions', () => {
     expect(await command(ctx, stub, '/compact')).toEqual({ kind: 'success' })
   })
 
+  it('does not fail Agent creation when a command folder cannot be read', async () => {
+    const { config } = await world()
+    const { ctx } = await mount(config)
+    const stub = await live(ctx, 'bad\0cwd')
+    expect(names(ctx, stub)).toEqual(['compact'])
+  })
+
   it('scopes commands to the Agent and removes them on disposal and unload', async () => {
     const { root, config } = await world()
     await write(join(root, '.claude/commands/local.md'), 'Local.')
@@ -5574,8 +6201,8 @@ describe('air-command-conventions', () => {
 
 describe('resolveConfig', () => {
   it('applies defaults', () => {
-    expect(commandConventions.resolveConfig({ airHome: '/a', claudeHome: '/c' })).toMatchObject({
-      homes: { airHome: '/a', claudeHome: '/c' },
+    expect(commandConventions.resolveConfig({ airHome: resolve(sep, 'a'), claudeHome: resolve(sep, 'c') })).toMatchObject({
+      homes: { airHome: resolve(sep, 'a'), claudeHome: resolve(sep, 'c') },
       includeUserRoots: false,
       projectRootMarkers: ['.git'],
       positionalBase: 0,
@@ -5591,7 +6218,7 @@ describe('resolveConfig', () => {
 
 - [ ] **Step 7: Run the plugin tests to verify they fail**
 
-Run: `pnpm -C /home/hxman/AIR-harness/air/packages/command-conventions exec vitest run tests/plugin.spec.ts`
+Run: `pnpm -C air/packages/command-conventions exec vitest run tests/plugin.spec.ts`
 Expected: FAIL with `Failed to load url ../src/index.ts`.
 
 - [ ] **Step 8: Implement the plugin**
@@ -5802,7 +6429,14 @@ export function apply(ctx: Context, config: Config = {}): void {
   ctx.on('agent/created', async ({ agent }) => {
     const cwd = agent.session.header.cwd
     if (cwd === undefined) return
-    const files = await discover(agent, cwd)
+    let files: CommandFile[]
+    try {
+      files = await discover(agent, cwd)
+    } catch (error: unknown) {
+      // A command folder that cannot be read costs the Agent its commands, never its creation.
+      ctx.logger.warn(`air-command-conventions: command files could not be read: ${(error as Error).message}`)
+      return
+    }
     if (files.length === 0) return
     const scope = createScope(ctx, agent)
     scopes.set(agent, scope)
@@ -5828,7 +6462,7 @@ export function apply(ctx: Context, config: Config = {}): void {
 
 - [ ] **Step 9: Run the unit tests to verify they pass**
 
-Run: `pnpm -C /home/hxman/AIR-harness/air/packages/command-conventions exec vitest run tests/args.spec.ts tests/plugin.spec.ts`
+Run: `pnpm -C air/packages/command-conventions exec vitest run tests/args.spec.ts tests/plugin.spec.ts`
 Expected: `Test Files 2 passed (2)`.
 
 - [ ] **Step 10: Write the native Loader test**
@@ -5902,10 +6536,10 @@ The last assertion uses `snapshotEvents`, which upstream marks deprecated for ne
 
 - [ ] **Step 11: Build, then run the whole suite with coverage**
 
-Run: `pnpm -C /home/hxman/AIR-harness/air/packages/command-conventions build && pnpm -C /home/hxman/AIR-harness/air/packages/command-conventions exec vitest run --coverage --coverage.include='src/**' --coverage.thresholds.100`
+Run: `pnpm -C air/packages/command-conventions build`, then `pnpm -C air/packages/command-conventions exec vitest run --coverage --coverage.include='src/**' --coverage.thresholds.100`
 Expected: `Test Files 3 passed (3)`; `args.ts` and `index.ts` at 100 in every column.
 
-Run: `pnpm -C /home/hxman/AIR-harness/air/packages/command-conventions typecheck && pnpm -C /home/hxman/AIR-harness/air run lint`
+Run: `pnpm -C air/packages/command-conventions typecheck`, then `pnpm -C air run lint`
 Expected: exit 0 for both.
 
 - [ ] **Step 12: Write the README**
@@ -5931,7 +6565,7 @@ A missing argument becomes an empty string. When the body has no placeholder and
 
 Config: `airHome`, `claudeHome`, `includeUserRoots` (default `false`), `projectRootMarkers` (default `['.git']`), `positionalBase` (default `0`; set `1` for files written for the older `$1` convention).
 
-In the AIR bundle, `@air/dsh-skill-conventions` runs with `commandsUserInvocable: false`, so each command file appears once in the `/` picker, through this plugin.
+This plugin is the only reader of `.claude/commands`: `@air/dsh-skill-conventions` does not list command files as skills, so each file appears once in the `/` picker.
 
 ## Model Experience
 
@@ -5944,12 +6578,13 @@ The model receives the rendered command body as an ordinary user turn. It does n
 - Command files are discovered once, when the Agent is created. A new file needs a new session; an edited file is picked up on the next run.
 - Command names lose the `:` namespace separator Claude Code uses (`frontend:component` is `/frontend-component`).
 - A file whose path does not start with a letter after normalisation (for example `123.md`) is skipped.
+- `$N` consumes any dollar sign followed by digits, so a body that spells a price as `$5` loses it; this matches Claude Code. Backslashes escape only quotes and whitespace in the input.
+- A skill or built-in command with the same name is not detected for skills: a command file is skipped only when a registered slash command already has its name.
 ```
 
 - [ ] **Step 13: Commit**
 
-```bash
-cd /home/hxman/AIR-harness
+```sh
 git add air/packages/command-conventions air/pnpm-lock.yaml
 git commit -m "feat(air): register .claude/commands files as argument-substituting slash commands"
 ```
@@ -5959,22 +6594,37 @@ git commit -m "feat(air): register .claude/commands files as argument-substituti
 ### Task 9: Bundle wiring — `preset-air`, registry default, host rows, profile verification
 
 **Files:**
-- Modify: `air/package.json` (add `yaml` to `devDependencies`)
+- Modify: `air/package.json` (add `yaml` to `devDependencies`; add the scripts `check:composition` and `demo`)
 - Create: `air/scripts/tests/preset-air-drift.spec.ts`
+- Create: `air/scripts/check-air-composition.ts`
+- Create: `air/scripts/make-demo-project.ts`
 - Modify: `air/bundles/air/package.json`
 - Modify: `air/bundles/air/cordis.patch.yml`
 - Modify: `air/README.md`
 
 **Interfaces:**
 - Consumes: the four plugin packages built in Tasks 3, 5, 7, 8 and their rows:
-  - preset rows `{ id: air-instruction-conventions, name: '@air/dsh-instruction-conventions', config: { maxBytes: 32768 } }` and `{ id: air-skill-conventions, name: '@air/dsh-skill-conventions', config: { commandsUserInvocable: false } }`
+  - preset rows `{ id: air-instruction-conventions, name: '@air/dsh-instruction-conventions', config: { maxBytes: 32768 } }` and `{ id: air-skill-conventions, name: '@air/dsh-skill-conventions' }`
   - host rows `{ id: air-mcp-conventions, name: '@air/dsh-mcp-conventions' }` and `{ id: air-command-conventions, name: '@air/dsh-command-conventions' }`
-- Consumes from upstream: `packages/bundle/web-app/presets/standard.patch.yml` (row `preset-standard`); host row `agent-preset-registry` with Config `{ default: string }`; patch semantics (a patch replaces a row's whole `config`; `insert` adds rows); the profile's runtime resolution, which supplies every package in the bundle's dependency closure to row loading; `air/scripts/smoke-profile.sh` from plan 00.
+- Consumes from upstream: `packages/bundle/web-app/presets/standard.patch.yml` (row `preset-standard`, regenerated against `dsh-v0.2.1-alpha.1`); host row `agent-preset-registry` with Config `{ default: string }`; patch semantics (a patch replaces a row's whole `config`; `insert` adds rows); the profile's runtime resolution, which supplies the packages of selected bundles to row loading; the Web composition, which mounts the `schedule` service that the `tool-schedule` row needs; `air/scripts/smoke-profile.ts` from plan 00 (its launcher and problem pattern are repeated in `check-air-composition.ts`).
 - Produces: the `air` profile composes an agent preset `air` (default for new sessions) with the convention plugins; `preset-standard` stays selectable. A drift test fails when the upstream `standard` preset changes without the same change in `preset-air`.
 
 Why a copied preset: the live `skill-filesystem`, `tool-skill`, and `agent-instructions` rows sit inside `preset-standard`'s `config.plugins`, and a bundle patch cannot address nested rows of a non-group entry by id (spike 02 §0.1). Replacing `preset-standard`'s config would fork the upstream list under the upstream id, so the bundle adds its own preset and makes it the default.
 
-- [ ] **Step 1: Add the YAML parser for the drift test**
+**Rows of the upstream `standard` preset, and what `preset-air` does with each** (list regenerated from the `dsh-v0.2.1-alpha.1` file; the drift test fails when upstream adds or changes a row, which is the cue to extend this table):
+
+| Upstream row | In `preset-air` | Reason |
+|---|---|---|
+| `persona`, `tool-bash`/`tool-pwsh` (by platform), `tool-fs`, `tool-fs-search`, `tool-jobs`, `tool-skill`, `command-goal`, `tool-goal`, `planning`, `compaction`, `tool-ask-user`, `tool-todo`, `tool-web`, `present`, `tool-plugin-manager` (disabled) | kept unchanged | AIR starts from upstream's coding-agent tools; AIR differs by additions, not removals |
+| `agent-instructions` | kept; `air-instruction-conventions` follows it | upstream keeps the `AGENTS.md` and `CLAUDE.md` chain; AIR adds `.claude/CLAUDE.md`, imports, and rules |
+| `time-context` (new upstream) | kept | the model needs the date and time for reminders and for judging how fresh a memory is; plan 04's memory-context row sits beside it |
+| `tool-schedule` (new upstream: `schedule_create`, `schedule_delete`, `schedule_list`, `schedule_update`) | kept | reminders and follow-ups belong to a personal assistant; delegated children cannot call them (upstream's `toolFilter` on the `subagent` and `subagent_fork` rows, kept) |
+| `skill-filesystem` | kept with `includeDefaultRoots: false`; `air-skill-conventions` follows it | stops `~/.agents/skills` and `~/.dsh/skills` from flooding a small local model's catalog; project roots and `~/.air/skills` come from the AIR provider |
+| `delegation` group (`tool-subagent*`, `workflow-ptc`, `tool-workflow`, `tool-ralph`) | kept, including the disabled rows | later plans (agents slice, evaluation arms) toggle these by row id |
+
+Dropped rows: none. A row AIR never wants (for example `tool-web` in an offline arm) is disabled by a patch on the row id inside the evaluation bundles, not by editing this list.
+
+- [ ] **Step 1: Add the YAML parser for the drift test and the two scripts**
 
 In `air/package.json`, add this entry to `devDependencies` (keep the keys sorted):
 
@@ -5982,8 +6632,16 @@ In `air/package.json`, add this entry to `devDependencies` (keep the keys sorted
     "yaml": "^2.9.0"
 ```
 
-Run: `pnpm -C /home/hxman/AIR-harness/air install`
-Expected: exit 0; `air/node_modules/yaml/package.json` exists.
+and add these entries to `scripts`:
+
+```json
+    "check:composition": "tsx scripts/check-air-composition.ts",
+    "demo": "tsx scripts/make-demo-project.ts"
+```
+
+Run: `pnpm -C air install`
+Then: `node -e "console.log(require('fs').existsSync('air/node_modules/yaml/package.json'))"`
+Expected: install exits 0; the second command prints `true`.
 
 - [ ] **Step 2: Write the failing drift test**
 
@@ -6042,7 +6700,7 @@ describe('AIR bundle composition', () => {
     const air = presetPlugins(airPatch, 'preset-air')
     expect(air.filter(isAirRow)).toEqual([
       { id: 'air-instruction-conventions', name: '@air/dsh-instruction-conventions', config: { maxBytes: 32768 } },
-      { id: 'air-skill-conventions', name: '@air/dsh-skill-conventions', config: { commandsUserInvocable: false } },
+      { id: 'air-skill-conventions', name: '@air/dsh-skill-conventions' },
     ])
     const expected = standard.map(row => (row['id'] === 'skill-filesystem' ? { ...row, config: { includeDefaultRoots: false } } : row))
     expect(air.filter(row => !isAirRow(row))).toEqual(expected)
@@ -6052,6 +6710,11 @@ describe('AIR bundle composition', () => {
     const ids = presetPlugins(airPatch, 'preset-air').map(row => row['id'])
     expect(ids[ids.indexOf('agent-instructions') + 1]).toBe('air-instruction-conventions')
     expect(ids[ids.indexOf('skill-filesystem') + 1]).toBe('air-skill-conventions')
+  })
+
+  it('keeps the clock reading and the reminder tools', () => {
+    const ids = presetPlugins(airPatch, 'preset-air').map(row => row['id'])
+    expect(ids).toEqual(expect.arrayContaining(['time-context', 'tool-schedule']))
   })
 
   it('makes the AIR preset the default and mounts the host rows', () => {
@@ -6075,8 +6738,8 @@ describe('AIR bundle composition', () => {
 
 - [ ] **Step 3: Run the drift test to verify it fails**
 
-Run: `cd /home/hxman/AIR-harness/air && pnpm exec vitest run scripts/tests/preset-air-drift.spec.ts`
-Expected: FAIL; the first two tests with `no preset row preset-air`, the third because the registry patch is absent, the fourth with `expected [] to have a length of 4`.
+Run: `pnpm -C air exec vitest run scripts/tests/preset-air-drift.spec.ts`
+Expected: FAIL; the first, second, and third tests with `no preset row preset-air`, the fourth because the registry patch is absent, the fifth with `expected [] to have a length of 4`.
 
 - [ ] **Step 4: Declare the bundle dependencies**
 
@@ -6107,12 +6770,13 @@ Replace `air/bundles/air/package.json` with:
 }
 ```
 
-Run: `pnpm -C /home/hxman/AIR-harness/air install && ls /home/hxman/AIR-harness/air/bundles/air/node_modules/@air/`
-Expected: `dsh-command-conventions  dsh-instruction-conventions  dsh-mcp-conventions  dsh-skill-conventions`.
+Run: `pnpm -C air install`
+Then: `node -e "console.log(require('fs').readdirSync('air/bundles/air/node_modules/@air').sort().join(' '))"`
+Expected: install exits 0; the second command prints `dsh-command-conventions dsh-instruction-conventions dsh-mcp-conventions dsh-skill-conventions`.
 
 - [ ] **Step 5: Add the preset, the host rows, and the registry default**
 
-Append to `air/bundles/air/cordis.patch.yml` (after the existing `agent-default-model` patch). The `plugins` list is the upstream `standard` list with three changes: `skill-filesystem` gets `includeDefaultRoots: false`, `air-instruction-conventions` follows `agent-instructions`, and `air-skill-conventions` follows `skill-filesystem`. Indentation is significant; copy the block as shown.
+Append to `air/bundles/air/cordis.patch.yml` (after the existing `agent-default-model` patch). The `plugins` list is the upstream `standard` list (the file at `packages/bundle/web-app/presets/standard.patch.yml` of `dsh-v0.2.1-alpha.1`) with two changes: `skill-filesystem` gets `includeDefaultRoots: false`, and the AIR rows `air-instruction-conventions` and `air-skill-conventions` follow `agent-instructions` and `skill-filesystem`. Indentation is significant; copy the block as shown.
 
 ```yaml
 
@@ -6123,11 +6787,10 @@ Append to `air/bundles/air/cordis.patch.yml` (after the existing `agent-default-
 # selectable. air/scripts/tests/preset-air-drift.spec.ts fails when the two
 # lists differ by anything other than the changes below, which is the signal to
 # re-copy after an upstream merge.
-#   - skill-filesystem: includeDefaultRoots false, so ~/.dsh/skills,
-#     ~/.agents/skills, and bundled skills are not listed; the AIR provider
-#     owns project roots and ~/.air/skills, and user roots are opt-in.
-#   - air-skill-conventions: commandsUserInvocable false, because
-#     air-command-conventions registers the same command files.
+#   - skill-filesystem: includeDefaultRoots false, so ~/.dsh/skills and
+#     ~/.agents/skills are not listed; the AIR provider owns project roots and
+#     ~/.air/skills, and user roots are opt-in. Bundled skills stay.
+#   - air-skill-conventions and air-instruction-conventions: added.
 - insert:
     - id: preset-air
       name: '@deepseek-ai/dsh-agent-preset'
@@ -6150,6 +6813,8 @@ Append to `air/bundles/air/cordis.patch.yml` (after the existing `agent-default-
             name: '@air/dsh-instruction-conventions'
             config:
               maxBytes: 32768
+          - id: time-context
+            name: '@deepseek-ai/dsh-time-context'
           - id: tool-bash
             name: '@deepseek-ai/dsh-tool-bash'
             disabled: !!js process.platform === 'win32'
@@ -6164,14 +6829,14 @@ Append to `air/bundles/air/cordis.patch.yml` (after the existing `agent-default-
               sampleOverCapGlobResults: false
           - id: tool-jobs
             name: '@deepseek-ai/dsh-tool-jobs'
+          - id: tool-schedule
+            name: '@deepseek-ai/dsh-tool-schedule'
           - id: skill-filesystem
             name: '@deepseek-ai/dsh-skill-filesystem'
             config:
               includeDefaultRoots: false
           - id: air-skill-conventions
             name: '@air/dsh-skill-conventions'
-            config:
-              commandsUserInvocable: false
           - id: tool-skill
             name: '@deepseek-ai/dsh-tool-skill'
           - id: command-goal
@@ -6233,12 +6898,24 @@ Append to `air/bundles/air/cordis.patch.yml` (after the existing `agent-default-
                   toolName: subagent
                   modelSelectionSettings: true
                   backgroundMode: continuable
+                  toolFilter:
+                    deny:
+                      - schedule_create
+                      - schedule_delete
+                      - schedule_list
+                      - schedule_update
               - id: tool-subagent-fork
                 name: '@deepseek-ai/dsh-tool-subagent'
                 config:
                   provider: fork
                   toolName: subagent_fork
                   backgroundMode: continuable
+                  toolFilter:
+                    deny:
+                      - schedule_create
+                      - schedule_delete
+                      - schedule_list
+                      - schedule_update
               - id: tool-subagent-codex
                 name: '@deepseek-ai/dsh-tool-subagent'
                 disabled: true
@@ -6297,80 +6974,152 @@ Append to `air/bundles/air/cordis.patch.yml` (after the existing `agent-default-
     default: air
 ```
 
-To turn on user-level folders (`~/.agents/skills`, `~/.claude/skills`, `~/.claude/commands`, `~/.claude/CLAUDE.md`), a user copies the `preset-air` row into the profile patch (`$DSH_HOME/profiles/air/cordis.patch.yml`) as an id-targeted patch with `includeUserRoots: true` on the `air-skill-conventions` and `air-instruction-conventions` rows, and patches `air-command-conventions` with `config: { includeUserRoots: true }`. This is documented in Step 9.
+To turn on user-level folders (`~/.agents/skills`, `~/.claude/skills`, `~/.claude/commands`, `~/.claude/CLAUDE.md`), a user copies the `preset-air` row into the profile patch (`$DSH_HOME/profiles/air/cordis.patch.yml`) as an id-targeted patch with `includeUserRoots: true` on the `air-skill-conventions` and `air-instruction-conventions` rows, and patches `air-command-conventions` with `config: { includeUserRoots: true }`. This is documented in Step 10.
 
 - [ ] **Step 6: Run the drift test to verify it passes**
 
-Run: `cd /home/hxman/AIR-harness/air && pnpm exec vitest run scripts/tests/preset-air-drift.spec.ts`
-Expected: `Tests 4 passed (4)`.
+Run: `pnpm -C air exec vitest run scripts/tests/preset-air-drift.spec.ts`
+Expected: `Tests 5 passed (5)`.
 
-If the first test fails on a difference in an upstream row, the upstream file changed after this plan was written: re-copy that row from `packages/bundle/web-app/presets/standard.patch.yml` into `preset-air` and rerun.
+If the first test fails on a difference in an upstream row, the upstream file changed after this plan was written: re-copy that row from `packages/bundle/web-app/presets/standard.patch.yml` into `preset-air`, add it to the table above, and rerun.
 
 - [ ] **Step 7: Build and test the whole AIR workspace**
 
-Run: `pnpm -C /home/hxman/AIR-harness/air run build && pnpm -C /home/hxman/AIR-harness/air run typecheck && pnpm -C /home/hxman/AIR-harness/air run lint && pnpm -C /home/hxman/AIR-harness/air run test`
-Expected: exit 0; the workspace-level run reports the drift test and the plan-00 script tests, then each of the five packages reports all test files passed.
+Run: `pnpm -C air run build`, then `pnpm -C air run typecheck`, then `pnpm -C air run lint`, then `pnpm -C air run test`
+Expected: each exits 0; the workspace-level test run reports the drift test and the plan-00 script tests, then each of the five packages reports all test files passed.
 
-Run from the repository root: `cd /home/hxman/AIR-harness && pnpm run verify-no-unknown-casts && pnpm run verify-concrete-terms && pnpm run verify-repository-references && pnpm run verify-translation-pairing`
+Run from the repository root: `pnpm run verify-no-unknown-casts`, `pnpm run verify-concrete-terms`, `pnpm run verify-repository-references`, `pnpm run verify-translation-pairing`
 Expected: each exits 0. `verify-no-unknown-casts` reports no new assertions.
 
-- [ ] **Step 8: Verify with the `air` profile**
+- [ ] **Step 8: Write the composition check and the demo-project script**
 
-The `air` profile already links `air/bundles/air` (see `air/README.md`), so no reinstall into the profile is needed.
+`air/scripts/check-air-composition.ts` composes the bundle in a throwaway profile under an isolated `DSH_HOME` (the same launcher and setup as plan 00's smoke, so it never touches a teammate's real profile) and checks the rows this plan adds:
 
-Run:
+```ts
+/** Compose the AIR bundle in a throwaway profile and check the rows the file-conventions plan adds (Windows and Linux). */
+import { spawnSync } from 'node:child_process'
+import { copyFileSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join, resolve } from 'node:path'
 
-```bash
-cd /home/hxman/AIR-harness
-out="$(mktemp -d)"
-pnpm dsh --profile air --dump-config > "$out/dump.yml" 2> "$out/dump.err"
-echo "exit $?"
-grep -Ei 'unmatched|incompatible|failed|skipping' "$out/dump.err"; echo "problems: $?"
-grep -c 'id: preset-air' "$out/dump.yml"
-grep -c "name: '@air/dsh-skill-conventions'" "$out/dump.yml"
-grep -c "name: '@air/dsh-instruction-conventions'" "$out/dump.yml"
-grep -c "name: '@air/dsh-mcp-conventions'" "$out/dump.yml"
-grep -c "name: '@air/dsh-command-conventions'" "$out/dump.yml"
-grep -A3 'id: agent-preset-registry' "$out/dump.yml" | grep -c 'default: air'
-grep -c 'includeDefaultRoots: false' "$out/dump.yml"
+const repoRoot = resolve(import.meta.dirname, '..', '..')
+const home = mkdtempSync(join(tmpdir(), 'air-check-'))
+const profile = 'air-check'
+const env = { ...process.env, DSH_HOME: home }
+const launcher = ['--import', 'tsx/esm', join(repoRoot, 'apps', 'cli', 'src', 'bin.ts')]
+const PROBLEM = /unmatched|incompatible|failed|disabling profile plugin row|did not activate|pending/i
+
+function fail(message: string, detail = ''): never {
+  console.error(`composition: ${message}`)
+  if (detail !== '') console.error(detail)
+  process.exit(1)
+}
+
+function dsh(args: readonly string[]): { stdout: string, stderr: string } {
+  const result = spawnSync(process.execPath, [...launcher, ...args], { cwd: repoRoot, env, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 })
+  if (result.status !== 0) fail(`dsh ${args.join(' ')} exited ${String(result.status)}`, result.stderr)
+  return { stdout: result.stdout, stderr: result.stderr }
+}
+
+dsh(['--profile', profile, '--from-default-profile', 'web', '--dump-config'])
+dsh(['plugin', '--profile', profile, 'add', join(repoRoot, 'air', 'bundles', 'air')])
+copyFileSync(
+  join(repoRoot, 'air', 'examples', 'ollama.profile.cordis.patch.yml'),
+  join(home, 'profiles', profile, 'cordis.patch.yml'),
+)
+writeFileSync(join(home, '.env'), 'OLLAMA_API_KEY=ollama\n')
+
+const dump = dsh(['--profile', profile, '--dump-config'])
+if (PROBLEM.test(dump.stderr)) fail('problems while composing:', dump.stderr)
+
+const text = dump.stdout
+const count = (pattern: RegExp): number => text.match(pattern)?.length ?? 0
+const presetAt = text.search(/id:\s*['"]?preset-air\b/u)
+const presetText = presetAt < 0 ? '' : text.slice(presetAt, presetAt + 20_000)
+const registryAt = text.search(/id:\s*['"]?agent-preset-registry\b/u)
+const checks: readonly (readonly [string, boolean])[] = [
+  ['one preset-air row', count(/id:\s*['"]?preset-air\b/gu) === 1],
+  ['skill conventions mounted once', count(/@air\/dsh-skill-conventions/gu) === 1],
+  ['instruction conventions mounted once', count(/@air\/dsh-instruction-conventions/gu) === 1],
+  ['mcp conventions mounted once', count(/@air\/dsh-mcp-conventions/gu) === 1],
+  ['command conventions mounted once', count(/@air\/dsh-command-conventions/gu) === 1],
+  ['registry default is air', registryAt >= 0 && /default:\s*['"]?air\b/u.test(text.slice(registryAt, registryAt + 400))],
+  ['skill-filesystem default roots off', count(/includeDefaultRoots:\s*false/gu) === 1],
+  ['clock reading and reminder tools kept', presetText.includes('dsh-time-context') && presetText.includes('dsh-tool-schedule')],
+]
+let failed = false
+for (const [label, passed] of checks) {
+  console.log(`${passed ? 'ok' : 'FAILED'}: ${label}`)
+  if (!passed) failed = true
+}
+if (failed) fail('see FAILED lines above; if the dump quotes names differently, adjust the patterns and keep the same eight checks')
+console.log(`composition: ok (${home})`)
 ```
 
-Expected: `exit 0`; `problems: 1` (grep found nothing); every count prints `1`. If the dump quotes package names differently, adjust the `grep` patterns to the dump's quoting and keep the same seven checks.
+`air/scripts/make-demo-project.ts` creates the scratch project for the manual check:
 
-Run: `pnpm -C /home/hxman/AIR-harness/air run smoke`
+```ts
+/** Create a scratch project with a skill, a command, instructions, a rule, and a .mcp.json server (Windows and Linux). */
+import { spawnSync } from 'node:child_process'
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join, resolve } from 'node:path'
+
+const repoRoot = resolve(import.meta.dirname, '..', '..')
+const demo = join(mkdtempSync(join(tmpdir(), 'air-demo-')), 'air-demo')
+
+function put(relativePath: string, text: string): void {
+  const target = join(demo, relativePath)
+  mkdirSync(join(target, '..'), { recursive: true })
+  writeFileSync(target, text)
+}
+
+mkdirSync(demo, { recursive: true })
+const init = spawnSync('git', ['init', '-q', demo], { encoding: 'utf8' })
+if (init.status !== 0) throw new Error(`git init failed: ${init.stderr}`)
+put('.claude/skills/hello/SKILL.md', '---\ndescription: Greet the user by name\n---\nSay hello to the person named in the request.\n')
+put('.claude/commands/issue.md', 'Summarise issue $ARGUMENTS in one sentence.\n')
+put('.claude/CLAUDE.md', 'Project memory: answer in British English. @notes.md\n')
+put('.claude/notes.md', 'Imported note: the project is called Demo.\n')
+put('.claude/rules/ts.md', '---\npaths: "**/*.ts"\n---\nTypeScript files use strict mode.\n')
+put('.mcp.json', JSON.stringify({
+  mcpServers: { demo: { command: process.execPath, args: [join(repoRoot, 'air', 'packages', 'mcp-conventions', 'tests', 'fixtures', 'echo-server.mjs')] } },
+}, undefined, 2))
+console.log(demo)
+```
+
+- [ ] **Step 9: Verify with a throwaway profile, then by hand**
+
+Run: `pnpm -C air run check:composition`
+Expected: eight lines starting `ok:`, then `composition: ok (<temp dir>)`, exit 0. A `FAILED:` line names the missing row.
+
+Run: `pnpm -C air run smoke`
 Expected: last line `smoke: ok (<temp dir>)`. The smoke boots under an isolated `DSH_HOME`, so a row that fails to load (for example a bad peer range: `disabling profile plugin row`) fails this step.
 
-Then check behavior in the Web UI. Create a scratch project:
+Then check behavior in the Web UI. The `air` profile already links `air/bundles/air` (see `air/README.md`). Create a scratch project and start the Web profile:
 
-```bash
-demo="$(mktemp -d)/air-demo" && mkdir -p "$demo/.claude/skills/hello" "$demo/.claude/commands" "$demo/.claude/rules" && git -C "$demo" init -q
-printf -- '---\ndescription: Greet the user by name\n---\nSay hello to the person named in the request.\n' > "$demo/.claude/skills/hello/SKILL.md"
-printf 'Summarise issue $ARGUMENTS in one sentence.\n' > "$demo/.claude/commands/issue.md"
-printf 'Project memory: answer in British English. @notes.md\n' > "$demo/.claude/CLAUDE.md"
-printf 'Imported note: the project is called Demo.\n' > "$demo/.claude/notes.md"
-printf -- '---\npaths: "**/*.ts"\n---\nTypeScript files use strict mode.\n' > "$demo/.claude/rules/ts.md"
-printf '{ "mcpServers": { "demo": { "command": "node", "args": ["%s"] } } }\n' "/home/hxman/AIR-harness/air/packages/mcp-conventions/tests/fixtures/echo-server.mjs" > "$demo/.mcp.json"
-echo "$demo"
+```sh
+pnpm -C air run demo
 pnpm dsh --profile air --no-open --port 3190
 ```
 
-Open the printed URL, start a session with the printed directory as its workspace, and confirm:
+The first command prints the project directory. Open the URL the second command prints, start a session with that directory as its workspace, and confirm:
 
 1. The `/` picker lists `hello` (skill), `issue` and `mcp` (commands), and none of the skills under `~/.agents/skills` or `~/.dsh/skills`.
-2. `/mcp` prints `demo (stdio: node ...echo-server.mjs): not approved`. `/mcp approve demo` prints `Approved and started "demo".`; `/mcp` then prints `running`.
+2. `/mcp` prints `demo (stdio: ...echo-server.mjs): not approved`. `/mcp approve demo` prints `Approved and started "demo".`; `/mcp` then prints `running`. Approve before sending the first message.
 3. `/issue 42` starts a turn whose user message is `Summarise issue 42 in one sentence.`
 4. With the local model running (`ollama serve`, model `qwen3:8b`), send `What is this project called?`; the answer uses the imported note (`Demo`). The session's first request contains one `<air_instructions>` block (visible in the session event view as a user message with source `air-instructions`).
-5. `ls "$DSH_HOME/air/mcp-approvals.json" 2>/dev/null || ls ~/.dsh/air/mcp-approvals.json` shows the approvals file.
+5. The approvals file exists: `node -e "const{join}=require('path');const p=join(process.env.DSH_HOME||join(require('os').homedir(),'.dsh'),'air','mcp-approvals.json');console.log(p,require('fs').existsSync(p))"` prints the path and `true`.
 
 Stop the server with Ctrl-C. If a step cannot be checked because the local model is not installed, record which steps were checked in the commit message; steps 1, 2, 3, and 5 need no model response.
 
-- [ ] **Step 9: Update `air/README.md`**
+- [ ] **Step 10: Update `air/README.md`**
 
 In the layout block, replace the line `  packages/<pkg>/         AIR plugins (added feature by feature)` with:
 
 ```
   packages/convention-core/          shared discovery library for the convention plugins
-  packages/skill-conventions/        skill provider: .claude/skills, .claude/commands, project roots, ~/.air/skills
+  packages/skill-conventions/        skill provider: .claude/skills, project skill roots, ~/.air/skills
   packages/instruction-conventions/  .claude/CLAUDE.md, @path imports, .claude/rules
   packages/mcp-conventions/          .mcp.json servers per Agent, with approval (/mcp)
   packages/command-conventions/      .claude/commands with $ARGUMENTS
@@ -6381,7 +7130,7 @@ Replace the whole `## Known issues` section with:
 ````markdown
 ## File conventions
 
-New sessions use the `air` agent preset, a copy of the upstream `standard` preset with the convention plugins added (`bundles/air/cordis.patch.yml`). After every upstream merge, run `pnpm -C air exec vitest run scripts/tests/preset-air-drift.spec.ts`; a failure names the upstream row to re-copy into `preset-air`.
+New sessions use the `air` agent preset, a copy of the upstream `standard` preset with the convention plugins added (`bundles/air/cordis.patch.yml`). After every upstream merge, run `pnpm -C air exec vitest run scripts/tests/preset-air-drift.spec.ts`; a failure names the upstream row to re-copy into `preset-air`, and `pnpm -C air run check:composition` confirms the composed profile.
 
 User-level folders written for other agents (`~/.agents/skills`, `~/.claude/skills`, `~/.claude/commands`, `~/.claude/CLAUDE.md`) are not read by default, because a large unrelated skill catalog derails small local models. `~/.air/skills` and `~/.air/commands` are always read. To opt in, add to `$DSH_HOME/profiles/air/cordis.patch.yml`:
 
@@ -6393,22 +7142,21 @@ User-level folders written for other agents (`~/.agents/skills`, `~/.claude/skil
 
 and copy the `preset-air` row from the bundle patch into the same file with `includeUserRoots: true` added to the `air-skill-conventions` and `air-instruction-conventions` configs (a patch replaces a row's whole `config`, so the full plugin list must be repeated).
 
-Project MCP servers from `.mcp.json` start only after `/mcp approve <server>`; approvals are stored in `$DSH_HOME/air/mcp-approvals.json`.
+Project MCP servers from `.mcp.json` start only after `/mcp approve <server>`; run it before the first message of a session. Approvals are stored in `$DSH_HOME/air/mcp-approvals.json`.
 ````
 
 (The fenced YAML block inside this section is part of the README text.)
 
-- [ ] **Step 10: Confirm no upstream file changed, refresh the graph, commit**
+- [ ] **Step 11: Confirm no upstream file changed, refresh the graph, commit**
 
-Run: `cd /home/hxman/AIR-harness && git status --short -- . ':!air' ':!research'`
+Run: `git status --short -- . ':!air' ':!research'`
 Expected: no output. `air/UPSTREAM-DELTA.md` needs no new row.
 
-Run: `cd /home/hxman/AIR-harness && graphify update .`
-Expected: exit 0 (the root `CLAUDE.md` asks for this after code changes; commit `graphify-out/` only if it is tracked: `git ls-files graphify-out | head -1`).
+Run: `graphify update .`
+Expected: exit 0 (the root `CLAUDE.md` asks for this after code changes; commit `graphify-out/` only if it is tracked: `git ls-files graphify-out` prints nothing when it is not).
 
-```bash
-cd /home/hxman/AIR-harness
-git add air/package.json air/pnpm-lock.yaml air/scripts/tests/preset-air-drift.spec.ts air/bundles/air air/README.md
+```sh
+git add air/package.json air/pnpm-lock.yaml air/scripts air/bundles/air air/README.md
 git commit -m "feat(air): add the AIR agent preset and wire the file-convention plugins into the bundle"
 ```
 
@@ -6421,12 +7169,14 @@ These items are in the spec and deliberately outside this plan. Each is named in
 | Item | Spec | Why not now |
 |---|---|---|
 | Agents from `.claude/agents/*.md`, permission rules, hooks, plugin manifests | spike 02 §2, §6, §7, §8 | later slices by the task brief (packages 6-9) |
+| Claude Code mods bridge (`packages/experimental/claude-code-mods`, `docs/subsystems/claude-code-mods.md`) | upstream, new in `dsh-v0.2.1-alpha.1` | **Evaluated 2026-10-08: it does not affect slice 1.** The bridge runs Claude Code "mods" (function-hook plugins): it reads no skill, command, rule, `CLAUDE.md`, or `.mcp.json` file, so it replaces none of the five packages here. It matters only to the later hooks slice, where it is a separate, optional input: settings-file hooks are already served by the non-experimental `@deepseek-ai/dsh-hooks-claude-code` bridge, so AIR's hook plugin should build on that one, and decide on mods then. Facts to carry into that decision: the bridge is alpha and has a published difference list; mods run in the Host process with no sandbox and full process authority (`$.env`, `$.http.fetch`, `$.fs`); a `tool.call` hook cannot rewrite arguments; mods register commands and tools through the same registries, so `air-command-conventions` already skips a command file whose name a mod registered first |
 | `allowed-tools` enforcement, `context: fork`, `agent`, `model`, `paths` on skills | spike 02 §1.2 | needs `@air/dsh-permission-rules` and the delegation tool |
 | `@file` expansion and approved `` !`cmd` `` in commands | spike 02 §3.2 | `!cmd` is code execution from a repository file and needs the approval path designed in the permissions plan |
-| `$ARGUMENTS` on the skill-invocation path (`/skill-name args`) | spike 02 §3.2 | depends on waterfall order against the preset-scoped `tool-skill` listener; needs a composition test |
+| `$ARGUMENTS` on the skill-invocation path (`/skill-name args`) and Claude Code's merge of commands into skills (a model-invocable command) | spike 02 §3.2 | depends on waterfall order against the preset-scoped `tool-skill` listener; needs a composition test |
 | `.cursor/rules/*.mdc`, `.kiro/steering/*.md`, description-matched and manual rules | spike 02 §4.2 | slice 1 scope is `.claude/rules` with `paths:` |
-| `~/.claude.json` and Claude Desktop MCP entries, `.mcpb` | spike 02 §5.2, research §5.1 | project `.mcp.json` only |
-| Mock-LLM composition test over the shipped `web` profile | spike 02 §1.5 | the helper `production-profile.ts` is repository-internal; slice 1 verifies composition with the drift test, the dump checks, and the plan-00 smoke boot |
+| `~/.claude.json` and Claude Desktop MCP entries, `.mcpb`, UTF-16 `.mcp.json` | spike 02 §5.2, research §5.1 | project `.mcp.json` only |
+| Approval before the first turn through a surface other than `/mcp` (a Web card, a CLI subcommand) | spike 02 §5 | no pre-session approval surface exists upstream; `/mcp approve` before the first message covers the case |
+| Mock-LLM composition test over the shipped `web` profile | spike 02 §1.5 | the helper `production-profile.ts` is repository-internal; slice 1 verifies composition with the drift test, `check:composition`, and the plan-00 smoke boot |
 | Reading through `ctx.fs` | spike 02 §1.1 | host filesystem only in slice 1 |
 
 ## Self-Review
@@ -6435,21 +7185,22 @@ These items are in the spec and deliberately outside this plan. Each is named in
 
 | Requirement | Task |
 |---|---|
-| AIR preset row `preset-air`, `agent-preset-registry` `default: air` | 9 |
+| AIR preset row `preset-air` from the current upstream `standard` list (with the clock and reminder rows kept), `agent-preset-registry` `default: air` | 9 |
 | `skill-filesystem` `includeDefaultRoots: false` plus AIR skill provider in the preset layer | 3, 9 |
-| `@air/dsh-convention-core`: project root, file watching, frontmatter, tool-name table | 1, 2 |
-| Skill roots: project `.dsh/skills`, `.agents/skills`, `.claude/skills`, `.claude/commands` as skills, `~/.air/skills`; `~/.agents/skills` and `~/.claude/skills` opt-in through Config | 3 |
-| `~/.claude/CLAUDE.md`, `@path` imports (4 hops, allowlist outside the project), `.claude/rules` with `paths:` | 4, 5 |
-| `.mcp.json` to per-Agent `mcp-client` children through `createScope` and `scope.ctx.plugin(McpClient)`; consent file | 6, 7 |
+| `@air/dsh-convention-core`: project root, grouped file watching, frontmatter, tool-name table, Windows-safe path helpers | 1, 2 |
+| Skill roots: project `.dsh/skills`, `.agents/skills`, `.claude/skills`, `~/.air/skills`; `~/.agents/skills` and `~/.claude/skills` opt-in through Config; command files are not skills | 3 |
+| `~/.claude/CLAUDE.md`, `@path` imports (4 hops, real-path containment, allowlist outside the project, credential and size refusals), `.claude/rules` with `paths:` | 4, 5 |
+| `.mcp.json` to per-Agent `mcp-client` children through `createScope` and `scope.ctx.plugin(...)`; consent file keyed by the definition as written; optional `mcpToolReview` wait (`reviewTools`) | 6, 7 |
 | Commands with `$ARGUMENTS` through scoped `ctx.commands` and `agent.followup` with source `air-command` | 8 |
-| Instructions companion with source `air-instructions` | 5 |
-| Bundle `dependencies` `workspace:*` and rows; verification with the `air` profile | 9 |
+| Instructions companion with source `air-instructions`, composed once per turn | 5 |
+| Bundle `dependencies` `workspace:*` and rows; verification with a throwaway profile (`check:composition`, smoke) and a demo project | 9 |
 | Unit tests, native Loader test, README (Summary, Model Experience, Known Limitations), JSDoc per product-visible plugin | 3, 5, 7, 8 (and README for the library in 2) |
+| Every command step and test runs on Windows and Linux | all |
 | No new session event types; AIR state under `dshHomePath('air', ...)` | 5, 7, 8 |
-| No upstream edits | 9 Step 10 |
+| No upstream edits | 9 Step 11 |
 
-**Placeholder scan:** every code step contains the full file content; every command has an expected result. The three troubleshooting notes (Task 3 Step 9, Task 5 Step 5, Task 7 Step 5) name the exact upstream file to compare against.
+**Placeholder scan:** every code step contains the full file content; every command has an expected result. The troubleshooting notes (Task 3 Step 9, Task 5 Step 5, Task 7 Step 5) name the exact upstream file or command to compare against.
 
-**Type consistency:** `UserHomes`, `resolveUserHomes(config)`, `findProjectRoot(cwd, markers)`, `listMarkdownTree(root, maxDepth)`, `readTextFile(path)`, `parseFrontmatter(raw)`, `stringField`, `booleanField`, `stringListField`, `toKebabName`, and `PathWatcher.retain/close/paths` are defined in Tasks 1-2 and used with the same signatures in Tasks 3-8. `ServerSpec`, `approvalKey(projectRoot, spec)`, and `ApprovalStore.has/add/remove` are defined in Task 6 and used in Task 7. Row ids and configs in Task 9 match the plugin names and Config fields of Tasks 3, 5, 7, 8. The `stubAgent(ctx, cwd)` helper is repeated verbatim in three packages because test files do not cross package boundaries.
+**Type consistency:** `UserHomes`, `resolveUserHomes(config)`, `findProjectRoot(cwd, markers)`, `isInside(root, candidate, pathApi?)`, `toPosixRelative(root, candidate, pathApi?)`, `listMarkdownTree(root, maxDepth)`, `readTextFile(path)`, `fileSize(path)`, `realpathIfPresent(path)`, `parseFrontmatter(raw)`, `stringField`, `booleanField`, `stringListField`, `toKebabName`, and `PollWatcher.retain/pollOnce/close/groups` are defined in Tasks 1-2 and used with the same signatures in Tasks 3-8. `ServerSpec` (with `definition`), `canonicalJson`, `approvalKey(projectRoot, spec)`, and `ApprovalStore.has/add/remove` are defined in Task 6 and used in Task 7. Row ids and configs in Task 9 match the plugin names and Config fields of Tasks 3, 5, 7, 8 (`air-skill-conventions` has no config; `air-mcp-conventions` has no config until plan 02 sets `reviewTools: true`). The `stubAgent(ctx, cwd)` helper is repeated verbatim in three packages because test files do not cross package boundaries.
 
-**Assumptions the executor should confirm at the first failing step, not before:** (1) `ctx.logger.warn(message)` is callable on a bare `Context` in unit tests (upstream plugins call it the same way); (2) the upstream MCP client accepts the fixture server's handshake; (3) the `--dump-config` output quotes row names with single quotes. The `preset-air` YAML in Task 9 and the `customTags` handling of `!!js` were checked against the upstream `standard` preset with `yaml` 2.9.0 while writing this plan: the two lists differ only by the declared changes.
+**Assumptions the executor should confirm at the first failing step, not before:** (1) `ctx.logger.warn(message)` and `ctx.logger.info(message)` are callable on a bare `Context` in unit tests (upstream plugins call them the same way); (2) the upstream MCP client accepts the fixture server's handshake; (3) the `--dump-config` output quotes row names in a way the patterns in `check-air-composition.ts` match; (4) a scoped child created with `createScope(ctx, agent)` sees a service provided on the host context (the `reviewTools` tests rely on it); (5) `ctx.provide('mcpToolReview', {})` is accepted by the untyped overload; (6) `Date.now()` and file modification times agree within the 50 ms slack the watcher uses on the machine that runs the tests. The `preset-air` YAML and the `customTags` handling of `!!js` were checked against the `dsh-v0.2.1-alpha.1` `standard` preset with `yaml` 2.9.0 while revising this plan: the two lists differ only by the declared changes.
