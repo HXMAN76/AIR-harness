@@ -34,7 +34,9 @@ This page orders the work, names each plan, and lists what is still unplanned. T
 - **Eval arm patches (plan 05) disable memory by row id:** host rows `air-memory-store`, `air-embedding`, `air-memory-index`; per-Agent rows `air-tool-memory`, `air-memory-context`. The `sdk-minimal` eval composition has no approval service, so a writing arm sets `confirmTypes: [feedback]`.
 - **Plan 07 edits plan 00 files:** it adds `apps/*` to `air/pnpm-workspace.yaml` and entries to `air/.gitignore` (edits, not replacements). Plan 00's lint already covers `apps`, and its CI builds and tests only `packages/*` and `bundles/*`. Once `apps/*` is a workspace member, plan 00's CI install must use `pnpm -C air install --frozen-lockfile --ignore-scripts`, or it downloads Electron on every run.
 - **Plan 07 packaging finding:** `pnpm deploy --prod` of the CLI package leaves out the workspace packages that are only peers (28 at `dsh-v0.2.1-alpha.1`; the staging script computes the list) and copies them in (research note 13 section 2). Windows staging is untested and is the first gate of plan 07.
-- **Plans 05 and 06 on Windows:** plan 06 uses only `uv`, `pnpm`, `ollama`, and `git` commands; plan 05 still has a few bash-only steps (`mktemp`, a `for` loop) that need PowerShell or Python equivalents before a Windows teammate runs it.
+- **Plans 05 and 06 on Windows:** both use only shell-neutral commands. The Python SDK starts the runtime without a shell, so Windows needs a `.cmd` launcher shim (written, untested). The RQ1 collector is Linux-only (it sandboxes servers with bubblewrap); Windows teammates replay snapshots collected on Linux.
+- **Evaluation and permission rules:** the undefended arm must not load `air-permission-rules`; plan 06's runner refuses to run if it does. Later defended arms opt in explicitly, and an arm under approval policy `never` is labelled ungated, because plan 03 turns the default MCP ask into an allow there.
+- **Plans 05 and 06 stay separate files** with a shared-module list and one task order written in each.
 - **Plan 06 leaves one Ollama model behind:** `air-eval-qwen25` (qwen2.5:7b-instruct, temperature 0, seed 7, 16k context), the model plan 05 Task 4 also creates; remove with `ollama rm air-eval-qwen25`.
 - **Peer ranges:** the loader checks ranges with prerelease versions included, so `^0.2.0-rc.1` accepts `0.2.1-alpha.1` (verified with the loader's own options); plain semver tools report a mismatch, so plan 03 writes `^0.2.0-rc.1 || ^0.2.1-alpha.1`. Use that form in all plans for clarity.
 - **Plans 02 and 03 prompt order:** plan 03's MCP ask can appear before plan 02's trust guard denies an unapproved server; a per-server trust level that skips the per-call ask is a plan 03 follow-up.
@@ -116,7 +118,7 @@ Apply these when the build starts; the plan files are unchanged for now.
 | 02 | Not yet: re-verify the `mcp-client` hook lines, update the smoke reference, check the bundle template |
 | 03 | Done (222 tests run in a scratch copy on Linux, including the real Auto review plugin in both load orders; Windows paths untested): built-in tools allow by default, only MCP tools ask; every ask and denial explains itself; Windows elevation blocked; escalation answering opt-in |
 | 04 | Not yet: `time-context` is a preset row; re-verify APIs |
-| 05, 06 | Not yet: bash-only steps in 05, `sdk-minimal` row list, expected tool list |
+| 05, 06 | Done (re-run on Fedora at `0.2.1-alpha.1`: 54 keyless tests pass, composition check clean, one live test passes; native Windows untested): no bash-only steps, a Python composition check, a Windows launcher shim, a per-arm permission table, and a guard that stops the undefended arm from being gated |
 | 07 | Done: dynamic port, release gate, per-line log redaction, 116 unit tests pass in a scratch copy |
 
 ## New feature candidates (research note 14, awaiting owner choice)
@@ -139,7 +141,7 @@ Apply these when the build starts; the plan files are unchanged. Detail is in [r
 
 - **Plan 01:** done in the 2026-10-08 revision. Before: its `preset-air` row list was generated from the old `standard.patch.yml`. The standard preset now also declares `time-context` and the `schedule/tool-schedule` row; regenerate the list (the plan's drift test detects this) and decide whether AIR's preset keeps the reminder tools. Before writing AIR's hook plugin in a later slice, evaluate upstream's new experimental Claude Code mods bridge.
 - **Plan 04:** `time-context` is a preset row now; the memory-context row sits beside it in `preset-air`, and wording that calls it a top-level row is outdated.
-- **Plans 05 and 06:** `sdk-minimal` no longer has the five invariant rows, and Schedule tools exist in non-minimal presets; re-check the eval bundle's disabled-row list and the expected model-visible tool list. The experimental session inspector can help debug episodes.
+- **Plans 05 and 06:** done in the 2026-10-08 revision (the eval composition's tool list is unchanged). Before: `sdk-minimal` no longer has the five invariant rows, and Schedule tools exist in non-minimal presets; re-check the eval bundle's disabled-row list and the expected model-visible tool list. The experimental session inspector can help debug episodes.
 - **Plan 07:** done in the 2026-10-08 revision (dynamic port, origin handling, release gate, start-at-login moved to follow-ups).
 - **All plans:** version strings and line references cite `0.2.0-rc.2`; re-verify line numbers at the first step of each task. Peer range `^0.2.0-rc.1` still matches `0.2.1-alpha.1`.
 - **Spikes 01, 03, 05:** mentions of the schedule bundle as a template refer to a package that no longer exists; use `packages/experimental/voice-input-bundle` or `auto-review` as the bundle template.
