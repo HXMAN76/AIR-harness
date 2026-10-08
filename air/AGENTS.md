@@ -16,7 +16,7 @@ Read in this order:
 
 ## Current state
 
-Research and plans 00–07 are done; **no AIR feature code exists yet**. The owner decided to finish research before building. Do not execute `plans/*.md` until the owner says to start the build.
+Research and plans 00–07 are done (written against upstream `0.2.0-rc.2`; the fork is now at `0.2.1-alpha.1`, and the roadmap lists the adjustments); **no AIR feature code exists yet**. The owner decided to finish research before building. Do not execute `plans/*.md` until the owner says to start the build.
 
 What exists and works: the `air` bundle ([bundles/air](bundles/air)), which turns off upstream-vendor uploads, accounts, and telemetry and makes a local Ollama model the default; and an `air` profile created by the commands in [README.md](README.md).
 
@@ -36,7 +36,7 @@ What exists and works: the `air` bundle ([bundles/air](bundles/air)), which turn
 
 ## Finding code
 
-A graphify knowledge graph speeds up navigation of the 316 upstream packages. It is not committed (about 180 MB); build it once per checkout:
+A graphify knowledge graph speeds up navigation of the 319 upstream packages. It is not committed (about 180 MB); build it once per checkout:
 
 ```sh
 graphify update .          # AST-only, no API cost; writes graphify-out/

@@ -1,6 +1,6 @@
 # AIR-harness Research: Building an Open, Local-First, Verifiable Personal Agent
 
-Date: 2026-09-28. Status: synthesis v1.5, thirteen notes merged and revalidated against upstream release `dsh 0.2.0-rc.1` after the fork sync (section 2b). Notes 01–07 were written against `dsh 0.1.6-alpha.2`; where they disagree with section 2b, section 2b wins. Detailed evidence, sources, and file citations live in `research/notes/`:
+Date: 2026-09-28. Status: synthesis v1.6, thirteen notes merged; upstream base is now `dsh 0.2.1-alpha.1` (section 2b lists what each sync changed). Notes 01–07 were written against `dsh 0.1.6-alpha.2`; where they disagree with section 2b, section 2b wins. Detailed evidence, sources, and file citations live in `research/notes/`:
 
 | Note | Topic |
 |---|---|
@@ -60,6 +60,16 @@ The fork was synced on 2026-09-28: 2,224 upstream commits, about 7,000 files cha
 - Default model still `deepseek-flash` in `bundle/base`.
 
 **Second sync, 0.2.0-rc.1 to 0.2.0-rc.2 (2026-09-29).** 187 upstream commits, about 1,000 files, no packages added or removed. Areas this plan builds on (bundles, MCP client, approval, skills, hooks, speech-to-text, context) changed only in package versions. Relevant changes: due Schedule reminders are now framed as scheduled user messages; `user-questions` supports timed waits and late replies; the desktop app can install and manage a bundled `dsh` command; the model picker gained fuzzy search and grouping; upstream added `docs/upgrade-guide/<version>/` guides for breaking surface changes, which AIR should read at every sync (current guides: optional schedule bundle, legacy transcript view). The `air` profile composes unchanged on rc.2.
+
+**Third sync, 0.2.0-rc.2 to 0.2.1-alpha.1 (2026-10-08).** 266 upstream commits, about 4,200 files, 316 to 319 packages. The `air` profile composes with no unmatched patch targets and the build passes; the AIR peer range `^0.2.0-rc.1` still admits this version. Changes that matter here:
+- **Runtime invariants removed.** `@deepseek-ai/dsh-invariants` and every package's `./invariant` export are gone, and `sdk-minimal` loses its five invariant rows ([upgrade guide](../docs/upgrade-guide/v0.2.0-rc.2/remove-runtime-invariants/guide.md)). Most of the deleted lines in session, tools, agent-loop, context, hooks, and webhook are this removal. AIR plans never referenced invariants; the in-tree rule about invariant companions no longer applies.
+- **Schedule is part of the Web composition.** The optional schedule bundle is retired; `@deepseek-ai/dsh-web-app` mounts `schedule` and `ui-schedule`, and the `standard`, `cordis`, and `ptc` presets declare the clock reading and four `schedule_*` tools from the new `schedule/tool-schedule` package ([upgrade guide](../docs/upgrade-guide/v0.2.0-rc.2/schedule-bundle-retired/guide.md)). `time-context` is now a preset row, not a top-level row. Reminder tools are denied to delegated children.
+- **Claude Code mods bridge (experimental, new).** `experimental/claude-code-mods` runs Claude Code "mods" (function-hook plugins) inside agent runs: hooks can guard tool calls, rewrite prompts, add commands and tools, and draw a band above the prompt; `client-ui-claude-code-mods` renders the band. It is an alpha compatibility demonstration with a documented difference list (`docs/subsystems/claude-code-mods.md`). This overlaps the hook part of AIR's file-convention loader: evaluate it before writing AIR's own hook plugin (later slice of plan 01).
+- **Session inspector and developer tools (experimental, new).** `experimental/session-inspector` and `inspector-profile` show raw session logs and grouped chat structure, and embed the Node inspector; useful for debugging AIR plugins and for evaluation.
+- **Desktop Host uses a dynamic port.** Upstream's Host now passes `--port 0` instead of a fixed port. Plan 07's fixed port and port-conflict error dialog can be replaced by the same approach.
+- **Web `--public-url`.** The Web profile can advertise a public HTTP(S) root behind a proxy; it grants no trust. Not needed for the desktop app.
+- **Plugin display metadata.** Subpath plugins read title and description from locale files and their image from an exported `<subpath>/icon`, never from a subpath `package.json` ([upgrade guide](../docs/upgrade-guide/v0.2.0-rc.2/subpath-plugin-display-manifest/guide.md)); relevant when AIR bundles appear on the Plugins page.
+- **Unchanged:** MCP client (no pinning, no review hook), approval outcomes, Claude Code hook-bridge coverage, skill roots, speech-to-text seam, Auto review. Out-of-tree plugins still cannot write skippable session events.
 
 ## 2c. Owner decisions of 2026-10-02 and what the follow-up research found
 

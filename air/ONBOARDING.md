@@ -64,7 +64,7 @@ Everything the team needs is in the repository; nothing important lives only in 
 If you use Claude Code, Codex, or a similar tool in this repository:
 
 - The agent reads the root `AGENTS.md` (upstream rules) automatically. Claude Code also loads `.claude/rules/air.md`, which points it at [AGENTS.md](AGENTS.md) in this directory. For other tools, tell the agent to read `air/AGENTS.md` first.
-- Build the code graph once (`graphify update .`) if you have graphify installed; it makes questions about the 316 upstream packages much cheaper. It is optional.
+- Build the code graph once (`graphify update .`) if you have graphify installed; it makes questions about the 319 upstream packages much cheaper. It is optional.
 - Agent memory is per machine and is not shared. When you or your agent learn something the team needs (a decision, a pitfall, a measured number), put it in the repository: a decision in `plans/README.md`, a finding in the relevant research note or spike, a pitfall in the relevant plan.
 - Execute plans task by task and commit after each task, as the plans describe.
 

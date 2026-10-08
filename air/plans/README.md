@@ -1,6 +1,6 @@
 # AIR development roadmap
 
-Date: 2026-09-30. Upstream base: `dsh-v0.2.0-rc.2`. Product name: placeholder ("AIR", see [../BRANDING.md](../BRANDING.md)).
+Date: 2026-09-30. Upstream base: `dsh-v0.2.1-alpha.1` (plans were written against `dsh-v0.2.0-rc.2`; see "Changes the 2026-10-08 upstream sync requires"). Product name: placeholder ("AIR", see [../BRANDING.md](../BRANDING.md)).
 
 This page orders the work, names each plan, and lists what is still unplanned. The reasoning behind every choice is in [research/research.md](../../research/research.md); the exact APIs and verified commands are in the [spikes](spikes/).
 
@@ -103,6 +103,17 @@ Apply these when the build starts; the plan files are unchanged for now.
 - **`air` bundle:** optionally pin the default preset to Workspace Write so an ambient `DSH_PERMISSION_MODE` cannot start sessions in Full access; add a startup check that the loaded Ollama context is large enough ([research note 10](../../research/notes/10-local-models-rig.md): the default 4,096-token context silently truncates the harness prompt).
 - **Plan 05 (evaluation pilot):** use the measured local timings and the local/hosted split from research note 10; record the full runtime configuration with every result.
 - **New plan needed:** the desktop shell (item 8 below).
+
+## Changes the 2026-10-08 upstream sync requires in the written plans
+
+Apply these when the build starts; the plan files are unchanged. Detail is in [research.md](../../research/research.md) section 2b.
+
+- **Plan 01:** its `preset-air` row list was generated from the old `standard.patch.yml`. The standard preset now also declares `time-context` and the `schedule/tool-schedule` row; regenerate the list (the plan's drift test detects this) and decide whether AIR's preset keeps the reminder tools. Before writing AIR's hook plugin in a later slice, evaluate upstream's new experimental Claude Code mods bridge.
+- **Plan 04:** `time-context` is a preset row now; the memory-context row sits beside it in `preset-air`, and wording that calls it a top-level row is outdated.
+- **Plans 05 and 06:** `sdk-minimal` no longer has the five invariant rows, and Schedule tools exist in non-minimal presets; re-check the eval bundle's disabled-row list and the expected model-visible tool list. The experimental session inspector can help debug episodes.
+- **Plan 07:** upstream's Host now asks for port 0 (dynamic) and reports the URL over IPC; do the same instead of a fixed port. Re-read `apps/desktop-host/src/index.ts` before writing the AIR Host.
+- **All plans:** version strings and line references cite `0.2.0-rc.2`; re-verify line numbers at the first step of each task. Peer range `^0.2.0-rc.1` still matches `0.2.1-alpha.1`.
+- **Spikes 01, 03, 05:** mentions of the schedule bundle as a template refer to a package that no longer exists; use `packages/experimental/voice-input-bundle` or `auto-review` as the bundle template.
 
 ## Open decisions for the project owner
 
