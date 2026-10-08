@@ -2,11 +2,13 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Give the out-of-tree `air/` pnpm workspace a pinned toolchain, shared compiler settings, a lint configuration derived from upstream's rules, a profile smoke script, and a CI job, so every later AIR package plan can build, typecheck, lint, and test with one command each.
+**Goal:** Give the out-of-tree `air/` pnpm workspace a pinned toolchain, shared compiler settings, a lint configuration derived from upstream's rules, a profile smoke script, and a CI job, so every later AIR package plan can build, typecheck, lint, and test with one command each, on native Windows and Linux.
 
 **Architecture:** `air/` is a separate pnpm workspace outside upstream's `packages/*/*` globs. Its root `package.json` pins pnpm and declares every build and test tool once; packages extend `air/tsconfig.base.json`. The AIR lint config is generated from the root `.oxlintrc.json` by a script, so upstream rule changes flow into AIR at every sync without hand edits. A shell smoke script composes and boots an `air` profile under an isolated `DSH_HOME`; CI runs the same script.
 
 **Tech Stack:** pnpm 11.7.0, TypeScript 6, tsdown 0.22, Vitest 4, oxlint 1.76 with oxlint-tsgolint, tsx, GitHub Actions.
+
+> **Revision log (2026-10-08).** (1) The profile smoke is now `air/scripts/smoke-profile.ts`, run by tsx, because four teammates develop on native Windows without bash; it was run on Fedora and passes in about 8 seconds. (2) Every command step uses `pnpm`, `node`, or `git` only, with no absolute home path, so steps run unchanged in PowerShell and bash; run them from the repository root unless a step says otherwise. (3) The lint generator keeps `apps/*` globs and the lint script covers `air/apps`, for the desktop workspaces of plan 07. (4) The CI job builds, typechecks, and tests only `packages/*` and `bundles/*`; plan 07's own workflow owns `apps/*`, which would otherwise download Electron on every run. (5) Upstream base is now `dsh-v0.2.1-alpha.1`; the peer range `^0.2.0-rc.1` still matches it.
 
 **Spec:** [air/plans/spikes/01-toolchain.md](spikes/01-toolchain.md) (verified templates, root gate behavior, CI job), [research/notes/08-dev-contrib-guide.md](../../research/notes/08-dev-contrib-guide.md) §5.
 
@@ -36,7 +38,7 @@
 | `air/scripts/gen-oxlintrc.ts` | Derives `air/.oxlintrc.json` from the root `.oxlintrc.json` |
 | `air/scripts/tests/gen-oxlintrc.spec.ts` | Tests for the generator |
 | `air/.oxlintrc.json` | Generated lint config (committed; `--check` detects drift) |
-| `air/scripts/smoke-profile.sh` | Compose and boot an AIR profile under an isolated `DSH_HOME` |
+| `air/scripts/smoke-profile.ts` | Compose and boot an AIR profile under an isolated `DSH_HOME` (runs on Windows and Linux) |
 | `.github/workflows/air.yml` | CI job for `air/main` (in-tree file, listed in UPSTREAM-DELTA) |
 | `air/README.md` | Toolchain and command reference (modified) |
 | `air/UPSTREAM-DELTA.md` | Adds the workflow file (modified) |
@@ -59,7 +61,7 @@
 
 - [ ] **Step 1: Confirm the root build is present**
 
-Run: `test -f /home/hxman/AIR-harness/vendor/cordis/lib/index.js && test -f /home/hxman/AIR-harness/packages/core/tools/lib/index.js && echo ok`
+Run (repository root): `node -e "const fs=require('fs');console.log(['vendor/cordis/lib/index.js','packages/core/tools/lib/index.js'].every(f=>fs.existsSync(f))?'ok':'missing')"`
 Expected: `ok`. If not, run `pnpm install && pnpm run build` at the repository root first.
 
 - [ ] **Step 2: Replace `air/package.json`**
@@ -77,10 +79,10 @@ Expected: `ok`. If not, run `pnpm install && pnpm run build` at the repository r
   "scripts": {
     "build": "pnpm -r --if-present run build",
     "typecheck": "pnpm -r --if-present run typecheck",
-    "lint": "tsx scripts/gen-oxlintrc.ts --check && node node_modules/oxlint/bin/oxlint --config .oxlintrc.json --type-aware packages",
+    "lint": "tsx scripts/gen-oxlintrc.ts --check && oxlint --config .oxlintrc.json --type-aware packages apps",
     "lint:gen": "tsx scripts/gen-oxlintrc.ts",
     "test": "vitest run && pnpm -r --if-present run test",
-    "smoke": "bash scripts/smoke-profile.sh"
+    "smoke": "tsx scripts/smoke-profile.ts"
   },
   "devDependencies": {
     "@stylistic/eslint-plugin": "^5.10.0",
@@ -161,18 +163,17 @@ export default defineConfig({
 
 - [ ] **Step 7: Install and generate the lockfile**
 
-Run: `cd /home/hxman/AIR-harness/air && pnpm install`
+Run: `pnpm -C air install`
 Expected: exits 0; `pnpm --version` inside `air/` prints `11.7.0`; `air/pnpm-lock.yaml` exists; `air/node_modules/.bin/tsc` exists.
 
 - [ ] **Step 8: Verify the pinned tools resolve from `air/`**
 
-Run: `cd /home/hxman/AIR-harness/air && pnpm exec tsc --version && pnpm exec vitest --version && pnpm --version`
+Run, one command at a time: `pnpm -C air exec tsc --version`, `pnpm -C air exec vitest --version`, `pnpm -C air exec pnpm --version`
 Expected: `Version 6.x`, `vitest/4.x`, `11.7.0`.
 
 - [ ] **Step 9: Commit**
 
 ```bash
-cd /home/hxman/AIR-harness
 git add air/package.json air/pnpm-workspace.yaml air/pnpm-lock.yaml air/tsconfig.base.json air/.gitignore air/vitest.config.ts
 git commit -m "build(air): pin the AIR workspace toolchain and shared compiler options"
 ```
@@ -193,7 +194,8 @@ git commit -m "build(air): pin the AIR workspace toolchain and shared compiler o
 Mapping rules, applied to each override's `files`:
 - `packages/*/*/<rest>` becomes `packages/*/<rest>` (AIR packages sit one level shallower).
 - `packages/**/<rest>` is kept unchanged.
-- Every other glob (apps, examples, scripts, website, and paths to specific upstream packages) is dropped.
+- `apps/*/<rest>` is kept unchanged (AIR's desktop workspaces live in `air/apps/*`, plan 07).
+- Every other glob (examples, scripts, website, and paths to specific upstream packages) is dropped.
 - Overrides left with no `files` are dropped.
 - `ignorePatterns` keeps only entries starting with `**/`.
 - `$schema` points at `./node_modules/oxlint/configuration_schema.json` (AIR's own install).
@@ -221,7 +223,7 @@ describe('deriveAirOxlintConfig', () => {
     expect(derived.$schema).toBe('./node_modules/oxlint/configuration_schema.json')
     expect(derived.ignorePatterns).toEqual(['**/lib/**', '**/*.js'])
     expect(derived.overrides).toEqual([
-      { files: ['packages/*/src/**/*.{ts,tsx}'], rules: { 'no-console': 'error' } },
+      { files: ['packages/*/src/**/*.{ts,tsx}', 'apps/*/src/**/*.{ts,tsx}'], rules: { 'no-console': 'error' } },
       { files: ['packages/**/*.{ts,tsx}'], rules: { eqeqeq: 'error' }, jsPlugins: ['eslint-plugin-sonarjs'] },
     ])
   })
@@ -247,7 +249,7 @@ describe('parseJsonWithComments', () => {
 
 - [ ] **Step 2: Run the test to verify it fails**
 
-Run: `cd /home/hxman/AIR-harness/air && pnpm exec vitest run scripts/tests/gen-oxlintrc.spec.ts`
+Run: `pnpm -C air exec vitest run scripts/tests/gen-oxlintrc.spec.ts`
 Expected: FAIL with `Failed to load url ../gen-oxlintrc.ts` (module does not exist).
 
 - [ ] **Step 3: Implement the generator**
@@ -276,16 +278,18 @@ export interface OxlintOverride {
 
 const UPSTREAM_PACKAGE_PREFIX = 'packages/*/*/'
 const ANY_PACKAGE_PREFIX = 'packages/**/'
+const APP_PREFIX = 'apps/'
 const AIR_SCHEMA = './node_modules/oxlint/configuration_schema.json'
 
 function mapGlob(glob: string): string | undefined {
   if (glob.startsWith(UPSTREAM_PACKAGE_PREFIX)) return `packages/*/${glob.slice(UPSTREAM_PACKAGE_PREFIX.length)}`
   if (glob.startsWith(ANY_PACKAGE_PREFIX)) return glob
+  if (glob.startsWith(APP_PREFIX)) return glob
   return undefined
 }
 
 /**
- * Map root lint rules onto the AIR layout: `air/packages/<pkg>` instead of `packages/<group>/<pkg>`.
+ * Map root lint rules onto the AIR layout: `air/packages/<pkg>` instead of `packages/<group>/<pkg>`; `apps/*` globs carry over to `air/apps/*`.
  * @param root - parsed root configuration.
  * @returns the configuration to write to air/.oxlintrc.json.
  */
@@ -343,33 +347,29 @@ if (import.meta.url === `file://${process.argv[1]}`) process.exitCode = main(pro
 
 - [ ] **Step 4: Run the test to verify it passes**
 
-Run: `cd /home/hxman/AIR-harness/air && pnpm exec vitest run scripts/tests/gen-oxlintrc.spec.ts`
+Run: `pnpm -C air exec vitest run scripts/tests/gen-oxlintrc.spec.ts`
 Expected: `Tests 4 passed (4)`.
 
 - [ ] **Step 5: Generate the config and confirm `--check` passes**
 
-Run: `cd /home/hxman/AIR-harness/air && pnpm run lint:gen && pnpm exec tsx scripts/gen-oxlintrc.ts --check; echo "exit $?"`
-Expected: `air/.oxlintrc.json` exists; `exit 0`. `grep -c '"packages/\*/src' .oxlintrc.json` prints a number greater than 0 and `grep -c 'apps/' .oxlintrc.json` prints `0`.
+Run (from `air/`): `pnpm run lint:gen` then `pnpm exec tsx scripts/gen-oxlintrc.ts --check`
+Expected: `air/.oxlintrc.json` exists; `exit 0`. `node -e "const c=require('./.oxlintrc.json');const f=c.overrides.flatMap(o=>o.files);console.log(f.some(g=>g.startsWith('packages/*/src')), f.some(g=>g.startsWith('scripts/')||g.startsWith('website/')))"` prints `true false`.
 
 - [ ] **Step 6: Prove the rules are active on AIR code**
 
 Run:
 
 ```bash
-cd /home/hxman/AIR-harness/air
-mkdir -p packages/_lint-probe/src
-printf '{ "compilerOptions": { "rootDir": "src", "noEmit": true }, "extends": "../../tsconfig.base.json", "include": ["src"] }\n' > packages/_lint-probe/tsconfig.json
-printf 'export async function probe(): Promise<number> {\n  return 1\n}\n' > packages/_lint-probe/src/index.ts
-node node_modules/oxlint/bin/oxlint --config .oxlintrc.json --type-aware packages; echo "exit $?"
-rm -rf packages/_lint-probe
+node -e "const fs=require('fs');fs.mkdirSync('air/packages/_lint-probe/src',{recursive:true});fs.writeFileSync('air/packages/_lint-probe/tsconfig.json',JSON.stringify({extends:'../../tsconfig.base.json',compilerOptions:{rootDir:'src',noEmit:true},include:['src']}));fs.writeFileSync('air/packages/_lint-probe/src/index.ts','export async function probe(): Promise<number> {\n  return 1\n}\n')"
+pnpm -C air exec oxlint --config .oxlintrc.json --type-aware packages
+node -e "require('fs').rmSync('air/packages/_lint-probe',{recursive:true,force:true})"
 ```
 
-Expected: a `require-await` diagnostic for `packages/_lint-probe/src/index.ts` and a non-zero exit, showing upstream rules apply under `air/packages/*`. The probe directory is removed.
+Expected: the second command prints a `require-await` diagnostic for `packages/_lint-probe/src/index.ts` and exits non-zero, showing upstream rules apply under `air/packages/*`. The probe directory is removed.
 
 - [ ] **Step 7: Commit**
 
 ```bash
-cd /home/hxman/AIR-harness
 git add air/scripts/gen-oxlintrc.ts air/scripts/tests/gen-oxlintrc.spec.ts air/.oxlintrc.json
 git commit -m "build(air): derive the AIR lint config from upstream oxlint rules"
 ```
@@ -379,87 +379,108 @@ git commit -m "build(air): derive the AIR lint config from upstream oxlint rules
 ### Task 3: Profile smoke script
 
 **Files:**
-- Create: `air/scripts/smoke-profile.sh`
+- Create: `air/scripts/smoke-profile.ts`
 
 **Interfaces:**
-- Consumes: `air/bundles/air`, `air/examples/ollama.profile.cordis.patch.yml`, the source launcher `pnpm dsh`.
-- Produces: `bash air/scripts/smoke-profile.sh` (exit 0 when the `air-smoke` profile composes without unmatched targets and boots without disabled, failed, or pending rows). Environment: `DSH_HOME` (defaults to a fresh temp dir), `AIR_SMOKE_PORT` (default `3187`), `AIR_SMOKE_SECONDS` (default `60`).
+- Consumes: `air/bundles/air`, `air/examples/ollama.profile.cordis.patch.yml`, the source launcher `apps/cli/src/bin.ts` run as `node --import tsx/esm`.
+- Produces: `pnpm -C air run smoke` (exit 0 when the `air-smoke` profile composes without unmatched targets and boots to its ready line without disabled, failed, or pending rows). Environment: `DSH_HOME` (defaults to a fresh temp dir), `AIR_SMOKE_PORT` (default `3187`), `AIR_SMOKE_SECONDS` (default `90`, the ready-line deadline).
+
+The script is TypeScript run by tsx so it works on native Windows and Linux; it calls the launcher through `process.execPath` instead of `pnpm`, which avoids shell differences. It stops the app as soon as the ready line appears, so a passing run takes about 8 seconds (measured 2026-10-08 on Fedora, 7.9 s).
 
 - [ ] **Step 1: Write the script**
 
-`air/scripts/smoke-profile.sh`:
+`air/scripts/smoke-profile.ts`:
 
-```bash
-#!/usr/bin/env bash
-# Compose and boot the AIR bundle in a throwaway profile under an isolated DSH_HOME.
-set -euo pipefail
+```ts
+/** Compose and boot the AIR bundle in a throwaway profile under an isolated DSH_HOME (Windows and Linux). */
+import { spawn, spawnSync } from 'node:child_process'
+import { copyFileSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join, resolve } from 'node:path'
 
-repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-export DSH_HOME="${DSH_HOME:-$(mktemp -d)}"
-port="${AIR_SMOKE_PORT:-3187}"
-seconds="${AIR_SMOKE_SECONDS:-60}"
-profile=air-smoke
-out="$DSH_HOME/smoke"
-mkdir -p "$out"
-cd "$repo_root"
+const repoRoot = resolve(import.meta.dirname, '..', '..')
+const home = process.env.DSH_HOME ?? mkdtempSync(join(tmpdir(), 'air-smoke-'))
+const port = process.env.AIR_SMOKE_PORT ?? '3187'
+const timeoutMs = Number(process.env.AIR_SMOKE_SECONDS ?? '90') * 1000
+const profile = 'air-smoke'
+const env = { ...process.env, DSH_HOME: home }
+const launcher = ['--import', 'tsx/esm', join(repoRoot, 'apps', 'cli', 'src', 'bin.ts')]
+const PROBLEM = /unmatched|incompatible|failed|disabling profile plugin row|did not activate|pending/i
 
-pnpm --silent dsh --profile "$profile" --from-default-profile web --dump-config > /dev/null
-pnpm --silent dsh plugin --profile "$profile" add "$repo_root/air/bundles/air" > "$out/plugin-add.log"
-cp air/examples/ollama.profile.cordis.patch.yml "$DSH_HOME/profiles/$profile/cordis.patch.yml"
-printf 'OLLAMA_API_KEY=ollama\n' > "$DSH_HOME/.env"
+function fail(message: string, detail = ''): never {
+  console.error(`smoke: ${message}`)
+  if (detail !== '') console.error(detail)
+  process.exit(1)
+}
 
-pnpm --silent dsh --profile "$profile" --dump-config > "$out/dump.yml" 2> "$out/dump.err"
-if grep -Eiq 'unmatched|incompatible|failed' "$out/dump.err"; then
-  echo "smoke: composition problems:" >&2
-  cat "$out/dump.err" >&2
-  exit 1
-fi
-grep -q '# == .*patched by @air/dsh-air-bundle' "$out/dump.yml" || { echo "smoke: AIR bundle layer missing" >&2; exit 1; }
+function dsh(args: readonly string[]): { stdout: string, stderr: string } {
+  const result = spawnSync(process.execPath, [...launcher, ...args], { cwd: repoRoot, env, encoding: 'utf8' })
+  if (result.status !== 0) fail(`dsh ${args.join(' ')} exited ${String(result.status)}`, result.stderr)
+  return { stdout: result.stdout, stderr: result.stderr }
+}
 
-set +e
-timeout "$seconds" pnpm --silent dsh --profile "$profile" --no-open --port "$port" > "$out/boot.out" 2> "$out/boot.err"
-code=$?
-set -e
-if [ "$code" -ne 124 ]; then
-  echo "smoke: boot exited early with code $code" >&2
-  cat "$out/boot.err" >&2
-  exit 1
-fi
-grep -q "dsh web: http://127.0.0.1:$port/" "$out/boot.out" || { echo "smoke: no ready line" >&2; exit 1; }
-if grep -Eiq 'disabling profile plugin row|did not activate|pending|failed' "$out/boot.err"; then
-  echo "smoke: boot problems:" >&2
-  cat "$out/boot.err" >&2
-  exit 1
-fi
-echo "smoke: ok ($DSH_HOME)"
+dsh(['--profile', profile, '--from-default-profile', 'web', '--dump-config'])
+dsh(['plugin', '--profile', profile, 'add', join(repoRoot, 'air', 'bundles', 'air')])
+copyFileSync(
+  join(repoRoot, 'air', 'examples', 'ollama.profile.cordis.patch.yml'),
+  join(home, 'profiles', profile, 'cordis.patch.yml'),
+)
+writeFileSync(join(home, '.env'), 'OLLAMA_API_KEY=ollama\n')
+
+const dump = dsh(['--profile', profile, '--dump-config'])
+if (PROBLEM.test(dump.stderr)) fail('composition problems:', dump.stderr)
+if (!dump.stdout.includes('patched by @air/dsh-air-bundle')) fail('AIR bundle layer missing from the composed tree')
+
+const child = spawn(process.execPath, [...launcher, '--profile', profile, '--no-open', '--port', port], { cwd: repoRoot, env })
+let out = ''
+let err = ''
+child.stdout.on('data', (chunk: Buffer) => { out += chunk.toString() })
+child.stderr.on('data', (chunk: Buffer) => { err += chunk.toString() })
+const ready = `dsh web: http://127.0.0.1:${port}/`
+const started = Date.now()
+const timer = setInterval(() => {
+  if (out.includes(ready)) {
+    clearInterval(timer)
+    child.kill()
+    if (PROBLEM.test(err)) fail('boot problems:', err)
+    console.log(`smoke: ok (${home})`)
+    process.exit(0)
+  }
+  if (child.exitCode !== null) {
+    clearInterval(timer)
+    fail(`boot exited early with code ${String(child.exitCode)}`, err)
+  }
+  if (Date.now() - started > timeoutMs) {
+    clearInterval(timer)
+    child.kill()
+    fail(`no ready line within ${String(timeoutMs / 1000)} s`, err)
+  }
+}, 250)
 ```
 
-- [ ] **Step 2: Make it executable and run it**
+- [ ] **Step 2: Run it**
 
-Run: `chmod +x /home/hxman/AIR-harness/air/scripts/smoke-profile.sh && AIR_SMOKE_SECONDS=45 bash /home/hxman/AIR-harness/air/scripts/smoke-profile.sh`
-Expected: last line `smoke: ok (/tmp/...)`; nothing written under `~/.dsh`.
+Run: `pnpm -C air run smoke`
+Expected: last line `smoke: ok (<temp dir>)`; nothing written under the user's `.dsh` directory.
 
-- [ ] **Step 3: Prove the script fails on a broken bundle**
+- [ ] **Step 3: Check that the script fails on a broken bundle**
 
-Run:
+Append a row that names a package that does not exist, run the smoke, then restore the file with git:
 
-```bash
-cd /home/hxman/AIR-harness
-cp air/bundles/air/cordis.patch.yml /tmp/air-patch.bak
-printf -- '- id: air-does-not-exist\n  disabled: true\n' >> air/bundles/air/cordis.patch.yml
-AIR_SMOKE_SECONDS=30 bash air/scripts/smoke-profile.sh; echo "exit $?"
-cp /tmp/air-patch.bak air/bundles/air/cordis.patch.yml && rm /tmp/air-patch.bak
-git diff --exit-code air/bundles/air/cordis.patch.yml && echo restored
+```sh
+node -e "require('fs').appendFileSync('air/bundles/air/cordis.patch.yml', '\n- insert:\n    - id: air-probe\n      name: \'@air/dsh-missing\'\n')"
+pnpm -C air run smoke
+git checkout -- air/bundles/air/cordis.patch.yml
+git status --short air/bundles/air/cordis.patch.yml
 ```
 
-Expected: `smoke: composition problems:` naming the unmatched target, `exit 1`, then `restored`. If the launcher does not report the unmatched id on stderr, change the probe to a row whose `name` is a package that does not exist (`- insert: [{ id: air-probe, name: '@air/dsh-missing' }]`) and expect the boot check to fail instead; record which behavior was observed in the commit message.
+Expected: the smoke prints `smoke: composition problems:` or `smoke: boot problems:` naming `air-probe` or `@air/dsh-missing` and exits 1; after the checkout, `git status` prints nothing. If the smoke exits 0 instead, the launcher reported the failure with wording the `PROBLEM` pattern does not cover: read the captured stderr, add the wording to the pattern, and re-run this step.
 
 - [ ] **Step 4: Commit**
 
 ```bash
-cd /home/hxman/AIR-harness
-git add air/scripts/smoke-profile.sh
-git commit -m "test(air): add an isolated-home compose and boot smoke for the AIR bundle"
+git add air/scripts/smoke-profile.ts
+git commit -m "test(air): add a cross-platform compose and boot smoke for the AIR bundle"
 ```
 
 ---
@@ -472,7 +493,7 @@ git commit -m "test(air): add an isolated-home compose and boot smoke for the AI
 - Modify: `air/README.md`
 
 **Interfaces:**
-- Consumes: `pnpm -C air run build|typecheck|lint|test`, `air/scripts/smoke-profile.sh`, root gates `verify-no-unknown-casts`, `verify-concrete-terms`, `verify-repository-references`, `verify-translation-pairing`.
+- Consumes: `pnpm -C air run build|typecheck|lint|test`, `air/scripts/smoke-profile.ts`, root gates `verify-no-unknown-casts`, `verify-concrete-terms`, `verify-repository-references`, `verify-translation-pairing`.
 - Produces: a CI signal on pushes and pull requests to `air/main`.
 
 - [ ] **Step 1: Write the workflow**
@@ -510,13 +531,13 @@ jobs:
       - name: Install AIR workspace
         run: pnpm -C air install --frozen-lockfile
       - name: Build AIR packages
-        run: pnpm -C air run build
+        run: pnpm -C air --filter "./packages/*" --filter "./bundles/*" run build
       - name: Typecheck AIR packages
-        run: pnpm -C air run typecheck
+        run: pnpm -C air --filter "./packages/*" --filter "./bundles/*" run typecheck
       - name: Lint AIR packages
         run: pnpm -C air run lint
       - name: Test AIR workspace
-        run: pnpm -C air run test
+        run: pnpm -C air exec vitest run && pnpm -C air --filter "./packages/*" --filter "./bundles/*" run test
 
       - name: Root gates that scan air/
         run: |
@@ -528,12 +549,12 @@ jobs:
       - name: Compose and boot the AIR profile
         env:
           DSH_HOME: ${{ runner.temp }}/dsh-home
-        run: bash air/scripts/smoke-profile.sh
+        run: pnpm -C air run smoke
 ```
 
 - [ ] **Step 2: Validate the workflow syntax locally**
 
-Run: `cd /home/hxman/AIR-harness && node -e "require('js-yaml').load(require('fs').readFileSync('.github/workflows/air.yml','utf8')); console.log('yaml ok')"`
+Run (repository root): `node -e "require('js-yaml').load(require('fs').readFileSync('.github/workflows/air.yml','utf8')); console.log('yaml ok')"`
 Expected: `yaml ok` (`js-yaml` is a root devDependency).
 
 - [ ] **Step 3: Add the workflow to `air/UPSTREAM-DELTA.md`**
@@ -570,13 +591,12 @@ Upstream workflows under `.github/workflows/` also run on pushes to this fork; d
 
 - [ ] **Step 5: Run the gates that scan `air/`**
 
-Run: `cd /home/hxman/AIR-harness && pnpm run verify-concrete-terms && pnpm run verify-repository-references && pnpm run verify-translation-pairing && pnpm run verify-no-unknown-casts`
+Run (repository root), one command at a time: `pnpm run verify-concrete-terms`, `pnpm run verify-repository-references`, `pnpm run verify-translation-pairing`, `pnpm run verify-no-unknown-casts`
 Expected: each prints its success line.
 
 - [ ] **Step 6: Commit**
 
 ```bash
-cd /home/hxman/AIR-harness
 git add .github/workflows/air.yml air/UPSTREAM-DELTA.md air/README.md
 git commit -m "ci(air): build, lint, test, and smoke-boot the AIR workspace on air/main"
 ```
@@ -585,6 +605,7 @@ git commit -m "ci(air): build, lint, test, and smoke-boot the AIR workspace on a
 
 ## Self-Review
 
+- Windows: no step needs bash, `chmod`, or a POSIX path; the smoke script and the lint probe use Node file APIs.
 - Spec coverage (spike 01 "Recommended toolchain"): pinned pnpm (Task 1), `autoInstallPeers: false` (Task 1), shared tools declared once (Task 1), committed lockfile with `--frozen-lockfile` in CI (Tasks 1, 4), shared tsconfig (Task 1), AIR lint config (Task 2), isolated-home profile smoke (Task 3), CI job with the root gates that scan `air/` (Task 4), UPSTREAM-DELTA entry (Task 4). The client build config for browser halves is deferred to the first plan that ships a client plugin (plan 03 permissions), which copies spike 01 §5.
 - No placeholders: every file has full content; every step has a command and expected output.
 - Names used by later plans: `air/tsconfig.base.json`, scripts `build`, `typecheck`, `lint`, `test`, `smoke`; later plans extend these without renaming.
