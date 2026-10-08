@@ -33,7 +33,9 @@ This page orders the work, names each plan, and lists what is still unplanned. T
 - **Plan 07 and MCP trust:** the desktop app should show each server's trust state (`ctx.mcpTrust.servers()`), and a packaged app needs its own value for plan 02's `cliCommand` Config field (the bundle default is the developer form `pnpm dsh --profile air-mcp`).
 - **Plan 02 edits a plan 00 file:** its last task adds the `air/bundles/mcp-servers` bundle to the profile smoke, which is now `air/scripts/smoke-profile.ts`.
 - **Plan 01 edits a plan 00 file:** it adds `yaml` to `air/package.json` devDependencies.
-- **Plan 04 edits a plan 01 file:** its bundle task updates `air/scripts/tests/preset-air-drift.spec.ts` (expected AIR rows and row-package count).
+- **Plan 04 edits plan 00 and plan 01 files:** `air/package.json` gains scripts `memory:transfer` and `web:isolated`; plan 01's `air/scripts/tests/preset-air-drift.spec.ts` and `check-air-composition.ts` gain the memory rows. Plan 04's bundle task assumes plan 01 Task 9 has landed.
+- **Memory and model routes:** the `air-memory-store` row's `shareWith` Config field defaults to `['ollama']`, so the pinned core and memory tool results go only to the local route; an evaluation arm on another provider must add it. A session that starts local and later switches to a cloud route keeps the core already in its log.
+- **Memory and approvals:** memory writes ask only when the session's approval policy can ask; under Full access a non-feedback write is stored as agent-inferred and feedback writes and hard deletes are refused.
 - **Eval arm patches (plan 05) disable memory by row id:** host rows `air-memory-store`, `air-embedding`, `air-memory-index`; per-Agent rows `air-tool-memory`, `air-memory-context`. The `sdk-minimal` eval composition has no approval service, so a writing arm sets `confirmTypes: [feedback]`.
 - **Plan 07 edits plan 00 files:** it adds `apps/*` to `air/pnpm-workspace.yaml` and entries to `air/.gitignore` (edits, not replacements). Plan 00's lint already covers `apps`, and its CI builds and tests only `packages/*` and `bundles/*`. Once `apps/*` is a workspace member, plan 00's CI install must use `pnpm -C air install --frozen-lockfile --ignore-scripts`, or it downloads Electron on every run.
 - **Plan 07 packaging finding:** `pnpm deploy --prod` of the CLI package leaves out the workspace packages that are only peers (28 at `dsh-v0.2.1-alpha.1`; the staging script computes the list) and copies them in (research note 13 section 2). Windows staging is untested and is the first gate of plan 07.
@@ -120,7 +122,7 @@ Apply these when the build starts; the plan files are unchanged for now.
 | 01 | Done (code still uncompiled): preset regenerated and keeps clock and reminder tools; one polling watcher; command files no longer read as skills; safer `@path` imports; `.mcp.json` approval keyed on the unexpanded definition; `reviewTools` Config field for plan 02; Windows path handling and cross-platform steps |
 | 02 | Done (lockfile module run in a scratch copy with five concurrent writers; the rest read, not compiled; Windows untested): upstream lines re-verified, first-use prompt saves the pin, every denial names the server, changed fields, and the exact command, an unreadable lockfile quarantines instead of only logging, Windows-safe steps |
 | 03 | Done (222 tests run in a scratch copy on Linux, including the real Auto review plugin in both load orders; Windows paths untested): built-in tools allow by default, only MCP tools ask; every ask and denial explains itself; Windows elevation blocked; escalation answering opt-in |
-| 04 | Not yet: `time-context` is a preset row; re-verify APIs |
+| 04 | Done (142 tests at 100% coverage and benchmarks run in a scratch copy on Linux; Loader test, profile smoke, Ollama integration, and Windows not run): git optional, index and scan costs measured and reduced, Ollama failure causes reported to the user, writes ask only when the session can ask, memory shared only with local model routes by default, export and import command |
 | 05, 06 | Done (re-run on Fedora at `0.2.1-alpha.1`: 54 keyless tests pass, composition check clean, one live test passes; native Windows untested): no bash-only steps, a Python composition check, a Windows launcher shim, a per-arm permission table, and a guard that stops the undefended arm from being gated |
 | 07 | Done: dynamic port, release gate, per-line log redaction, 116 unit tests pass in a scratch copy |
 
@@ -140,10 +142,10 @@ Note 14 also recommends cuts for a five-person team (reduce the phase-1 desktop 
 
 ## Changes the 2026-10-08 upstream sync requires in the written plans
 
-Apply these when the build starts; the plan files are unchanged. Detail is in [research.md](../../research/research.md) section 2b.
+All of these were applied to the plan files in the 2026-10-08 revision (see "Plan revision status"); the list is kept as a record. Detail is in [research.md](../../research/research.md) section 2b.
 
 - **Plan 01:** done in the 2026-10-08 revision. Before: its `preset-air` row list was generated from the old `standard.patch.yml`. The standard preset now also declares `time-context` and the `schedule/tool-schedule` row; regenerate the list (the plan's drift test detects this) and decide whether AIR's preset keeps the reminder tools. Before writing AIR's hook plugin in a later slice, evaluate upstream's new experimental Claude Code mods bridge.
-- **Plan 04:** `time-context` is a preset row now; the memory-context row sits beside it in `preset-air`, and wording that calls it a top-level row is outdated.
+- **Plan 04:** done in the 2026-10-08 revision. Before: `time-context` is a preset row now; the memory-context row sits beside it in `preset-air`, and wording that calls it a top-level row is outdated.
 - **Plans 05 and 06:** done in the 2026-10-08 revision (the eval composition's tool list is unchanged). Before: `sdk-minimal` no longer has the five invariant rows, and Schedule tools exist in non-minimal presets; re-check the eval bundle's disabled-row list and the expected model-visible tool list. The experimental session inspector can help debug episodes.
 - **Plan 07:** done in the 2026-10-08 revision (dynamic port, origin handling, release gate, start-at-login moved to follow-ups).
 - **All plans:** version strings and line references cite `0.2.0-rc.2`; re-verify line numbers at the first step of each task. Peer range `^0.2.0-rc.1` still matches `0.2.1-alpha.1`.
