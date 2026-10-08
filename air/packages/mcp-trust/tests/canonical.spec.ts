@@ -5,8 +5,8 @@ import {
   assertIJson, digestInstructions, digestSurface, digestTool, jcs, NonIJsonError, sha256Jcs,
 } from '../src/canonical.ts'
 
-const golden = JSON.parse(
-  readFileSync(join(import.meta.dirname, 'fixtures', 'jcs-golden.json'), 'utf8'),
+const expected = JSON.parse(
+  readFileSync(join(import.meta.dirname, 'fixtures', 'jcs-expected.json'), 'utf8'),
 ) as Record<string, { value: unknown; digest: string }>
 
 const LONE_SURROGATE = String.fromCharCode(0xd800)
@@ -27,8 +27,8 @@ const NAVIGATE = {
 }
 
 describe('jcs', () => {
-  it.each(Object.keys(golden))('matches the Python rfc8785 digest for %s (scenario 26)', (name) => {
-    expect(sha256Jcs(golden[name]!.value)).toBe(golden[name]!.digest)
+  it.each(Object.keys(expected))('matches the Python rfc8785 digest for %s (scenario 26)', (name) => {
+    expect(sha256Jcs(expected[name]!.value)).toBe(expected[name]!.digest)
   })
 
   it('sorts keys at every depth', () => {
