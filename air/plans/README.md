@@ -28,6 +28,9 @@ This page orders the work, names each plan, and lists what is still unplanned. T
 ## Cross-plan obligations
 
 - **Plan 02 turns on review for imported servers:** plan 01's `air-mcp-conventions` row has a `reviewTools` Config field (default false) that adds `inject: [mcpToolReview]` to every `mcp-client` child mounted from `.mcp.json`. Plan 02's bundle task sets it to true; plan 01 does not depend on plan 02.
+- **Order between plans 01 and 02:** plan 02's bundle test asserts `reviewTools: true` on plan 01's row, so plan 01 Task 9 lands first.
+- **Servers imported from `.mcp.json` and the `air-mcp` command profile:** the command profile cannot see servers that plan 01 imports per project; they are approved through the in-session prompt. A shared server list and a slash command are plan 02 follow-ups.
+- **Plan 07 and MCP trust:** the desktop app should show each server's trust state (`ctx.mcpTrust.servers()`), and a packaged app needs its own value for plan 02's `cliCommand` Config field (the bundle default is the developer form `pnpm dsh --profile air-mcp`).
 - **Plan 02 edits a plan 00 file:** its last task adds the `air/bundles/mcp-servers` bundle to the profile smoke, which is now `air/scripts/smoke-profile.ts`.
 - **Plan 01 edits a plan 00 file:** it adds `yaml` to `air/package.json` devDependencies.
 - **Plan 04 edits a plan 01 file:** its bundle task updates `air/scripts/tests/preset-air-drift.spec.ts` (expected AIR rows and row-package count).
@@ -115,7 +118,7 @@ Apply these when the build starts; the plan files are unchanged for now.
 |---|---|
 | 00 | Done: Node smoke script (run on Fedora), cross-platform steps, lint and CI scope |
 | 01 | Done (code still uncompiled): preset regenerated and keeps clock and reminder tools; one polling watcher; command files no longer read as skills; safer `@path` imports; `.mcp.json` approval keyed on the unexpanded definition; `reviewTools` Config field for plan 02; Windows path handling and cross-platform steps |
-| 02 | Not yet: re-verify the `mcp-client` hook lines, update the smoke reference, check the bundle template |
+| 02 | Done (lockfile module run in a scratch copy with five concurrent writers; the rest read, not compiled; Windows untested): upstream lines re-verified, first-use prompt saves the pin, every denial names the server, changed fields, and the exact command, an unreadable lockfile quarantines instead of only logging, Windows-safe steps |
 | 03 | Done (222 tests run in a scratch copy on Linux, including the real Auto review plugin in both load orders; Windows paths untested): built-in tools allow by default, only MCP tools ask; every ask and denial explains itself; Windows elevation blocked; escalation answering opt-in |
 | 04 | Not yet: `time-context` is a preset row; re-verify APIs |
 | 05, 06 | Done (re-run on Fedora at `0.2.1-alpha.1`: 54 keyless tests pass, composition check clean, one live test passes; native Windows untested): no bash-only steps, a Python composition check, a Windows launcher shim, a per-arm permission table, and a guard that stops the undefended arm from being gated |
