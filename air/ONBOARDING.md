@@ -6,7 +6,7 @@ This page gets a new teammate from a fresh clone to a running local agent, and t
 
 AIR (working name; the final name is on hold) is a local-first personal agent: a desktop app for Windows and Linux that runs an AI agent on your own machine, extended through plain files and plugins, with security properties that can be checked. It is built on a fork of an open-source, MIT-licensed agent harness, and it is a final-year project with research questions about MCP tool pinning, permission policy, and memory.
 
-Status: research (notes 01–13) and implementation plans (00–05, 07) are complete; building has not started. Today the agent runs in the browser through the `air` profile; the desktop app is plan 07. See [plans/README.md](plans/README.md) for the roadmap and the owner's decisions.
+Status: research (notes 01–13) and implementation plans (00–07) are complete; building has not started. Today the agent runs in the browser through the `air` profile; the desktop app is plan 07. See [plans/README.md](plans/README.md) for the roadmap and the owner's decisions.
 
 ## 2. Set up
 

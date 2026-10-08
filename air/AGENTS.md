@@ -16,7 +16,7 @@ Read in this order:
 
 ## Current state
 
-Research and plans (00–05 and 07; 06 is not written yet) are done; **no AIR feature code exists yet**. The owner decided to finish research before building. Do not execute `plans/*.md` until the owner says to start the build.
+Research and plans 00–07 are done; **no AIR feature code exists yet**. The owner decided to finish research before building. Do not execute `plans/*.md` until the owner says to start the build.
 
 What exists and works: the `air` bundle ([bundles/air](bundles/air)), which turns off upstream-vendor uploads, accounts, and telemetry and makes a local Ollama model the default; and an `air` profile created by the commands in [README.md](README.md).
 
