@@ -10,7 +10,7 @@ Read in this order:
 
 1. [ONBOARDING.md](ONBOARDING.md): setup, daily workflow, and where things are.
 2. [plans/README.md](plans/README.md): roadmap, owner decisions, plan index, open decisions.
-3. [../research/research.md](../research/research.md): the synthesis of all research; notes 01–13 under `../research/notes/` hold the evidence.
+3. [../research/research.md](../research/research.md): the synthesis of all research; notes 01–14 under `../research/notes/` hold the evidence.
 4. [plans/spikes/](plans/spikes/): exact upstream APIs and verified commands for each feature area.
 5. [UPSTREAM-DELTA.md](UPSTREAM-DELTA.md) and [BRANDING.md](BRANDING.md).
 

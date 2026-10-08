@@ -28,12 +28,12 @@ This page orders the work, names each plan, and lists what is still unplanned. T
 ## Cross-plan obligations
 
 - **Plan 01 after plan 02:** every `mcp-client` child that plan 01 mounts from `.mcp.json` must declare `inject: [mcpToolReview]`, so imported servers cannot register tools unreviewed. Plan 02's bundle test checks only static patches; add the inject and a test in whichever plan lands second.
-- **Plan 02 edits a plan 00 file:** its last task adds the `air/bundles/mcp-servers` bundle to `air/scripts/smoke-profile.sh`.
+- **Plan 02 edits a plan 00 file:** its last task adds the `air/bundles/mcp-servers` bundle to the profile smoke, which is now `air/scripts/smoke-profile.ts`.
 - **Plan 01 edits a plan 00 file:** it adds `yaml` to `air/package.json` devDependencies.
 - **Plan 04 edits a plan 01 file:** its bundle task updates `air/scripts/tests/preset-air-drift.spec.ts` (expected AIR rows and row-package count).
 - **Eval arm patches (plan 05) disable memory by row id:** host rows `air-memory-store`, `air-embedding`, `air-memory-index`; per-Agent rows `air-tool-memory`, `air-memory-context`. The `sdk-minimal` eval composition has no approval service, so a writing arm sets `confirmTypes: [feedback]`.
-- **Plan 07 edits plan 00 files:** it adds `apps/*` to `air/pnpm-workspace.yaml` and entries to `air/.gitignore`. Plan 00's lint globs cover only `packages/*`; extend `gen-oxlintrc.ts` and the `lint` script to `apps` when plan 07 starts. Plan 00's CI would build and test the two app workspaces and download Electron on every run; exclude `./apps/*` there and leave them to plan 07's workflow.
-- **Plan 07 packaging finding:** `pnpm deploy --prod` of the CLI package leaves out 27 workspace packages that are only peers; the staging script copies them in (research note 13 section 2). Windows staging is untested and is the first gate of plan 07.
+- **Plan 07 edits plan 00 files:** it adds `apps/*` to `air/pnpm-workspace.yaml` and entries to `air/.gitignore` (edits, not replacements). Plan 00's lint already covers `apps`, and its CI builds and tests only `packages/*` and `bundles/*`. Once `apps/*` is a workspace member, plan 00's CI install must use `pnpm -C air install --frozen-lockfile --ignore-scripts`, or it downloads Electron on every run.
+- **Plan 07 packaging finding:** `pnpm deploy --prod` of the CLI package leaves out the workspace packages that are only peers (28 at `dsh-v0.2.1-alpha.1`; the staging script computes the list) and copies them in (research note 13 section 2). Windows staging is untested and is the first gate of plan 07.
 - **Plans 05 and 06 on Windows:** plan 06 uses only `uv`, `pnpm`, `ollama`, and `git` commands; plan 05 still has a few bash-only steps (`mktemp`, a `for` loop) that need PowerShell or Python equivalents before a Windows teammate runs it.
 - **Plan 06 leaves one Ollama model behind:** `air-eval-qwen25` (qwen2.5:7b-instruct, temperature 0, seed 7, 16k context), the model plan 05 Task 4 also creates; remove with `ollama rm air-eval-qwen25`.
 - **Plan 03 imports from plan 01:** the Claude-to-dsh tool-name table exported by `@air/dsh-convention-core`.
@@ -93,6 +93,7 @@ Each item gets its own plan after the plans above land. The spike section that a
 | Desktop updates on Fedora | rpm builds notify with a download link; Windows and AppImage update automatically | As written in plan 07. |
 | Phase-1 installer contents | Partial parity with upstream is accepted | Full dependency tree in the app; the Node/pnpm/Python runtime payload behind an opt-in flag; Office skills and the LibreOffice engine are a follow-up. |
 | Windows signing order | First release unsigned, then apply to SignPath Foundation | SignPath requires a published release and names SignPath Foundation as publisher. |
+| Desktop release gate | No release until identifiers are final | Plan 07's brand file carries `identifiersFinal: false`; packaging for release fails until the owner sets the final identifiers and flips it. Start at login moved out of phase 1. |
 | Sequencing | No implementation yet; research in depth first | Plans 00–05 stay unexecuted until the owner starts the build. |
 
 ## Changes the 2026-10-02 research requires in the written plans
@@ -104,6 +105,32 @@ Apply these when the build starts; the plan files are unchanged for now.
 - **Plan 05 (evaluation pilot):** use the measured local timings and the local/hosted split from research note 10; record the full runtime configuration with every result.
 - **New plan needed:** the desktop shell (item 8 below).
 
+## Plan revision status (2026-10-08 review)
+
+| Plan | Revised for `0.2.1-alpha.1`, Windows teammates, and owner decisions |
+|---|---|
+| 00 | Done: Node smoke script (run on Fedora), cross-platform steps, lint and CI scope |
+| 01 | In progress |
+| 02 | Not yet: re-verify the `mcp-client` hook lines, update the smoke reference, check the bundle template |
+| 03 | In progress: defaults follow upstream presets |
+| 04 | Not yet: `time-context` is a preset row; re-verify APIs |
+| 05, 06 | Not yet: bash-only steps in 05, `sdk-minimal` row list, expected tool list |
+| 07 | Done: dynamic port, release gate, per-line log redaction, 116 unit tests pass in a scratch copy |
+
+## New feature candidates (research note 14, awaiting owner choice)
+
+From [research note 14](../../research/notes/14-feature-opportunities.md). None is planned yet.
+
+- First-run setup that checks Ollama, pulls models with consent, and verifies the loaded context size (ranked first: the default 4,096-token context silently truncates the agent's prompt).
+- "Why was this blocked" explanations on every denied tool call (folded into plan 03's revision).
+- Privacy ledger: a local record of every model, web, and MCP request that left the machine.
+- Read-only session replay viewer on upstream's experimental session inspector.
+- Latency and token dashboard for local inference.
+- Skill usage report derived from session logs.
+- No-code wins from upstream: enable the voice-input bundle for dictation; reminder tools already ship in the presets; settings and first-run on upstream's config editor.
+
+Note 14 also recommends cuts for a five-person team (reduce the phase-1 desktop work to Linux only, drop the permission rule store, merge plans 05 and 06, move the AgentDojo pilot out of phase 1). The Linux-only suggestion conflicts with the owner's Windows requirement and is not adopted; the others await the owner.
+
 ## Changes the 2026-10-08 upstream sync requires in the written plans
 
 Apply these when the build starts; the plan files are unchanged. Detail is in [research.md](../../research/research.md) section 2b.
@@ -111,7 +138,7 @@ Apply these when the build starts; the plan files are unchanged. Detail is in [r
 - **Plan 01:** its `preset-air` row list was generated from the old `standard.patch.yml`. The standard preset now also declares `time-context` and the `schedule/tool-schedule` row; regenerate the list (the plan's drift test detects this) and decide whether AIR's preset keeps the reminder tools. Before writing AIR's hook plugin in a later slice, evaluate upstream's new experimental Claude Code mods bridge.
 - **Plan 04:** `time-context` is a preset row now; the memory-context row sits beside it in `preset-air`, and wording that calls it a top-level row is outdated.
 - **Plans 05 and 06:** `sdk-minimal` no longer has the five invariant rows, and Schedule tools exist in non-minimal presets; re-check the eval bundle's disabled-row list and the expected model-visible tool list. The experimental session inspector can help debug episodes.
-- **Plan 07:** upstream's Host now asks for port 0 (dynamic) and reports the URL over IPC; do the same instead of a fixed port. Re-read `apps/desktop-host/src/index.ts` before writing the AIR Host.
+- **Plan 07:** done in the 2026-10-08 revision (dynamic port, origin handling, release gate, start-at-login moved to follow-ups).
 - **All plans:** version strings and line references cite `0.2.0-rc.2`; re-verify line numbers at the first step of each task. Peer range `^0.2.0-rc.1` still matches `0.2.1-alpha.1`.
 - **Spikes 01, 03, 05:** mentions of the schedule bundle as a template refer to a package that no longer exists; use `packages/experimental/voice-input-bundle` or `auto-review` as the bundle template.
 

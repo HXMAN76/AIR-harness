@@ -1,6 +1,6 @@
 # AIR-harness Research: Building an Open, Local-First, Verifiable Personal Agent
 
-Date: 2026-09-28. Status: synthesis v1.6, thirteen notes merged; upstream base is now `dsh 0.2.1-alpha.1` (section 2b lists what each sync changed). Notes 01–07 were written against `dsh 0.1.6-alpha.2`; where they disagree with section 2b, section 2b wins. Detailed evidence, sources, and file citations live in `research/notes/`:
+Date: 2026-09-28. Status: synthesis v1.7, fourteen notes merged; upstream base is now `dsh 0.2.1-alpha.1` (section 2b lists what each sync changed). Notes 01–07 were written against `dsh 0.1.6-alpha.2`; where they disagree with section 2b, section 2b wins. Detailed evidence, sources, and file citations live in `research/notes/`:
 
 | Note | Topic |
 |---|---|
@@ -16,6 +16,7 @@ Date: 2026-09-28. Status: synthesis v1.6, thirteen notes merged; upstream base i
 | [11-upstream-permission-modes.md](notes/11-upstream-permission-modes.md) | What upstream's permission presets, Auto review, and agent presets do; what the `air` profile gets; which parts of the AIR permissions plan to keep or defer |
 | [12-hybrid-local-cloud.md](notes/12-hybrid-local-cloud.md) | Using local and cloud models together: literature, harness extension points, privacy analysis, a proposed research question, prices |
 | [13-desktop-shell-practice.md](notes/13-desktop-shell-practice.md) | How comparable desktop apps package and supervise a local backend; staging spike results; signing, updates, CI practice |
+| [14-feature-opportunities.md](notes/14-feature-opportunities.md) | What upstream's newest additions enable, recent competitor features, ranked new-feature candidates, suggested cuts |
 | [08-dev-contrib-guide.md](notes/08-dev-contrib-guide.md) | Development guide: setup, local Ollama route, three extension paths, `air` profile and bundle, in-tree rules checklist, per-feature template packages, repository layout and branching, doc contradictions |
 
 ## 1. Vision
