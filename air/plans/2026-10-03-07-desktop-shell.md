@@ -2,27 +2,47 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-> **Owner decision 2026-10-03: identifiers on hold.** The app id (`io.github.hxman76.air`), URL scheme (`air`), `desktopName`, executable name, and release tag format used in this plan are provisional placeholders until the product name is final. Keep them in the brand file only, and do not publish a release or ask users to install a build under them; changing them later resets user data and the global-hotkey consent.
+> **Owner decision 2026-10-03: identifiers on hold.** The app id, URL scheme, `desktopName`, executable name, and release tag prefix are provisional placeholders until the product name is final. They live only in `air/apps/desktop/brand.json`; code, tests, and the workflow read them from there (the one unavoidable copy, `desktopName` in `package.json`, is checked against the brand file by a test). Release and publish steps are gated: `brand.json` carries `identifiersFinal: false`, a build with `AIR_DESKTOP_RELEASE=1` fails until the owner sets it to `true` after the name is final, and the release workflow cannot publish before that. Do not publish a release or ask users to install a build under the placeholders; changing them later resets user data and the global-hotkey consent.
 
-**Goal:** Ship an AIR-owned Electron desktop app for Windows (NSIS) and Linux (rpm, AppImage) that boots the `air` profile from a bundled production tree and adds close/background policy, tray, global hotkey, quick entry, start at login, updates, and CI artifacts.
+> **Other owner decisions applied here.** rpm builds only notify about updates and link to the release page; Windows and AppImage update automatically. The first Windows release is unsigned. macOS is out of scope. Teammates develop on native Windows, so every command step uses `pnpm`, `node`, or `git` only.
 
-**Architecture:** Two out-of-tree workspaces. `air/apps/desktop-host` is a small Node entry that calls `runProfile` from `@deepseek-ai/dsh/profile-boot` and reports `{ type: 'ready', url }` over a Node IPC channel. `air/apps/desktop` is the Electron main process: it spawns the Host with `ELECTRON_RUN_AS_NODE=1` from a staged production tree shipped as `extraResources`, loads the authenticated loopback URL in a sandboxed window locked to that origin, and owns all operating-system integration. Logic lives in Electron-free modules tested with fakes; files under `src/electron/` are thin adapters.
+**Goal:** Ship an AIR-owned Electron desktop app for Windows (NSIS) and Linux (rpm, AppImage) that boots the `air` profile from a bundled production tree and adds close/background policy, tray, global hotkey, quick entry, updates, and CI artifacts.
+
+**Architecture:** Two out-of-tree workspaces. `air/apps/desktop-host` is a small Node entry that calls `runProfile` from `@deepseek-ai/dsh/profile-boot` with `--port 0` (the operating system picks a free loopback port, as upstream's own desktop Host does) and reports `{ type: 'ready', url }` with the real port over a Node IPC channel. `air/apps/desktop` is the Electron main process: it spawns the Host with `ELECTRON_RUN_AS_NODE=1` from a staged production tree shipped as `extraResources`, loads the authenticated loopback URL in a sandboxed window locked to that origin (the origin changes on every Host start, so the lock reads the current one), and owns all operating-system integration. Logic lives in Electron-free modules tested with fakes; files under `src/electron/` are thin adapters.
 
 **Tech Stack:** Electron 44.0.0, electron-builder ^26.15.3, electron-updater ^6.8.9, TypeScript 6, tsdown 0.22, Vitest 4, Playwright (`_electron`), pnpm 11.7.0, GitHub Actions.
 
 **Spec:** [research/notes/09-desktop-cross-os.md](../../research/notes/09-desktop-cross-os.md) (approved design, option b) and [research/notes/13-desktop-shell-practice.md](../../research/notes/13-desktop-shell-practice.md) (practices P1–P16 and the staging spike). Owner decisions: [README.md](README.md), section "Owner decisions".
+
+## Revision log
+
+Revised 2026-10-08 against upstream `dsh-v0.2.1-alpha.1` (the plan was written against `dsh-v0.2.0-rc.2`). Each entry gives the change and the reason.
+
+1. **Dynamic Host port.** The fixed port 19487, `brand.hostPort`, `AIR_DESKTOP_PORT`, the Host's port argument, and the port-conflict error dialog are gone. The Host passes `--port 0` and reports the actual origin in the `ready` message. Reason: upstream's desktop Host made the same change between the two tags (`apps/desktop-host/src/index.ts`), a fixed port fails whenever another program or a second profile holds it, and it was the only startup failure the shell could not recover from. Consequences handled in the plan: the origin lock, permission checks, and the quick-entry window read the current origin instead of a captured one; a Host restart gets a new origin and a new token.
+2. **Upstream calls re-verified at `dsh-v0.2.1-alpha.1`** by reading the tree: `@deepseek-ai/dsh/profile-boot` is still exported and `runProfile` takes the same options (`environment`, `profile`, `resolvedProfile`, `patchFiles`, `args`, `packageManager`); `initProfile`, `loadProfileDirectory`, `resolveProfileDir`, `PROFILE_TEMPLATES.web`, `reportSkippedBundles`, `loadLayeredEnv` keep their signatures (the only change is that `loadProfileDirectory` now drops retired bundles); `ctx.connection.authenticatedUrl` and `ctx.webServer.port` (the OS-assigned port when configured as 0) are unchanged; `@deepseek-ai/dsh-tool-workspace-dependencies` still takes `source` and `root`. Electron stays at 44.0.0, electron-builder at 26.15.3 and electron-updater at 6.8.x (the versions upstream's `apps/desktop` resolves to). Nothing was compiled again; see Self-Review.
+3. **Peer fill is computed, not counted.** An offline count of the manifests at this tag finds 28 workspace packages that are required only as peers (27 at the earlier tag; invariant packages are gone, others were added). The text no longer promises a number: the staging script computes the list from the deployed tree and prints it. Reason: the count changes with every upstream sync.
+4. **Windows-first.** `pnpm` is started through one shared helper (`scripts/pnpm.ts`) instead of two copies; the commit and tag steps no longer use `&&` (not valid in Windows PowerShell 5.1); fenced command blocks are no longer labeled `bash`; no step needs `mktemp`, `cp`, `rm`, or a POSIX shell. Linux-only checks (`gdbus`, `pgrep`, `dnf`) stay labeled as Fedora checks, each with a Windows counterpart where one exists.
+5. **Identifiers only in the brand file, release gated.** `brand.json` gains `releaseTagPrefix` and `identifiersFinal`; tests derive expected identifiers from the brand file instead of literals; `package.ts` refuses release builds while `identifiersFinal` is `false`; a test checks that the workflow's tag filter matches `releaseTagPrefix`. Reason: the owner put the identifiers on hold, and a literal in a test or the workflow would survive the rename unnoticed.
+6. **Alignment with plan 00.** Plan 00 already creates `air/pnpm-workspace.yaml`, `air/.gitignore`, the lint script (which covers `apps`), and the CI job (which excludes `apps/*`). Step 1 of Task 1 now edits those files instead of replacing them. `main.ts` writes its smoke markers with `process.stdout.write` because plan 00's lint config forbids `console` in `apps/*/src`. Plan 00's lint step already covers `apps`; Task 8 runs it once locally before the first push. Installing the workspace downloads Electron (about 110 MB); plan 00's CI job should install with `--ignore-scripts` (recorded in the roadmap obligations).
+7. **Host supervision.** The supervisor redacts per line instead of per chunk (a token split across two output chunks used to reach `host.log`); reports a restart so the window shows a "restarting" page instead of a dead page; on Windows the shell ends the whole Host process tree with `taskkill` when the Host ignores a shutdown request (a plain kill left the agent's child processes running); the shell stops Host-load rejections from reaching standard error, where Electron prints the failing URL and its token.
+8. **Navigation lock.** `lockToOrigin` takes a function that returns the current origin; with no Host ready, only external web links pass. The permission handlers and quick-entry window use the same current origin.
+9. **Updates on unsigned builds.** `win.verifyUpdateCodeSignature` was `false` unconditionally, which would have kept update verification off after signing starts; it is now `false` only for unsigned builds (a signed build also needs `publisherName`, a Follow-up item). `air/SAFETY.md` and the README state the limit: update integrity rests on the SHA-512 values in the release's update files, so anyone who can publish a release to the update repository can replace the app on every machine that auto-updates. Windows and AppImage still update automatically, as the owner decided; the draft release step keeps a human between a build and the feed.
+10. **Install size.** The staging script removes JavaScript and declaration source maps, prints the number of files, bytes, the largest packages, and the longest relative path (the Windows path-length risk), and electron-builder keeps only the `en-US` Chromium locales. The staged tree stays loose files; the larger reductions remain in Follow-up plans.
+11. **Moved to Follow-up plans: start at login.** The Linux autostart file, the Windows login item, the `--hidden` launch flag, the setting, and the menu entry are removed from Tasks 3 to 6. Reason: no owner decision or demo step needs them, the Windows login item cannot be tested before a signed build exists, and they write to the user's startup configuration under placeholder identifiers.
+12. **Smaller fixes.** The URL scheme handler registers only in packaged builds (a development run no longer registers `electron` for the placeholder scheme on a teammate's machine); a deep link only focuses the window, and routing a link to a conversation is a Follow-up plan; the quick-entry window is re-created when the Host origin changes; Electron tests no longer hard-code the port; the test-file counts in the "Expected" lines were recomputed.
 
 ## Global Constraints
 
 - Node `^22.19.0 || >=24.0.0`; pnpm `11.7.0`; Electron `44.0.0` (the version upstream's `apps/desktop` resolves to); ESM only; TypeScript `strict`; no `as unknown` casts.
 - All AIR code is under `air/`. New workspaces are `air/apps/desktop-host` and `air/apps/desktop`; `air/pnpm-workspace.yaml` gains `apps/*`. Upstream's `apps/desktop` and `apps/desktop-host` are not modified. The only in-tree file is `.github/workflows/air-desktop.yml`.
 - Every script is a Node/tsx script that runs unchanged in PowerShell on Windows and in a POSIX shell on Fedora. No bash, no `cp`, no `rm`, no `test -f`. Commands in this plan are written to be run from the repository root in either shell.
-- Security defaults: `contextIsolation: true`, `sandbox: true`, `nodeIntegration: false`, `webSecurity: true`, no remote module, the window navigates only to the Host's loopback origin, the Host binds loopback only, the token is never logged.
+- Security defaults: `contextIsolation: true`, `sandbox: true`, `nodeIntegration: false`, `webSecurity: true`, no remote module, the window navigates only to the Host's current loopback origin, the Host binds loopback only on an OS-assigned port, the token is never logged (output is redacted per line, and load errors are caught before Electron prints them).
 - Brand values come only from `air/apps/desktop/brand.json` with `{{PLACEHOLDER}}` values resolved at build time. No upstream product name in user-facing strings. The upstream `LICENSE` and `THIRD_PARTY_NOTICES.md` ship in the packaged app under `resources/runtime/licenses/`.
 - Out-of-tree plugins cannot add session event types. The shell writes its own logs under `<userData>/logs`.
 - Every file changed outside `air/` and `research/` is listed in `air/UPSTREAM-DELTA.md`.
 - Markdown: English only; never the banned origin-label word checked by `verify-concrete-terms`; no git commit hashes; no URLs under the upstream working organization (use `github.com/deepseek-ai/deepseek-harness`).
-- Prerequisites: plan 00 Task 1 is done (`air/package.json` pins the toolchain, `air/tsconfig.base.json` exists) and the root build is finished (`pnpm install && pnpm run build` at the repository root).
+- Prerequisites: plan 00 is done through its Task 2 (`air/package.json` pins the toolchain, `air/tsconfig.base.json`, `air/pnpm-workspace.yaml`, `air/.gitignore`, and the lint configuration exist) and the root build is finished (`pnpm install` then `pnpm run build` at the repository root).
+- Release gate: nothing in this plan publishes a release, creates a tag, or pushes a build while `identifiersFinal` in `brand.json` is `false`. Local and CI builds without `AIR_DESKTOP_RELEASE=1` stay allowed.
 
 ---
 
@@ -30,11 +50,12 @@
 
 | File | Responsibility |
 |---|---|
-| `air/pnpm-workspace.yaml` | Adds `apps/*` and `allowBuilds` for Electron (modified) |
-| `air/.gitignore` | Adds `.stage/`, `dist/`, `test-results/` (modified) |
+| `air/pnpm-workspace.yaml` | Plan 00's file; adds `apps/*` and `allowBuilds` for Electron (modified) |
+| `air/.gitignore` | Plan 00's file; adds `.stage/`, `dist/`, `test-results/` (modified) |
 | `air/apps/desktop/package.json` | App manifest, scripts, `desktopName` |
-| `air/apps/desktop/brand.json` | Single source for product name, ids, scheme, publish target |
-| `air/apps/desktop/scripts/stage-lib.ts` | Target naming, missing-dependency check, workspace peer fill, pruning |
+| `air/apps/desktop/brand.json` | Single source for product name, ids, scheme, release tag prefix, publish target, and the `identifiersFinal` release gate |
+| `air/apps/desktop/scripts/pnpm.ts` | Starts pnpm from a script on Windows and POSIX |
+| `air/apps/desktop/scripts/stage-lib.ts` | Target naming, missing-dependency check, workspace peer fill, pruning, source-map removal, size report |
 | `air/apps/desktop/scripts/stage-runtime.ts` | CLI: `pnpm deploy`, fill, prune, copy Host, seed patch, licenses |
 | `air/apps/desktop/scripts/verify-stage.ts` | Boot the Host from a staged tree and check ready, cookie exchange, shutdown |
 | `air/apps/desktop/scripts/boot-probe.mjs` | Minimal Host used by `verify-stage` before the real Host exists |
@@ -47,7 +68,7 @@
 | `air/apps/desktop/src/settings.ts` | Settings file: parse, defaults, save |
 | `air/apps/desktop/src/redact.ts` | Removes token values from text |
 | `air/apps/desktop/src/log.ts` | Size-bounded log file writer |
-| `air/apps/desktop/src/navigation.ts` | Origin lock and permission decisions |
+| `air/apps/desktop/src/navigation.ts` | Origin lock and permission decisions, the reconnect page |
 | `air/apps/desktop/src/host-supervisor.ts` | Start, ready timeout, restart policy, stop |
 | `air/apps/desktop/src/single-instance.ts` | Second-instance argument parsing |
 | `air/apps/desktop/src/close-policy.ts` | Quit or hide decision per platform |
@@ -56,12 +77,12 @@
 | `air/apps/desktop/src/menu.ts` | Application and tray menu templates |
 | `air/apps/desktop/src/hotkey.ts` | Accelerator validation and registration state |
 | `air/apps/desktop/src/quick-entry.ts` | Quick-entry window options and URL |
-| `air/apps/desktop/src/autostart.ts` | XDG autostart file content and login-item decision |
 | `air/apps/desktop/src/updates.ts` | Update mode per package type and updater wiring |
 | `air/apps/desktop/src/electron/*.ts` | Thin Electron adapters for the modules above |
 | `air/apps/desktop/src/main.ts` | Lifecycle wiring |
 | `air/apps/desktop/tests/*.spec.ts` | Unit tests with fakes |
 | `air/apps/desktop/tests/smoke/packaged.e2e.ts` | Playwright smoke against the unpacked build |
+| `air/apps/desktop/tests/workflow.spec.ts` | Checks the workflow's tag filter against the brand file |
 | `air/apps/desktop-host/src/{protocol,args,profile,run-host,boot,index}.ts` | Host entry and its pure parts |
 | `air/apps/desktop-host/tests/*.spec.ts`, `tests/real-boot.e2e.ts` | Unit tests and one real boot |
 | `.github/workflows/air-desktop.yml` | Matrix build, smoke, draft release (in-tree, listed in UPSTREAM-DELTA) |
@@ -77,7 +98,7 @@ runtime/
   air-host/index.js       built AIR Host entry (Task 2)
   air-defaults/cordis.patch.yml   seed profile patch (local Ollama route)
   licenses/               upstream LICENSE and THIRD_PARTY_NOTICES.md
-  stage.json              target, dsh version, filled packages
+  stage.json              target, dsh version, filled packages, size report
 ```
 
 The Host entry sits inside the deployed `@deepseek-ai/dsh` package directory, so `@deepseek-ai/dsh/profile-boot` resolves by package self-reference and every other `@deepseek-ai/*` import resolves from `runtime/node_modules` (verified in note 13 section 2).
@@ -91,11 +112,11 @@ Turns the passed scratch spike (note 13 section 2) into a repeatable script and 
 **Pass criteria:** on Fedora and on native Windows, `pnpm -C air/apps/desktop run stage --verify` exits 0 and prints `boot ok`. **Fallbacks if it fails on Windows:** (1) if `pnpm deploy` fails on path length, stage into a short path with `--out C:\air-stage`; (2) if hoisted linking fails, re-run with `AIR_STAGE_LINKER=isolated` and report the symlink count, then stop and escalate, because NSIS cannot package junction trees reliably; (3) if neither works, port upstream's pack-and-install route (`apps/desktop/scripts/prepare-package-set.ts` and `prepare-dsh.ts`) as a follow-up plan.
 
 **Files:**
-- Modify: `air/pnpm-workspace.yaml`
-- Modify: `air/.gitignore`
+- Modify: `air/pnpm-workspace.yaml` (created by plan 00)
+- Modify: `air/.gitignore` (created by plan 00)
 - Create: `air/apps/desktop/package.json`
 - Create: `air/apps/desktop/tsconfig.build.json`, `air/apps/desktop/tsconfig.json`, `air/apps/desktop/vitest.config.ts`
-- Create: `air/apps/desktop/scripts/stage-lib.ts`, `scripts/stage-runtime.ts`, `scripts/verify-stage.ts`, `scripts/boot-probe.mjs`
+- Create: `air/apps/desktop/scripts/pnpm.ts`, `scripts/stage-lib.ts`, `scripts/stage-runtime.ts`, `scripts/verify-stage.ts`, `scripts/boot-probe.mjs`
 - Test: `air/apps/desktop/tests/stage-lib.spec.ts`
 
 **Interfaces:**
@@ -104,14 +125,15 @@ Turns the passed scratch spike (note 13 section 2) into a repeatable script and 
   - `stageTarget(platform: NodeJS.Platform, arch: string): StageTarget` where `type StageTarget = 'linux-x64' | 'win-x64'`
   - `missingRequired(stageDir: string): Map<string, string[]>`
   - `fillFromWorkspace(stageDir: string, index: ReadonlyMap<string, string>, roots?: readonly string[]): { copied: string[]; external: string[] }`
-  - `pruneStage(stageDir: string, target: StageTarget): string[]`
+  - `pruneStage(stageDir: string, target: StageTarget): string[]`; `removeSourceMaps(stageDir: string): number`; `sizeReport(stageDir: string, top?: number): SizeReport`
+  - `pnpmArgs(args: readonly string[], windows: boolean): string[]` and `runPnpm(args: readonly string[], options: { cwd: string; capture?: boolean }): string` from `scripts/pnpm.ts`
   - `bootStage(options: BootStageOptions): Promise<StageBootResult>` from `scripts/verify-stage.ts`
   - Command `pnpm -C air/apps/desktop run stage [--verify] [--primary-runtime] [--out <dir>]` writing `air/apps/desktop/.stage/<target>/runtime/`
-  - Host argument order used by every later task: `<hostEntry> <runtimeDir> <profile> <port> [primaryRuntimeDir]`
+  - Host argument order used by every later task: `<hostEntry> <runtimeDir> <profile> [primaryRuntimeDir]` (the Host always asks for port 0 and reports its origin)
 
 - [ ] **Step 1: Add the app workspaces**
 
-Replace `air/pnpm-workspace.yaml` with:
+Plan 00 created `air/pnpm-workspace.yaml` with `bundles/*`, `packages/*`, and `autoInstallPeers: false`. Add the `apps/*` member line and the Electron build approval so that the file reads:
 
 ```yaml
 packages:
@@ -130,13 +152,15 @@ allowBuilds:
   electron-winstaller: false
 ```
 
-Append to `air/.gitignore`:
+Append to `air/.gitignore` (plan 00 created it with `node_modules/`, `lib/`, `coverage/`, and `.loader-*/`):
 
 ```gitignore
 .stage/
 dist/
 test-results/
 ```
+
+The install now downloads the Electron binary (about 110 MB). A teammate who does not work on the desktop app can run `pnpm -C air install --ignore-scripts` instead; run `pnpm -C air rebuild electron` before the first desktop task.
 
 - [ ] **Step 2: Create the app manifest and compiler configs**
 
@@ -205,8 +229,9 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import { pnpmArgs } from '../scripts/pnpm.ts'
 import {
-  airPackageIndex, fillFromWorkspace, missingRequired, parseWorkspaceList, pruneStage, stageTarget,
+  airPackageIndex, fillFromWorkspace, missingRequired, parseWorkspaceList, pruneStage, removeSourceMaps, sizeReport, stageTarget,
 } from '../scripts/stage-lib.ts'
 
 const roots: string[] = []
@@ -313,6 +338,48 @@ describe('pruneStage', () => {
   })
 })
 
+describe('removeSourceMaps', () => {
+  it('removes JavaScript and declaration source maps and keeps other .map files', () => {
+    const stage = tree({
+      'package.json': manifest({ name: 'root' }),
+      'node_modules/a/index.js': '',
+      'node_modules/a/index.js.map': '',
+      'node_modules/a/index.d.ts.map': '',
+      'node_modules/@s/b/lib/x.mjs.map': '',
+      'node_modules/a/charmap.map': 'data',
+    })
+    expect(removeSourceMaps(stage)).toBe(3)
+    const modules = join(stage, 'node_modules')
+    expect(existsSync(join(modules, 'a', 'index.js'))).toBe(true)
+    expect(existsSync(join(modules, 'a', 'index.js.map'))).toBe(false)
+    expect(existsSync(join(modules, 'a', 'charmap.map'))).toBe(true)
+    expect(removeSourceMaps(join(stage, 'missing'))).toBe(0)
+  })
+})
+
+describe('sizeReport', () => {
+  it('counts files and bytes, ranks packages, and finds the longest relative path', () => {
+    const stage = tree({
+      'package.json': manifest({ name: 'root' }),
+      'node_modules/small/index.js': 'ab',
+      'node_modules/@s/big/lib/deep/file.js': 'abcdefgh',
+      'node_modules/@s/big/package.json': '{}',
+    })
+    const report = sizeReport(stage, 2)
+    expect(report.files).toBe(4)
+    expect(report.bytes).toBe(2 + 8 + 2 + manifest({ name: 'root' }).length)
+    expect(report.largest.map(entry => entry.name)).toEqual(['(root)', '@s/big'])
+    expect(report.longestPath).toBe(join('node_modules', '@s', 'big', 'lib', 'deep', 'file.js'))
+  })
+})
+
+describe('pnpmArgs', () => {
+  it('quotes arguments with spaces only on Windows, where pnpm runs through a shell', () => {
+    expect(pnpmArgs(['--config.store-dir=C:\\My Store', 'run'], true)).toEqual(['"--config.store-dir=C:\\My Store"', 'run'])
+    expect(pnpmArgs(['a b'], false)).toEqual(['a b'])
+  })
+})
+
 describe('workspace indexes', () => {
   it('parses the pnpm workspace listing', () => {
     const index = parseWorkspaceList(JSON.stringify([{ name: 'a', path: '/w/a' }, { path: '/w/unnamed' }]))
@@ -333,9 +400,45 @@ describe('workspace indexes', () => {
 - [ ] **Step 4: Run the tests to verify they fail**
 
 Run: `pnpm -C air/apps/desktop test`
-Expected: FAIL, `Failed to resolve import "../scripts/stage-lib.ts"`.
+Expected: FAIL, `Failed to resolve import "../scripts/pnpm.ts"` (and `"../scripts/stage-lib.ts"`).
 
 - [ ] **Step 5: Implement the staging helpers**
+
+`air/apps/desktop/scripts/pnpm.ts` (the one place that starts pnpm; `stage-runtime.ts` and `package.ts` use it):
+
+```ts
+/** Start pnpm from a Node script on Windows and POSIX. */
+
+import { spawnSync } from 'node:child_process'
+
+/**
+ * Arguments as `spawnSync` needs them. On Windows pnpm is a `.cmd` shim that only runs through a
+ * shell, so an argument with a space (a store path under a user name) is quoted.
+ * @param args - pnpm arguments.
+ * @param windows - whether the script runs on Windows.
+ * @returns the argument vector.
+ */
+export function pnpmArgs(args: readonly string[], windows: boolean): string[] {
+  return windows ? args.map(arg => (/\s/u.test(arg) ? `"${arg}"` : arg)) : [...args]
+}
+
+/**
+ * Run pnpm and wait for it.
+ * @param args - pnpm arguments.
+ * @param options - working directory, and whether to return standard output instead of streaming it.
+ * @returns standard output when `capture` is set, otherwise empty text.
+ * @throws when pnpm exits with a non-zero status.
+ */
+export function runPnpm(args: readonly string[], options: { cwd: string; capture?: boolean }): string {
+  const windows = process.platform === 'win32'
+  const capture = options.capture === true
+  const result = spawnSync('pnpm', pnpmArgs(args, windows), {
+    cwd: options.cwd, shell: windows, encoding: 'utf8', stdio: capture ? ['ignore', 'pipe', 'inherit'] : 'inherit',
+  })
+  if (result.status !== 0) throw new Error(`air desktop: pnpm ${args.join(' ')} exited with ${String(result.status)}`)
+  return capture ? result.stdout : ''
+}
+```
 
 `air/apps/desktop/scripts/stage-lib.ts`:
 
@@ -343,7 +446,7 @@ Expected: FAIL, `Failed to resolve import "../scripts/stage-lib.ts"`.
 /** Staging helpers for the desktop runtime tree: target naming, dependency checks, workspace fill, pruning. */
 
 import { cpSync, existsSync, globSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { dirname, join, sep } from 'node:path'
 
 /** A platform and architecture the desktop app is packaged for. */
 export type StageTarget = 'linux-x64' | 'win-x64'
@@ -515,6 +618,70 @@ export function pruneStage(stageDir: string, target: StageTarget): string[] {
   return removed.sort()
 }
 
+const SOURCE_MAP = /\.(?:[cm]?js|d\.[cm]?ts)\.map$/u
+
+/**
+ * Remove JavaScript and declaration source maps. Nothing in the packaged app enables source-map
+ * support, and the maps are a large share of many packages.
+ * @param stageDir - staged tree root.
+ * @returns the number of files removed.
+ */
+export function removeSourceMaps(stageDir: string): number {
+  const modules = join(stageDir, 'node_modules')
+  if (!existsSync(modules)) return 0
+  let removed = 0
+  for (const entry of readdirSync(modules, { recursive: true, encoding: 'utf8' })) {
+    if (!SOURCE_MAP.test(entry)) continue
+    rmSync(join(modules, entry), { force: true })
+    removed += 1
+  }
+  return removed
+}
+
+/** What the staged tree weighs, for the install-size and path-length checks. */
+export interface SizeReport {
+  /** Number of files. */
+  files: number
+  /** Total size in bytes. */
+  bytes: number
+  /** The largest first-level packages (the staged root counts as `(root)`), biggest first. */
+  largest: { name: string; bytes: number }[]
+  /** The longest path relative to the tree root; Windows limits a full path to 260 characters unless long paths are enabled. */
+  longestPath: string
+}
+
+function owningPackage(relative: string): string {
+  const [first, second, third] = relative.split(sep)
+  if (first !== 'node_modules' || second === undefined) return '(root)'
+  return second.startsWith('@') && third !== undefined ? `${second}/${third}` : second
+}
+
+/**
+ * Measure a staged tree.
+ * @param stageDir - staged tree root.
+ * @param top - how many packages to list.
+ * @returns file count, bytes, the largest packages, and the longest relative path.
+ */
+export function sizeReport(stageDir: string, top = 8): SizeReport {
+  const perPackage = new Map<string, number>()
+  let files = 0
+  let bytes = 0
+  let longestPath = ''
+  for (const entry of readdirSync(stageDir, { recursive: true, withFileTypes: true })) {
+    if (!entry.isFile()) continue
+    const path = join(entry.parentPath, entry.name)
+    const relative = path.slice(stageDir.length + 1)
+    const size = statSync(path).size
+    files += 1
+    bytes += size
+    if (relative.length > longestPath.length) longestPath = relative
+    const name = owningPackage(relative)
+    perPackage.set(name, (perPackage.get(name) ?? 0) + size)
+  }
+  const largest = [...perPackage.entries()].map(([name, size]) => ({ name, bytes: size })).sort((a, b) => b.bytes - a.bytes).slice(0, top)
+  return { files, bytes, largest, longestPath }
+}
+
 /**
  * Parse `pnpm ls -r --depth -1 --json` output.
  * @param json - the command's standard output.
@@ -553,7 +720,7 @@ export function airPackageIndex(airRoot: string): Map<string, string> {
 - [ ] **Step 6: Run the tests to verify they pass**
 
 Run: `pnpm -C air/apps/desktop test`
-Expected: `Test Files 1 passed (1)`, `Tests 7 passed (7)`.
+Expected: `Test Files 1 passed (1)`, `Tests 10 passed (10)`.
 
 - [ ] **Step 7: Write the boot probe and the boot check**
 
@@ -568,7 +735,7 @@ import {
 } from '@deepseek-ai/dsh-app-boot'
 import { runProfile } from '@deepseek-ai/dsh/profile-boot'
 
-const [runtimeDir, profileName, port] = process.argv.slice(2)
+const [runtimeDir, profileName] = process.argv.slice(2)
 const installAnchor = join(runtimeDir, 'package.json')
 const dir = resolveProfileDir(profileName)
 if (!existsSync(join(dir, 'package.json'))) {
@@ -581,7 +748,7 @@ const application = runProfile({
   profile: profileName,
   resolvedProfile: { profile, installAnchor },
   patchFiles: [],
-  args: ['--no-open', '--port', port],
+  args: ['--no-open', '--port', '0'],
 })
 let stopping
 const stop = () => stopping ??= (async () => {
@@ -615,8 +782,6 @@ export interface BootStageOptions {
   runtimeDir: string
   /** Host entry inside the staged tree. */
   hostEntry: string
-  /** Loopback port the Host listens on. */
-  port: number
   /** Executable that runs the Host; defaults to the current Node. */
   execPath?: string
   /** Deadline for the ready message. */
@@ -627,6 +792,8 @@ export interface BootStageOptions {
 export interface StageBootResult {
   /** Milliseconds from fork to the ready message. */
   readyMs: number
+  /** The loopback port the operating system gave the Host (the URL has no token here). */
+  port: number
   /** HTTP status of the first request to the authenticated URL (303 when the token is exchanged). */
   redirectStatus: number
   /** Whether that response set a cookie. */
@@ -637,14 +804,14 @@ export interface StageBootResult {
 
 /**
  * Boot the Host once and stop it.
- * @param options - tree, entry, port, executable, and deadline.
+ * @param options - tree, entry, executable, and deadline.
  * @returns timing and the observed auth exchange and exit code.
  * @throws when the Host exits or stays silent before the ready message.
  */
 export async function bootStage(options: BootStageOptions): Promise<StageBootResult> {
   const home = mkdtempSync(join(tmpdir(), 'air-stage-home-'))
   const started = Date.now()
-  const child = fork(options.hostEntry, [options.runtimeDir, 'air', String(options.port)], {
+  const child = fork(options.hostEntry, [options.runtimeDir, 'air'], {
     cwd: home,
     env: { ...process.env, DSH_HOME: home, ELECTRON_RUN_AS_NODE: '1' },
     stdio: ['ignore', 'ignore', 'pipe', 'ipc'],
@@ -673,7 +840,7 @@ export async function bootStage(options: BootStageOptions): Promise<StageBootRes
     const response = await fetch(url, { redirect: 'manual' })
     child.send({ type: 'shutdown' })
     const exitCode = await exited
-    return { readyMs, redirectStatus: response.status, cookieSet: response.headers.has('set-cookie'), exitCode }
+    return { readyMs, port: Number(new URL(url).port), redirectStatus: response.status, cookieSet: response.headers.has('set-cookie'), exitCode }
   } finally {
     if (child.exitCode === null) child.kill()
     await exited
@@ -689,12 +856,12 @@ export async function bootStage(options: BootStageOptions): Promise<StageBootRes
 ```ts
 /** Stage the production tree the desktop app ships: dsh CLI package, workspace peers, AIR bundle, AIR Host. */
 
-import { spawnSync } from 'node:child_process'
 import { cpSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { parseArgs } from 'node:util'
+import { runPnpm } from './pnpm.ts'
 import {
-  airPackageIndex, fillFromWorkspace, parseWorkspaceList, pruneStage, readManifest, stageTarget,
+  airPackageIndex, fillFromWorkspace, parseWorkspaceList, pruneStage, readManifest, removeSourceMaps, sizeReport, stageTarget,
 } from './stage-lib.ts'
 import { bootStage } from './verify-stage.ts'
 
@@ -702,18 +869,10 @@ const APP_ROOT = resolve(import.meta.dirname, '..')
 const AIR_ROOT = resolve(APP_ROOT, '..', '..')
 const REPO_ROOT = resolve(AIR_ROOT, '..')
 const AIR_BUNDLE = '@air/dsh-air-bundle'
-const VERIFY_PORT = 19_489
+/** Windows rejects full paths over 260 characters unless long paths are enabled; the install prefix takes about 90. */
+const LONG_PATH_WARNING = 170
 
-function pnpm(args: readonly string[], capture: boolean): string {
-  const windows = process.platform === 'win32'
-  // pnpm is a .cmd shim on Windows, which needs a shell; quote arguments that contain spaces.
-  const argv = windows ? args.map(arg => (/\s/u.test(arg) ? `"${arg}"` : arg)) : [...args]
-  const result = spawnSync('pnpm', argv, {
-    cwd: REPO_ROOT, shell: windows, encoding: 'utf8', stdio: capture ? ['ignore', 'pipe', 'inherit'] : 'inherit',
-  })
-  if (result.status !== 0) throw new Error(`air desktop stage: pnpm ${args.join(' ')} exited with ${String(result.status)}`)
-  return capture ? result.stdout : ''
-}
+const pnpm = (args: readonly string[], capture: boolean): string => runPnpm(args, { cwd: REPO_ROOT, capture })
 
 async function main(): Promise<void> {
   const { values } = parseArgs({
@@ -727,7 +886,7 @@ async function main(): Promise<void> {
   const base = values.out === undefined ? join(APP_ROOT, '.stage', target) : resolve(values.out)
   const runtimeDir = join(base, 'runtime')
   if (!existsSync(join(REPO_ROOT, 'apps', 'cli', 'lib', 'profile-boot.js'))) {
-    throw new Error('air desktop stage: the root build is missing; run `pnpm install && pnpm run build` at the repository root')
+    throw new Error('air desktop stage: the root build is missing; run `pnpm install` and then `pnpm run build` at the repository root')
   }
   rmSync(runtimeDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 })
   mkdirSync(base, { recursive: true })
@@ -751,8 +910,14 @@ async function main(): Promise<void> {
   if (external.length > 0) {
     throw new Error(`air desktop stage: required packages are neither staged nor in a workspace: ${external.join(', ')}`)
   }
-  console.log(`air desktop stage: filled ${String(copied.length)} workspace packages`)
-  console.log(`air desktop stage: pruned ${String(pruneStage(runtimeDir, target).length)} paths`)
+  console.log(`air desktop stage: filled ${String(copied.length)} workspace packages that only a peer dependency names (the count follows upstream; no fixed number is expected)`)
+  console.log(`air desktop stage: pruned ${String(pruneStage(runtimeDir, target).length)} paths and ${String(removeSourceMaps(runtimeDir))} source maps`)
+  const size = sizeReport(runtimeDir)
+  console.log(`air desktop stage: ${String(size.files)} files, ${(size.bytes / 1_048_576).toFixed(0)} MiB; largest: ${size.largest.map(entry => `${entry.name} ${(entry.bytes / 1_048_576).toFixed(0)} MiB`).join(', ')}`)
+  console.log(`air desktop stage: longest relative path ${String(size.longestPath.length)} characters`)
+  if (size.longestPath.length > LONG_PATH_WARNING) {
+    console.warn(`air desktop stage: warning, ${size.longestPath} may exceed the Windows path limit once installed`)
+  }
 
   const hostBuild = join(AIR_ROOT, 'apps', 'desktop-host', 'lib', 'index.js')
   const hostEntry = join(runtimeDir, 'air-host', 'index.js')
@@ -765,6 +930,7 @@ async function main(): Promise<void> {
   cpSync(join(REPO_ROOT, 'THIRD_PARTY_NOTICES.md'), join(runtimeDir, 'licenses', 'THIRD_PARTY_NOTICES.md'))
   writeFileSync(join(runtimeDir, 'stage.json'), `${JSON.stringify({
     schemaVersion: 1, target, dshVersion: readManifest(runtimeDir).version, filled: copied, host: existsSync(hostEntry),
+    files: size.files, bytes: size.bytes, longestPath: size.longestPath,
   }, undefined, 2)}\n`)
 
   if (values['primary-runtime']) {
@@ -777,11 +943,11 @@ async function main(): Promise<void> {
     const entry = existsSync(hostEntry) ? hostEntry : probe
     if (entry === probe) cpSync(join(APP_ROOT, 'scripts', 'boot-probe.mjs'), probe)
     try {
-      const boot = await bootStage({ runtimeDir, hostEntry: entry, port: VERIFY_PORT })
-      if (boot.redirectStatus !== 303 || !boot.cookieSet || boot.exitCode !== 0) {
+      const boot = await bootStage({ runtimeDir, hostEntry: entry })
+      if (boot.redirectStatus !== 303 || !boot.cookieSet || boot.exitCode !== 0 || boot.port < 1024) {
         throw new Error(`air desktop stage: boot check failed: ${JSON.stringify(boot)}`)
       }
-      console.log(`air desktop stage: boot ok (ready in ${String(boot.readyMs)} ms, redirect 303, exit 0)`)
+      console.log(`air desktop stage: boot ok (ready in ${String(boot.readyMs)} ms on an OS-assigned port, redirect 303, exit 0)`)
     } finally {
       rmSync(probe, { force: true })
     }
@@ -799,25 +965,29 @@ Expected: exit 0, no output.
 - [ ] **Step 10: Stage and verify on this machine**
 
 Run: `pnpm -C air/apps/desktop run stage --verify`
-Expected (numbers vary by a few; the scratch spike measured 27 upstream packages plus the AIR bundle, and a 2.5 s boot):
+Expected (the numbers are not fixed: the filled count follows the upstream manifests and was 27 upstream packages plus the AIR bundle in the scratch spike at the earlier tag, while an offline manifest count at `dsh-v0.2.1-alpha.1` gives 28 plus the bundle; the boot took 2.5 s in the spike):
 
 ```
 air desktop stage: deployed @deepseek-ai/dsh into <repo>/air/apps/desktop/.stage/linux-x64/runtime
-air desktop stage: filled 28 workspace packages
-air desktop stage: pruned 9 paths
-air desktop stage: boot ok (ready in 2541 ms, redirect 303, exit 0)
+air desktop stage: filled <n> workspace packages that only a peer dependency names (the count follows upstream; no fixed number is expected)
+air desktop stage: pruned <n> paths and <n> source maps
+air desktop stage: <n> files, <n> MiB; largest: <name> <n> MiB, ...
+air desktop stage: longest relative path <n> characters
+air desktop stage: boot ok (ready in <n> ms on an OS-assigned port, redirect 303, exit 0)
 ```
+
+Write the files, MiB, and longest-path figures into the README's "Known Limitations" size line when Task 9 writes it. A longest path over 170 characters prints a warning; on Windows it is the first thing to check if the installer fails.
 
 If the command stops with `required packages are neither staged nor in a workspace`, a registry package is missing from the deployed tree; stop and report the names (this did not occur in the spike).
 
 - [ ] **Step 11: Repeat on the other operating system**
 
 On a Windows teammate's machine (PowerShell, after `pnpm install; pnpm run build` at the root and `pnpm -C air install`), run the same command.
-Expected: the same four lines with `win-x64`. Record the result (ready time, filled count, any fallback used) in `air/apps/desktop/README.md` when Task 9 writes it. If it fails, apply the fallbacks listed at the top of this task in order and record which one was needed.
+Expected: the same lines with `win-x64`. Record the result (ready time, filled count, size, longest path, any fallback used) in `air/apps/desktop/README.md` when Task 9 writes it. If it fails, apply the fallbacks listed at the top of this task in order and record which one was needed.
 
 - [ ] **Step 12: Commit**
 
-```bash
+```text
 git add air/pnpm-workspace.yaml air/.gitignore air/pnpm-lock.yaml air/apps/desktop
 git commit -m "build(air-desktop): stage the production runtime tree and verify it boots"
 ```
@@ -826,7 +996,7 @@ git commit -m "build(air-desktop): stage the production runtime tree and verify 
 
 ### Task 2: AIR Host entry (`air/apps/desktop-host`)
 
-The Host is the Node process the shell spawns. It creates the `air` profile on first run (Web template bundles plus the AIR bundle, seeded with the local Ollama route), boots it with `runProfile`, and speaks a three-message protocol over the Node IPC channel. The upstream calls it depends on were read on 2026-10-03 at `dsh-v0.2.0-rc.2`: `runProfile`, `RunProfileOptions.resolvedProfile` (`apps/cli/src/profile-boot.ts`), `initProfile`, `loadProfileDirectory`, `resolveProfileDir`, `PROFILE_TEMPLATES`, `reportSkippedBundles`, `loadLayeredEnv` (`packages/boot/app-boot`), `ctx.connection.authenticatedUrl`, `ctx.webServer.port`, and the `source`/`root` Config of `@deepseek-ai/dsh-tool-workspace-dependencies`.
+The Host is the Node process the shell spawns. It creates the `air` profile on first run (Web template bundles plus the AIR bundle, seeded with the local Ollama route), boots it with `runProfile`, and speaks a three-message protocol over the Node IPC channel. The upstream calls it depends on were read on 2026-10-03 at `dsh-v0.2.0-rc.2` and read again on 2026-10-08 at `dsh-v0.2.1-alpha.1` with no signature change: `runProfile`, `RunProfileOptions.resolvedProfile` (`apps/cli/src/profile-boot.ts`), `initProfile`, `loadProfileDirectory`, `resolveProfileDir`, `PROFILE_TEMPLATES`, `reportSkippedBundles`, `loadLayeredEnv` (`packages/boot/app-boot`), `ctx.connection.authenticatedUrl`, `ctx.webServer.port`, and the `source`/`root` Config of `@deepseek-ai/dsh-tool-workspace-dependencies`. Upstream's own desktop Host (`apps/desktop-host/src/index.ts`) changed from a fixed port to `--port 0` between the two tags and builds its URL from `ctx.webServer.port` after boot; this Host does the same, so it has no port argument and cannot collide with another program.
 
 **Files:**
 - Create: `air/apps/desktop-host/package.json`, `tsconfig.build.json`, `tsconfig.json`, `tsdown.config.ts`, `vitest.config.ts`, `vitest.boot.config.ts`
@@ -839,7 +1009,7 @@ The Host is the Node process the shell spawns. It creates the `air` profile on f
   - `type HostEvent = { type: 'ready'; url: string } | { type: 'fatal'; message: string; diagnostic: string } | { type: 'shutdown-complete' }`
   - `type HostCommand = { type: 'shutdown' }`
   - `isHostEvent(value: unknown): value is HostEvent`, `isHostCommand(value: unknown): value is HostCommand`, importable as `@air/desktop-host/protocol`
-  - `parseHostArgs(argv: readonly string[]): HostArgs` with `interface HostArgs { runtimeDir: string; profile: string; port: number; primaryRuntimeDir?: string }`
+  - `parseHostArgs(argv: readonly string[]): HostArgs` with `interface HostArgs { runtimeDir: string; profile: string; primaryRuntimeDir?: string }`
   - `runHost(channel: ParentChannel, boot: () => Promise<BootedHost>): Promise<'ready' | 'failed'>`
   - Built entry `air/apps/desktop-host/lib/index.js`, copied by `stage-runtime.ts` to `runtime/air-host/index.js`
 
@@ -973,7 +1143,7 @@ import { isHostCommand, isHostEvent } from '../src/protocol.ts'
 
 describe('Host protocol guards', () => {
   it('accepts the three Host events', () => {
-    expect(isHostEvent({ type: 'ready', url: 'http://127.0.0.1:19487/?token=t' })).toBe(true)
+    expect(isHostEvent({ type: 'ready', url: 'http://127.0.0.1:51234/?token=t' })).toBe(true)
     expect(isHostEvent({ type: 'fatal', message: 'm', diagnostic: 'd' })).toBe(true)
     expect(isHostEvent({ type: 'shutdown-complete' })).toBe(true)
   })
@@ -1003,32 +1173,28 @@ import { parseHostArgs } from '../src/args.ts'
 const runtime = join(tmpdir(), 'runtime')
 
 describe('parseHostArgs', () => {
-  it('parses runtime directory, profile, and port', () => {
-    expect(parseHostArgs([runtime, 'air', '19487'])).toEqual({ runtimeDir: runtime, profile: 'air', port: 19_487 })
+  it('parses runtime directory and profile', () => {
+    expect(parseHostArgs([runtime, 'air'])).toEqual({ runtimeDir: runtime, profile: 'air' })
   })
 
   it('accepts an absolute primary runtime directory', () => {
     const primary = join(tmpdir(), 'primary-runtime')
-    expect(parseHostArgs([runtime, 'air', '19487', primary]).primaryRuntimeDir).toBe(primary)
+    expect(parseHostArgs([runtime, 'air', primary]).primaryRuntimeDir).toBe(primary)
   })
 
   it('rejects a relative runtime directory', () => {
-    expect(() => parseHostArgs(['runtime', 'air', '19487'])).toThrow('absolute runtime directory')
+    expect(() => parseHostArgs(['runtime', 'air'])).toThrow('absolute runtime directory')
   })
 
   it('rejects profile names that are not lowercase identifiers', () => {
-    expect(() => parseHostArgs([runtime, '../x', '19487'])).toThrow('profile name')
+    expect(() => parseHostArgs([runtime, '../x'])).toThrow('profile name')
     expect(() => parseHostArgs([runtime])).toThrow('profile name')
   })
 
-  it('rejects ports outside 1024-65535', () => {
-    for (const port of ['80', '70000', 'abc', '19487.5']) {
-      expect(() => parseHostArgs([runtime, 'air', port])).toThrow('port')
-    }
-  })
-
   it('rejects a relative primary runtime directory', () => {
-    expect(() => parseHostArgs([runtime, 'air', '19487', 'primary'])).toThrow('primary runtime')
+    expect(() => parseHostArgs([runtime, 'air', 'primary'])).toThrow('primary runtime')
+    // An argument vector of the earlier layout, with a port as the third argument, is refused.
+    expect(() => parseHostArgs([runtime, 'air', '19487'])).toThrow('primary runtime')
   })
 })
 ```
@@ -1094,7 +1260,7 @@ export function isHostCommand(value: unknown): value is HostCommand {
 `air/apps/desktop-host/src/args.ts`:
 
 ```ts
-/** Command-line arguments of the AIR Host: `<runtimeDir> <profile> <port> [primaryRuntimeDir]`. */
+/** Command-line arguments of the AIR Host: `<runtimeDir> <profile> [primaryRuntimeDir]`. */
 
 import { isAbsolute } from 'node:path'
 
@@ -1104,8 +1270,6 @@ export interface HostArgs {
   runtimeDir: string
   /** Profile name under the Harness home. */
   profile: string
-  /** Loopback port of the Web Host. */
-  port: number
   /** Bundled Node, pnpm, and Python payload, when the build ships one. */
   primaryRuntimeDir?: string
 }
@@ -1117,26 +1281,22 @@ export interface HostArgs {
  * @throws when an argument is missing or malformed.
  */
 export function parseHostArgs(argv: readonly string[]): HostArgs {
-  const [runtimeDir, profile, port, primaryRuntimeDir] = argv
+  const [runtimeDir, profile, primaryRuntimeDir] = argv
   if (runtimeDir === undefined || !isAbsolute(runtimeDir)) {
     throw new Error('air host: argument 1 must be the absolute runtime directory')
   }
   if (profile === undefined || !/^[a-z0-9][a-z0-9-]*$/u.test(profile)) {
     throw new Error('air host: argument 2 must be a profile name of lowercase letters, digits, and hyphens')
   }
-  const parsedPort = Number(port)
-  if (port === undefined || !Number.isInteger(parsedPort) || parsedPort < 1024 || parsedPort > 65_535) {
-    throw new Error('air host: argument 3 must be a port between 1024 and 65535')
-  }
   if (primaryRuntimeDir !== undefined && !isAbsolute(primaryRuntimeDir)) {
-    throw new Error('air host: argument 4 must be the absolute primary runtime directory')
+    throw new Error('air host: argument 3 must be the absolute primary runtime directory')
   }
-  return { runtimeDir, profile, port: parsedPort, ...(primaryRuntimeDir === undefined ? {} : { primaryRuntimeDir }) }
+  return { runtimeDir, profile, ...(primaryRuntimeDir === undefined ? {} : { primaryRuntimeDir }) }
 }
 ```
 
 Run: `pnpm -C air/apps/desktop-host test`
-Expected: `Tests 9 passed (9)`.
+Expected: `Tests 8 passed (8)`.
 
 - [ ] **Step 4: Write the failing profile and lifecycle tests**
 
@@ -1211,7 +1371,7 @@ class FakeChannel implements ParentChannel {
   drop(): void { this.disconnectListener?.() }
 }
 
-function booted(url = 'http://127.0.0.1:19487/?token=t'): { host: BootedHost; shutdown: ReturnType<typeof vi.fn<() => Promise<void>>> } {
+function booted(url = 'http://127.0.0.1:51234/?token=t'): { host: BootedHost; shutdown: ReturnType<typeof vi.fn<() => Promise<void>>> } {
   const shutdown = vi.fn<() => Promise<void>>(() => Promise.resolve())
   return { host: { url, shutdown }, shutdown }
 }
@@ -1255,11 +1415,11 @@ describe('runHost', () => {
 
   it('reports a startup failure as fatal and does not report ready', async () => {
     const channel = new FakeChannel()
-    await expect(runHost(channel, () => Promise.reject(new Error('port in use')))).resolves.toBe('failed')
+    await expect(runHost(channel, () => Promise.reject(new Error('bundle missing')))).resolves.toBe('failed')
     expect(channel.sent).toHaveLength(1)
     const [event] = channel.sent
-    expect(event).toMatchObject({ type: 'fatal', message: 'port in use' })
-    expect(event?.type === 'fatal' && event.diagnostic.includes('port in use')).toBe(true)
+    expect(event).toMatchObject({ type: 'fatal', message: 'bundle missing' })
+    expect(event?.type === 'fatal' && event.diagnostic.includes('bundle missing')).toBe(true)
     expect(channel.disconnects).toBe(1)
   })
 
@@ -1397,7 +1557,7 @@ export async function runHost(channel: ParentChannel, boot: () => Promise<Booted
 ```
 
 Run: `pnpm -C air/apps/desktop-host test`
-Expected: `Test Files 4 passed (4)`, `Tests 18 passed (18)`.
+Expected: `Test Files 4 passed (4)`, `Tests 17 passed (17)`.
 
 - [ ] **Step 6: Implement the real boot and the entry**
 
@@ -1452,7 +1612,8 @@ export async function bootAirProfile(args: HostArgs): Promise<BootedHost> {
     profile: args.profile,
     resolvedProfile: { profile, installAnchor },
     patchFiles: [],
-    args: ['--no-open', '--port', String(args.port)],
+    // Port 0: the operating system picks a free loopback port; the URL below reports it.
+    args: ['--no-open', '--port', '0'],
   })
   if (args.primaryRuntimeDir !== undefined && existsSync(join(args.primaryRuntimeDir, 'runtime.json'))) {
     await ctx.plugin(workspaceDependencies, {
@@ -1468,7 +1629,7 @@ export async function bootAirProfile(args: HostArgs): Promise<BootedHost> {
 `air/apps/desktop-host/src/index.ts`:
 
 ```ts
-/** AIR Host entry: `<runtimeDir> <profile> <port> [primaryRuntimeDir]`, spoken to over the Node IPC channel. */
+/** AIR Host entry: `<runtimeDir> <profile> [primaryRuntimeDir]`, spoken to over the Node IPC channel. */
 
 import { parseHostArgs } from './args.ts'
 import { bootAirProfile } from './boot.ts'
@@ -1519,7 +1680,8 @@ it('boots the air profile from the staged tree under an isolated Harness home', 
   if (!existsSync(hostEntry)) {
     throw new Error(`staged Host is missing at ${hostEntry}; run "pnpm -C air/apps/desktop-host run build" and then "pnpm -C air/apps/desktop run stage"`)
   }
-  const boot = await bootStage({ runtimeDir, hostEntry, port: 19_488 })
+  const boot = await bootStage({ runtimeDir, hostEntry })
+  expect(boot.port).toBeGreaterThanOrEqual(1024)
   expect(boot.redirectStatus).toBe(303)
   expect(boot.cookieSet).toBe(true)
   expect(boot.exitCode).toBe(0)
@@ -1532,14 +1694,14 @@ Run: `pnpm -C air/apps/desktop-host run build`
 Expected: exit 0; `air/apps/desktop-host/lib/index.js` exists and its imports of `@deepseek-ai/*` packages are left as bare specifiers (external).
 
 Run: `pnpm -C air/apps/desktop run stage --verify`
-Expected: the four lines from Task 1, now booting `air-host/index.js` (`stage.json` shows `"host": true`).
+Expected: the lines from Task 1, now booting `air-host/index.js` (`stage.json` shows `"host": true`).
 
 Run: `pnpm -C air/apps/desktop-host run test:boot`
 Expected: `Tests 1 passed (1)`.
 
 - [ ] **Step 9: Commit**
 
-```bash
+```text
 git add air/apps/desktop-host air/pnpm-lock.yaml
 git commit -m "feat(air-desktop): add the AIR Host entry with ready, fatal, and shutdown over IPC"
 ```
@@ -1558,17 +1720,17 @@ Single instance, Host supervision, one sandboxed window locked to the Host origi
 - Test: `air/apps/desktop/tests/brand.spec.ts`, `tests/core.spec.ts`, `tests/settings.spec.ts`, `tests/host-supervisor.spec.ts`
 
 **Interfaces:**
-- Consumes: `isHostEvent`, `HostCommand` from `@air/desktop-host/protocol` (Task 2, built); the staged tree from Task 1; Host argument order `<hostEntry> <runtimeDir> <profile> <port> [primaryRuntimeDir]`.
+- Consumes: `isHostEvent`, `HostCommand` from `@air/desktop-host/protocol` (Task 2, built); the staged tree from Task 1; Host argument order `<hostEntry> <runtimeDir> <profile> [primaryRuntimeDir]`.
 - Produces:
-  - `interface Brand { productName: string; tagline: string; appId: string; executableName: string; desktopName: string; protocolScheme: string; profile: string; hostPort: number; publish: { owner: string; repo: string } }` and `resolveBrand(raw: unknown, overrides?: Readonly<Record<string, string | undefined>>): Brand`
+  - `interface Brand { productName: string; tagline: string; appId: string; executableName: string; desktopName: string; protocolScheme: string; releaseTagPrefix: string; identifiersFinal: boolean; profile: string; publish: { owner: string; repo: string } }`, `resolveBrand(raw: unknown, overrides?: Readonly<Record<string, string | undefined>>): Brand`, and `assertReleasable(brand: Brand, release: boolean): void`
   - `resolveShellPaths(input: ShellPathsInput): ShellPaths` with `interface ShellPaths { runtimeDir: string; hostEntry: string; primaryRuntimeDir: string; logsDir: string; settingsFile: string; updateConfig: string }`
-  - `interface Settings { keepRunningInBackground: boolean; startAtLogin: boolean; quickEntryHotkey: string; checkForUpdates: boolean; updateChannel: 'latest' | 'beta' }`, `DEFAULT_SETTINGS`, `class SettingsStore { get(): Settings; update(patch: Partial<Settings>): Settings; onChange(listener: (settings: Settings) => void): void }`
+  - `interface Settings { keepRunningInBackground: boolean; quickEntryHotkey: string; checkForUpdates: boolean; updateChannel: 'latest' | 'beta' }`, `DEFAULT_SETTINGS`, `class SettingsStore { get(): Settings; update(patch: Partial<Settings>): Settings; onChange(listener: (settings: Settings) => void): void }`
   - `redactTokens(text: string): string`; `createLogWriter(file: string, maxBytes?: number, now?: () => Date): (line: string) => void`
-  - `decideNavigation(target: string, hostOrigin: string): 'allow' | 'external' | 'deny'`; `decidePermission(permission: string, requestingUrl: string, hostOrigin: string): boolean`
-  - `class HostSupervisor` with `start(): void`, `stop(): Promise<void>`, `status`; `interface HostChild`; `restartDelayMs(...)`
-  - `parseLaunchArgs(argv: readonly string[], scheme: string): LaunchRequest` with `interface LaunchRequest { quickEntry: boolean; smoke: boolean; hidden: boolean; deepLink?: string }`
+  - `decideNavigation(target: string, hostOrigin: string | undefined): 'allow' | 'external' | 'deny'`; `decidePermission(permission: string, requestingUrl: string, hostOrigin: string | undefined): boolean` (`undefined` while no Host is ready); `reconnectingUrl(productName: string): string`
+  - `class HostSupervisor` with `start(): void`, `stop(): Promise<void>`, `status`; `interface HostChild`; `interface SupervisorHandlers { ready(url); failed(failure); restarting(delayMs) }`; `restartDelayMs(...)`
+  - `parseLaunchArgs(argv: readonly string[], scheme: string): LaunchRequest` with `interface LaunchRequest { quickEntry: boolean; smoke: boolean; deepLink?: string }`
   - `interface Shell` (see `src/electron/shell.ts`) and `installFeatures(shell: Shell): Promise<void>` in `src/electron/features.ts`, the single place Tasks 4, 5, and 7 extend
-  - Standard output line `AIR_HOST_READY` when the Host is ready, and `AIR_SMOKE_OK` then exit 0 under `--smoke`
+  - Standard output line `AIR_HOST_READY` when the Host is ready (every start, including restarts), and `AIR_SMOKE_OK` then exit 0 under `--smoke`
 
 - [ ] **Step 1: Replace the app manifest and add the brand file**
 
@@ -1598,7 +1760,7 @@ Single instance, Host supervision, one sandboxed window locked to the Host origi
 }
 ```
 
-`air/apps/desktop/brand.json` (the only file to edit when the product name is decided; `AIR_PRODUCT_NAME` and `AIR_PRODUCT_TAGLINE` in the environment override the placeholder defaults at build time):
+`air/apps/desktop/brand.json` (the only file to edit when the product name is decided; `AIR_PRODUCT_NAME` and `AIR_PRODUCT_TAGLINE` in the environment override the placeholder defaults at build time). `identifiersFinal` stays `false` until the owner has fixed the product name and these identifiers; it is the release gate described at the top of this plan:
 
 ```json
 {
@@ -1607,8 +1769,9 @@ Single instance, Host supervision, one sandboxed window locked to the Host origi
   "appId": "io.github.hxman76.air",
   "executableName": "air-desktop",
   "protocolScheme": "air",
+  "releaseTagPrefix": "air-desktop-v",
+  "identifiersFinal": false,
   "profile": "air",
-  "hostPort": 19487,
   "publish": { "owner": "HXMAN76", "repo": "AIR-harness" },
   "placeholders": {
     "PRODUCT_NAME": "AIR",
@@ -1650,23 +1813,34 @@ Expected: exit 0; the Electron binary downloads once (about 110 MB); `pnpm -C ai
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { resolveBrand } from '../src/brand.ts'
+import { assertReleasable, resolveBrand } from '../src/brand.ts'
+
+/** The brand.json fields the tests compare against: expected identifiers come from the file, never from literals. */
+interface BrandFile {
+  appId: string
+  executableName: string
+  protocolScheme: string
+  releaseTagPrefix: string
+  profile: string
+  publish: { owner: string; repo: string }
+}
 
 const appRoot = join(import.meta.dirname, '..')
-const raw: unknown = JSON.parse(readFileSync(join(appRoot, 'brand.json'), 'utf8'))
+const raw: BrandFile = JSON.parse(readFileSync(join(appRoot, 'brand.json'), 'utf8'))
 
 describe('resolveBrand', () => {
   it('fills placeholders from the defaults and derives the desktop file name', () => {
     expect(resolveBrand(raw)).toEqual({
       productName: 'AIR',
       tagline: 'Local-first personal agent',
-      appId: 'io.github.hxman76.air',
-      executableName: 'air-desktop',
-      desktopName: 'air-desktop.desktop',
-      protocolScheme: 'air',
-      profile: 'air',
-      hostPort: 19_487,
-      publish: { owner: 'HXMAN76', repo: 'AIR-harness' },
+      appId: raw.appId,
+      executableName: raw.executableName,
+      desktopName: `${raw.executableName}.desktop`,
+      protocolScheme: raw.protocolScheme,
+      releaseTagPrefix: raw.releaseTagPrefix,
+      identifiersFinal: false,
+      profile: raw.profile,
+      publish: raw.publish,
     })
   })
 
@@ -1675,12 +1849,18 @@ describe('resolveBrand', () => {
   })
 
   it('rejects an unknown placeholder and malformed identifiers', () => {
-    const base = raw as Record<string, unknown>
-    expect(() => resolveBrand({ ...base, tagline: '{{MISSING}}' })).toThrow('unknown placeholder MISSING')
-    expect(() => resolveBrand({ ...base, appId: 'Not An Id' })).toThrow('appId')
-    expect(() => resolveBrand({ ...base, protocolScheme: 'A B' })).toThrow('protocolScheme')
-    expect(() => resolveBrand({ ...base, hostPort: 80 })).toThrow('hostPort')
+    expect(() => resolveBrand({ ...raw, tagline: '{{MISSING}}' })).toThrow('unknown placeholder MISSING')
+    expect(() => resolveBrand({ ...raw, appId: 'Not An Id' })).toThrow('appId')
+    expect(() => resolveBrand({ ...raw, protocolScheme: 'A B' })).toThrow('protocolScheme')
+    expect(() => resolveBrand({ ...raw, releaseTagPrefix: 'v 1' })).toThrow('releaseTagPrefix')
+    expect(() => resolveBrand({ ...raw, identifiersFinal: 'yes' })).toThrow('identifiersFinal')
     expect(() => resolveBrand(null)).toThrow('brand file')
+  })
+
+  it('refuses a release build until the identifiers are final', () => {
+    expect(() => assertReleasable(resolveBrand(raw), true)).toThrow('identifiersFinal')
+    expect(() => assertReleasable(resolveBrand(raw), false)).not.toThrow()
+    expect(() => assertReleasable(resolveBrand({ ...raw, identifiersFinal: true }), true)).not.toThrow()
   })
 
   it('matches desktopName in package.json, which Electron reads for the Wayland portal identity', () => {
@@ -1703,7 +1883,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { createLogWriter } from '../src/log.ts'
-import { decideNavigation, decidePermission } from '../src/navigation.ts'
+import { decideNavigation, decidePermission, reconnectingUrl } from '../src/navigation.ts'
 import { resolveShellPaths } from '../src/paths.ts'
 import { redactTokens } from '../src/redact.ts'
 import { parseLaunchArgs } from '../src/single-instance.ts'
@@ -1734,7 +1914,7 @@ describe('resolveShellPaths', () => {
 
 describe('redactTokens', () => {
   it('removes token query values and auth cookie values', () => {
-    expect(redactTokens('dsh web: http://127.0.0.1:19487/?token=abc-DEF_123&x=1')).toBe('dsh web: http://127.0.0.1:19487/?token=<redacted>&x=1')
+    expect(redactTokens('dsh web: http://127.0.0.1:51234/?token=abc-DEF_123&x=1')).toBe('dsh web: http://127.0.0.1:51234/?token=<redacted>&x=1')
     expect(redactTokens('set-cookie: dsh-auth-Ab_1=secret; HttpOnly')).toBe('set-cookie: dsh-auth-Ab_1=<redacted>; HttpOnly')
     expect(redactTokens('no secrets here')).toBe('no secrets here')
   })
@@ -1756,12 +1936,12 @@ describe('createLogWriter', () => {
 })
 
 describe('decideNavigation', () => {
-  const origin = 'http://127.0.0.1:19487'
+  const origin = 'http://127.0.0.1:51234'
   it.each([
-    ['http://127.0.0.1:19487/', 'allow'],
-    ['http://127.0.0.1:19487/session/1?x=1', 'allow'],
-    ['http://127.0.0.1:19488/', 'external'],
-    ['http://localhost:19487/', 'external'],
+    ['http://127.0.0.1:51234/', 'allow'],
+    ['http://127.0.0.1:51234/session/1?x=1', 'allow'],
+    ['http://127.0.0.1:51235/', 'external'],
+    ['http://localhost:51234/', 'external'],
     ['https://example.org/docs', 'external'],
     ['mailto:someone@example.org', 'external'],
     ['file:///etc/passwd', 'deny'],
@@ -1771,25 +1951,41 @@ describe('decideNavigation', () => {
   ])('%s -> %s', (target, decision) => {
     expect(decideNavigation(target, origin)).toBe(decision)
   })
+
+  it('treats web links as external and drops the rest while no Host is ready', () => {
+    expect(decideNavigation(`${origin}/`, undefined)).toBe('external')
+    expect(decideNavigation('file:///etc/passwd', undefined)).toBe('deny')
+  })
+})
+
+describe('reconnectingUrl', () => {
+  it('builds a self-contained page that names the product and escapes it', () => {
+    const url = reconnectingUrl('A<B>&')
+    expect(url.startsWith('data:text/html;charset=utf-8,')).toBe(true)
+    const html = decodeURIComponent(url.slice(url.indexOf(',') + 1))
+    expect(html).toContain('A&lt;B&gt;&amp;')
+    expect(html).not.toContain('A<B>')
+  })
 })
 
 describe('decidePermission', () => {
-  const origin = 'http://127.0.0.1:19487'
+  const origin = 'http://127.0.0.1:51234'
   it('grants a short list to the Host origin only', () => {
     expect(decidePermission('media', `${origin}/`, origin)).toBe(true)
     expect(decidePermission('notifications', `${origin}/x`, origin)).toBe(true)
     expect(decidePermission('geolocation', `${origin}/`, origin)).toBe(false)
     expect(decidePermission('media', 'https://example.org/', origin)).toBe(false)
     expect(decidePermission('media', 'garbage', origin)).toBe(false)
+    expect(decidePermission('media', `${origin}/`, undefined)).toBe(false)
   })
 })
 
 describe('parseLaunchArgs', () => {
   it('reads flags and the first deep link of the app scheme', () => {
-    expect(parseLaunchArgs(['/opt/app/air-desktop', '--quick-entry', 'air://open/1', 'other://x'], 'air')).toEqual({
-      quickEntry: true, smoke: false, hidden: false, deepLink: 'air://open/1',
+    expect(parseLaunchArgs(['/opt/app/launcher', '--quick-entry', 'demo://open/1', 'other://x'], 'demo')).toEqual({
+      quickEntry: true, smoke: false, deepLink: 'demo://open/1',
     })
-    expect(parseLaunchArgs(['app', '--smoke', '--hidden'], 'air')).toEqual({ quickEntry: false, smoke: true, hidden: true })
+    expect(parseLaunchArgs(['app', '--smoke'], 'demo')).toEqual({ quickEntry: false, smoke: true })
   })
 })
 ```
@@ -1812,8 +2008,11 @@ export interface Brand {
   executableName: string
   desktopName: string
   protocolScheme: string
+  /** Prefix of the release tag; the tag is `<prefix><version>`. */
+  releaseTagPrefix: string
+  /** Whether the owner has fixed the product name and these identifiers; release builds need `true`. */
+  identifiersFinal: boolean
   profile: string
-  hostPort: number
   publish: { owner: string; repo: string }
 }
 
@@ -1840,10 +2039,8 @@ export function resolveBrand(raw: unknown, overrides: Readonly<Record<string, st
     return value
   })
   const publish = (typeof source.publish === 'object' && source.publish !== null ? source.publish : {}) as Record<string, unknown>
-  const hostPort = source.hostPort
-  if (typeof hostPort !== 'number' || !Number.isInteger(hostPort) || hostPort < 1024 || hostPort > 65_535) {
-    throw new Error('air desktop brand: hostPort must be a port between 1024 and 65535')
-  }
+  const identifiersFinal = source.identifiersFinal
+  if (typeof identifiersFinal !== 'boolean') throw new Error('air desktop brand: identifiersFinal must be true or false')
   const executableName = field(source, 'executableName', /^[a-z][a-z0-9-]*$/u)
   return {
     productName: fill('productName'),
@@ -1852,9 +2049,22 @@ export function resolveBrand(raw: unknown, overrides: Readonly<Record<string, st
     executableName,
     desktopName: `${executableName}.desktop`,
     protocolScheme: field(source, 'protocolScheme', /^[a-z][a-z0-9+.-]*$/u),
+    releaseTagPrefix: field(source, 'releaseTagPrefix', /^[a-z][a-z0-9-]*-v$/u),
+    identifiersFinal,
     profile: field(source, 'profile', /^[a-z0-9][a-z0-9-]*$/u),
-    hostPort,
     publish: { owner: field(publish, 'owner', /^[\w.-]+$/u), repo: field(publish, 'repo', /^[\w.-]+$/u) },
+  }
+}
+
+/**
+ * Stop a release build that would publish under placeholder identifiers.
+ * @param brand - the resolved brand.
+ * @param release - whether this is a release build (`AIR_DESKTOP_RELEASE=1`).
+ * @throws when `release` is true and the identifiers are not final.
+ */
+export function assertReleasable(brand: Brand, release: boolean): void {
+  if (release && !brand.identifiersFinal) {
+    throw new Error('air desktop: release builds need identifiersFinal: true in brand.json, which the owner sets after the product name and identifiers are final')
   }
 }
 ```
@@ -1967,13 +2177,13 @@ const HOST_PERMISSIONS = new Set(['media', 'notifications', 'fullscreen', 'clipb
 /**
  * Decide a navigation or window-open target.
  * @param target - requested URL.
- * @param hostOrigin - the Host's loopback origin, e.g. `http://127.0.0.1:19487`.
+ * @param hostOrigin - the Host's current loopback origin, e.g. `http://127.0.0.1:51234` (the port changes on every Host start), or `undefined` while no Host is ready.
  * @returns the decision; unparsable and non-web targets are denied.
  */
-export function decideNavigation(target: string, hostOrigin: string): NavigationDecision {
+export function decideNavigation(target: string, hostOrigin: string | undefined): NavigationDecision {
   if (!URL.canParse(target)) return 'deny'
   const url = new URL(target)
-  if (url.origin === hostOrigin) return 'allow'
+  if (hostOrigin !== undefined && url.origin === hostOrigin) return 'allow'
   return EXTERNAL_PROTOCOLS.has(url.protocol) ? 'external' : 'deny'
 }
 
@@ -1981,11 +2191,26 @@ export function decideNavigation(target: string, hostOrigin: string): Navigation
  * Decide a permission request or check.
  * @param permission - Electron permission name.
  * @param requestingUrl - URL or origin of the requesting frame.
- * @param hostOrigin - the Host's loopback origin.
+ * @param hostOrigin - the Host's current loopback origin, or `undefined` while no Host is ready (nothing is granted).
  * @returns whether to grant it.
  */
-export function decidePermission(permission: string, requestingUrl: string, hostOrigin: string): boolean {
-  return URL.canParse(requestingUrl) && new URL(requestingUrl).origin === hostOrigin && HOST_PERMISSIONS.has(permission)
+export function decidePermission(permission: string, requestingUrl: string, hostOrigin: string | undefined): boolean {
+  return hostOrigin !== undefined && URL.canParse(requestingUrl)
+    && new URL(requestingUrl).origin === hostOrigin && HOST_PERMISSIONS.has(permission)
+}
+
+const HTML_ESCAPES: Readonly<Record<string, string>> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }
+
+/**
+ * Page shown while the Host restarts, as a `data:` URL so it needs no server.
+ * @param productName - brand name, HTML-escaped before use.
+ * @returns the URL; loading it replaces the dead page, and the next `ready` replaces it again.
+ */
+export function reconnectingUrl(productName: string): string {
+  const name = productName.replace(/[&<>"]/gu, character => HTML_ESCAPES[character] ?? character)
+  const html = `<!doctype html><meta charset="utf-8"><title>${name}</title>`
+    + `<body style="font:16px system-ui;margin:3rem;color-scheme:light dark"><p>${name} lost its background process and is starting it again. This page is replaced when it is ready.</p></body>`
+  return `data:text/html;charset=utf-8,${encodeURIComponent(html)}`
 }
 ```
 
@@ -2000,8 +2225,6 @@ export interface LaunchRequest {
   quickEntry: boolean
   /** Boot, load the page, print `AIR_SMOKE_OK`, and exit. */
   smoke: boolean
-  /** Start without showing a window (used by start at login). */
-  hidden: boolean
   /** First argument that uses the app's URL scheme. */
   deepLink?: string
 }
@@ -2017,7 +2240,6 @@ export function parseLaunchArgs(argv: readonly string[], scheme: string): Launch
   return {
     quickEntry: argv.includes('--quick-entry'),
     smoke: argv.includes('--smoke'),
-    hidden: argv.includes('--hidden'),
     ...(deepLink === undefined ? {} : { deepLink }),
   }
 }
@@ -2054,8 +2276,8 @@ describe('parseSettings', () => {
   })
 
   it('keeps valid fields and replaces invalid ones with defaults', () => {
-    expect(parseSettings({ keepRunningInBackground: true, startAtLogin: 'yes', quickEntryHotkey: '', updateChannel: 'nightly', checkForUpdates: false }))
-      .toEqual({ ...DEFAULT_SETTINGS, keepRunningInBackground: true, checkForUpdates: false, quickEntryHotkey: '' })
+    expect(parseSettings({ keepRunningInBackground: true, checkForUpdates: 'yes', quickEntryHotkey: '', updateChannel: 'nightly', unknownField: 1 }))
+      .toEqual({ ...DEFAULT_SETTINGS, keepRunningInBackground: true, quickEntryHotkey: '' })
   })
 })
 
@@ -2072,11 +2294,11 @@ describe('SettingsStore', () => {
     const path = file()
     const store = new SettingsStore(path)
     const seen: boolean[] = []
-    store.onChange((settings) => { seen.push(settings.startAtLogin) })
-    expect(store.update({ startAtLogin: true }).startAtLogin).toBe(true)
+    store.onChange((settings) => { seen.push(settings.keepRunningInBackground) })
+    expect(store.update({ keepRunningInBackground: true }).keepRunningInBackground).toBe(true)
     expect(seen).toEqual([true])
-    expect(JSON.parse(readFileSync(path, 'utf8'))).toEqual({ ...DEFAULT_SETTINGS, startAtLogin: true })
-    expect(new SettingsStore(path).get().startAtLogin).toBe(true)
+    expect(JSON.parse(readFileSync(path, 'utf8'))).toEqual({ ...DEFAULT_SETTINGS, keepRunningInBackground: true })
+    expect(new SettingsStore(path).get().keepRunningInBackground).toBe(true)
   })
 })
 ```
@@ -2111,6 +2333,7 @@ function harness() {
   const timers: Timer[] = []
   const ready: string[] = []
   const failed: HostFailure[] = []
+  const restarting: number[] = []
   const logs: string[] = []
   const clock = { now: 0 }
   const supervisor = new HostSupervisor({
@@ -2126,7 +2349,11 @@ function harness() {
       return () => { timer.cancelled = true }
     },
     log: (line) => { logs.push(line) },
-  }, { ready: (url) => { ready.push(url) }, failed: (failure) => { failed.push(failure) } })
+  }, {
+    ready: (url) => { ready.push(url) },
+    failed: (failure) => { failed.push(failure) },
+    restarting: (delayMs) => { restarting.push(delayMs) },
+  })
   const child = (index: number): FakeChild => {
     const found = children[index]
     if (found === undefined) throw new Error(`no child ${String(index)}`)
@@ -2138,10 +2365,10 @@ function harness() {
     timer.cancelled = true
     timer.task()
   }
-  return { supervisor, children, child, timers, runTimer, ready, failed, logs, clock }
+  return { supervisor, children, child, timers, runTimer, ready, failed, restarting, logs, clock }
 }
 
-const READY = { type: 'ready', url: 'http://127.0.0.1:19487/?token=t' }
+const READY = { type: 'ready', url: 'http://127.0.0.1:51234/?token=t' }
 
 describe('restartDelayMs', () => {
   it('backs off and stops after the limit inside the window', () => {
@@ -2181,9 +2408,27 @@ describe('HostSupervisor', () => {
     h.child(0).emitMessage(READY)
     h.child(0).emitExit(1)
     expect(h.supervisor.status).toBe('restarting')
+    expect(h.restarting).toEqual([500])
     h.runTimer(500)
-    h.child(1).emitMessage({ type: 'ready', url: 'http://127.0.0.1:19487/?token=u' })
-    expect(h.ready).toHaveLength(2)
+    h.child(1).emitMessage({ type: 'ready', url: 'http://127.0.0.1:51235/?token=u' })
+    expect(h.ready).toEqual([READY.url, 'http://127.0.0.1:51235/?token=u'])
+  })
+
+  it('redacts a token that arrives split across output chunks', () => {
+    const h = harness()
+    h.supervisor.start()
+    h.child(0).emitOutput('listening on http://127.0.0.1:51234/?tok')
+    h.child(0).emitOutput('en=abc')
+    h.child(0).emitOutput('def\r\nnext line\n')
+    expect(h.logs).toEqual(['listening on http://127.0.0.1:51234/?token=<redacted>', 'next line'])
+  })
+
+  it('logs an unfinished last line when the Host exits', () => {
+    const h = harness()
+    h.supervisor.start()
+    h.child(0).emitOutput('partial ?token=zzz')
+    h.child(0).emitExit(0)
+    expect(h.logs[0]).toBe('partial ?token=<redacted>')
   })
 
   it('fails after three restarts inside one minute', () => {
@@ -2253,8 +2498,6 @@ import { dirname } from 'node:path'
 export interface Settings {
   /** Linux: closing the window hides it and the app keeps running. Windows always hides to the tray. */
   keepRunningInBackground: boolean
-  /** Start the app hidden when the user logs in. */
-  startAtLogin: boolean
   /** Electron accelerator that opens the quick-entry window; empty text disables it. */
   quickEntryHotkey: string
   /** Check the release feed on start. */
@@ -2266,7 +2509,6 @@ export interface Settings {
 /** Values used for missing or invalid fields. */
 export const DEFAULT_SETTINGS: Settings = {
   keepRunningInBackground: false,
-  startAtLogin: false,
   quickEntryHotkey: 'Control+Shift+Space',
   checkForUpdates: true,
   updateChannel: 'latest',
@@ -2280,14 +2522,13 @@ export const DEFAULT_SETTINGS: Settings = {
 export function parseSettings(raw: unknown): Settings {
   if (typeof raw !== 'object' || raw === null) return { ...DEFAULT_SETTINGS }
   const source = raw as Record<string, unknown>
-  const flag = (key: 'keepRunningInBackground' | 'startAtLogin' | 'checkForUpdates'): boolean => {
+  const flag = (key: 'keepRunningInBackground' | 'checkForUpdates'): boolean => {
     const value = source[key]
     return typeof value === 'boolean' ? value : DEFAULT_SETTINGS[key]
   }
   const hotkey = source.quickEntryHotkey
   return {
     keepRunningInBackground: flag('keepRunningInBackground'),
-    startAtLogin: flag('startAtLogin'),
     quickEntryHotkey: typeof hotkey === 'string' ? hotkey : DEFAULT_SETTINGS.quickEntryHotkey,
     checkForUpdates: flag('checkForUpdates'),
     updateChannel: source.updateChannel === 'beta' ? 'beta' : DEFAULT_SETTINGS.updateChannel,
@@ -2381,12 +2622,16 @@ export interface SupervisorHandlers {
   ready(url: string): void
   /** Startup failed or restarts are exhausted; no further restart happens. */
   failed(failure: HostFailure): void
+  /** The Host exited unexpectedly and starts again after `delayMs`; its origin and token are invalid until `ready` is called again. */
+  restarting(delayMs: number): void
 }
 
 type Status = 'idle' | 'starting' | 'ready' | 'restarting' | 'stopping' | 'stopped' | 'failed'
 
 const RESTART_DELAYS_MS = [500, 2000, 5000]
 const TAIL_CHARS = 8000
+/** The Host prints short lines; an unterminated line this long is flushed whole so the buffer stays bounded. */
+const MAX_PENDING_CHARS = 65_536
 
 /**
  * Delay before the next restart.
@@ -2408,6 +2653,8 @@ export class HostSupervisor {
   private child: HostChild | undefined
   private cancelTimer: (() => void) | undefined
   private tail = ''
+  /** Output after the last line break; redaction needs whole lines because a token can be split across chunks. */
+  private pending = ''
   private readonly restarts: number[] = []
   private readonly exitWaiters: (() => void)[] = []
 
@@ -2448,6 +2695,7 @@ export class HostSupervisor {
   private launch(): void {
     this.state = 'starting'
     this.tail = ''
+    this.pending = ''
     const child = this.options.spawn()
     this.child = child
     this.cancelTimer = this.options.schedule(this.options.readyTimeoutMs ?? 60_000, () => {
@@ -2455,9 +2703,13 @@ export class HostSupervisor {
       child.kill()
     })
     child.onOutput((text) => {
-      const safe = redactTokens(text)
-      this.tail = (this.tail + safe).slice(-TAIL_CHARS)
-      this.options.log(safe.trimEnd())
+      const lines = (this.pending + text).split(/\r?\n/u)
+      this.pending = lines.pop() ?? ''
+      if (this.pending.length > MAX_PENDING_CHARS) {
+        lines.push(this.pending)
+        this.pending = ''
+      }
+      for (const line of lines) this.record(line)
     })
     child.onMessage((message) => {
       if (!isHostEvent(message)) return
@@ -2476,6 +2728,8 @@ export class HostSupervisor {
     if (this.child !== child) return
     this.child = undefined
     this.clearTimer()
+    this.record(this.pending)
+    this.pending = ''
     for (const resolve of this.exitWaiters.splice(0)) resolve()
     if (this.state === 'stopping') {
       this.state = 'stopped'
@@ -2492,6 +2746,14 @@ export class HostSupervisor {
     this.state = 'restarting'
     this.options.log(`Host exited with code ${String(code)}; restarting in ${String(delay)} ms`)
     this.cancelTimer = this.options.schedule(delay, () => { this.launch() })
+    this.handlers.restarting(delay)
+  }
+
+  private record(line: string): void {
+    const safe = redactTokens(line)
+    if (safe.trim() === '') return
+    this.tail = `${this.tail}${safe}\n`.slice(-TAIL_CHARS)
+    this.options.log(safe)
   }
 
   private fail(message: string, detail: string = this.tail): void {
@@ -2549,11 +2811,11 @@ export interface Shell {
   readonly launch: LaunchRequest
   /** Append a redacted line to `<userData>/logs/shell.log`. */
   log(line: string): void
-  /** The Host's loopback origin once it is ready. */
+  /** The Host's current loopback origin (it changes on every Host start); `undefined` before the first ready and while the Host restarts. */
   hostOrigin(): string | undefined
   /** The main window once the Host was ready at least once. */
   mainWindow(): BrowserWindow | undefined
-  /** Show and focus the main window, or show it as soon as the Host is ready. */
+  /** Show and focus the main window; does nothing before it exists (it shows itself when created). */
   showMainWindow(): void
   /** Stop the Host and quit. */
   quit(): void
@@ -2571,7 +2833,7 @@ export interface Shell {
 ```ts
 /** Spawn the AIR Host with Electron in Node mode and adapt it to the supervisor. */
 
-import { spawn } from 'node:child_process'
+import { execFile, spawn } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
@@ -2583,12 +2845,11 @@ import type { ShellPaths } from '../paths.ts'
  * Start one Host process.
  * @param paths - staged runtime and Host entry.
  * @param brand - profile name.
- * @param port - loopback port.
- * @returns the supervisor's view of the child.
+ * @returns the supervisor's view of the child; the Host chooses its own port and reports the URL.
  */
-export function spawnHost(paths: ShellPaths, brand: Brand, port: number): HostChild {
+export function spawnHost(paths: ShellPaths, brand: Brand): HostChild {
   const primary = existsSync(join(paths.primaryRuntimeDir, 'runtime.json')) ? [paths.primaryRuntimeDir] : []
-  const child = spawn(process.execPath, [paths.hostEntry, paths.runtimeDir, brand.profile, String(port), ...primary], {
+  const child = spawn(process.execPath, [paths.hostEntry, paths.runtimeDir, brand.profile, ...primary], {
     cwd: homedir(),
     env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
     stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
@@ -2598,7 +2859,14 @@ export function spawnHost(paths: ShellPaths, brand: Brand, port: number): HostCh
   child.stderr?.setEncoding('utf8')
   return {
     send: (command) => { if (child.connected) child.send(command) },
-    kill: () => { child.kill() },
+    kill: () => {
+      // On Windows a plain kill ends only the Host; /T also ends the shells and servers it started.
+      if (process.platform === 'win32' && child.pid !== undefined) {
+        execFile('taskkill', ['/pid', String(child.pid), '/T', '/F'], { windowsHide: true }, (error) => { if (error !== null) child.kill() })
+      } else {
+        child.kill()
+      }
+    },
     onMessage: (listener) => { child.on('message', listener) },
     onExit: (listener) => {
       let reported = false
@@ -2629,12 +2897,13 @@ import { decideNavigation } from '../navigation.ts'
 
 /**
  * Keep a page on the Host origin: other web links open in the default browser, everything else is dropped.
+ * Loads started by the shell (`loadURL`) are not checked; page-initiated navigations and redirects are.
  * @param contents - the window's web contents.
- * @param hostOrigin - the Host's loopback origin.
+ * @param hostOrigin - returns the Host's current loopback origin, which changes on every Host start, or `undefined` while no Host is ready.
  */
-export function lockToOrigin(contents: WebContents, hostOrigin: string): void {
+export function lockToOrigin(contents: WebContents, hostOrigin: () => string | undefined): void {
   const guard = (event: { preventDefault(): void }, target: string): void => {
-    const decision = decideNavigation(target, hostOrigin)
+    const decision = decideNavigation(target, hostOrigin())
     if (decision === 'allow') return
     event.preventDefault()
     if (decision === 'external') void shell.openExternal(target)
@@ -2642,20 +2911,19 @@ export function lockToOrigin(contents: WebContents, hostOrigin: string): void {
   contents.on('will-navigate', guard)
   contents.on('will-redirect', guard)
   contents.setWindowOpenHandler(({ url }) => {
-    if (decideNavigation(url, hostOrigin) === 'external') void shell.openExternal(url)
+    if (decideNavigation(url, hostOrigin()) === 'external') void shell.openExternal(url)
     return { action: 'deny' }
   })
   contents.on('will-attach-webview', (event) => { event.preventDefault() })
 }
 
 /**
- * Create the main window and load the authenticated URL.
+ * Create the main window; the caller loads a page into it. The window is shown when it is ready.
  * @param title - product name; page title changes are ignored so no upstream string reaches the title bar.
- * @param url - authenticated loopback URL.
- * @param show - whether to show the window when it is ready.
+ * @param hostOrigin - returns the Host's current loopback origin, or `undefined`.
  * @returns the window.
  */
-export function createMainWindow(title: string, url: string, show: boolean): BrowserWindow {
+export function createMainWindow(title: string, hostOrigin: () => string | undefined): BrowserWindow {
   const window = new BrowserWindow({
     width: 1200,
     height: 800,
@@ -2673,9 +2941,8 @@ export function createMainWindow(title: string, url: string, show: boolean): Bro
     },
   })
   window.on('page-title-updated', (event) => { event.preventDefault() })
-  lockToOrigin(window.webContents, new URL(url).origin)
-  if (show) window.once('ready-to-show', () => { window.show() })
-  void window.loadURL(url)
+  lockToOrigin(window.webContents, hostOrigin)
+  window.once('ready-to-show', () => { window.show() })
   return window
 }
 ```
@@ -2712,7 +2979,7 @@ import type { Shell } from './electron/shell.ts'
 import { createMainWindow } from './electron/window.ts'
 import { HostSupervisor } from './host-supervisor.ts'
 import { createLogWriter } from './log.ts'
-import { decidePermission } from './navigation.ts'
+import { decidePermission, reconnectingUrl } from './navigation.ts'
 import { resolveShellPaths } from './paths.ts'
 import { SettingsStore } from './settings.ts'
 import { parseLaunchArgs, type LaunchRequest } from './single-instance.ts'
@@ -2737,23 +3004,26 @@ if (!app.requestSingleInstanceLock()) {
   })
   const log = createLogWriter(join(paths.logsDir, 'shell.log'))
   const hostLog = createLogWriter(join(paths.logsDir, 'host.log'))
-  const port = Number(process.env.AIR_DESKTOP_PORT ?? brand.hostPort)
 
   let window: BrowserWindow | undefined
   let origin: string | undefined
   let quitting = false
   let hostStopped = false
-  let showWhenReady = !launch.hidden
   let quickEntryAction: (() => void) | undefined
   const windowListeners: ((created: BrowserWindow) => void)[] = []
 
+  // A rejected load names its URL, which carries the token; the log writer redacts it, Electron's default report does not.
+  const loadPage = (target: BrowserWindow, url: string): void => {
+    target.loadURL(url).catch((error: unknown) => { log(`load failed: ${error instanceof Error ? error.message : String(error)}`) })
+  }
+
   const finishSmoke = (ok: boolean, message: string): void => {
-    console.log(ok ? 'AIR_SMOKE_OK' : `AIR_SMOKE_FAILED ${message}`)
+    process.stdout.write(ok ? 'AIR_SMOKE_OK\n' : `AIR_SMOKE_FAILED ${message}\n`)
     void supervisor.stop().finally(() => { app.exit(ok ? 0 : 1) })
   }
 
   const supervisor = new HostSupervisor({
-    spawn: () => spawnHost(paths, brand, port),
+    spawn: () => spawnHost(paths, brand),
     now: () => Date.now(),
     schedule: (delayMs, task) => {
       const timer = setTimeout(task, delayMs)
@@ -2763,17 +3033,22 @@ if (!app.requestSingleInstanceLock()) {
   }, {
     ready: (url) => {
       // The URL carries the token: never log it. The marker line is for smoke tests.
-      console.log('AIR_HOST_READY')
+      process.stdout.write('AIR_HOST_READY\n')
       log('host ready')
       origin = new URL(url).origin
-      if (window !== undefined) {
-        void window.loadURL(url)
-        return
+      if (window === undefined) {
+        const created = createMainWindow(brand.productName, () => origin)
+        window = created
+        for (const listener of windowListeners) listener(created)
+        if (launch.smoke) created.webContents.once('did-finish-load', () => { finishSmoke(true, '') })
       }
-      const created = createMainWindow(brand.productName, url, showWhenReady)
-      window = created
-      for (const listener of windowListeners) listener(created)
-      if (launch.smoke) created.webContents.once('did-finish-load', () => { finishSmoke(true, '') })
+      loadPage(window, url)
+    },
+    restarting: (delayMs) => {
+      // The old origin and token died with the Host: deny permissions and show a page that says so until the next ready.
+      origin = undefined
+      log(`host restarting in ${String(delayMs)} ms`)
+      if (window !== undefined) loadPage(window, reconnectingUrl(brand.productName))
     },
     failed: (failure) => {
       log(`host failed: ${failure.message}\n${failure.detail}`)
@@ -2795,7 +3070,6 @@ if (!app.requestSingleInstanceLock()) {
     hostOrigin: () => origin,
     mainWindow: () => window,
     showMainWindow: () => {
-      showWhenReady = true
       if (window === undefined) return
       if (window.isMinimized()) window.restore()
       window.show()
@@ -2829,12 +3103,13 @@ if (!app.requestSingleInstanceLock()) {
   crashReporter.start({ uploadToServer: false })
   void app.whenReady().then(async () => {
     log(`start ${app.getVersion()} packaged=${String(app.isPackaged)} target=${target}`)
-    app.setAsDefaultProtocolClient(brand.protocolScheme)
+    // A development run must not register `electron` as the handler of the placeholder scheme on a teammate's machine.
+    if (app.isPackaged) app.setAsDefaultProtocolClient(brand.protocolScheme)
     session.defaultSession.setPermissionRequestHandler((_contents, permission, callback, details) => {
-      callback(origin !== undefined && decidePermission(permission, details.requestingUrl, origin))
+      callback(decidePermission(permission, details.requestingUrl, origin))
     })
     session.defaultSession.setPermissionCheckHandler((_contents, permission, requestingOrigin) =>
-      origin !== undefined && decidePermission(permission, requestingOrigin, origin))
+      decidePermission(permission, requestingOrigin, origin))
     supervisor.start()
     await installFeatures(shell)
     if (launch.quickEntry) handleRequest(launch)
@@ -2856,11 +3131,14 @@ Run (Fedora, inside the desktop session; on Windows the same command in PowerShe
 Expected: standard output contains `AIR_HOST_READY` then `AIR_SMOKE_OK`; exit code 0; `shell.log` and `host.log` exist under the userData `logs` directory (`~/.config/AIR/logs` on Linux, `%APPDATA%\AIR\logs` on Windows) and neither contains `token=` followed by anything except `<redacted>`.
 
 Run: `pnpm -C air/apps/desktop run dev`
-Expected: a window titled `AIR` shows the conversation page. Check by hand: a link to an external site opens the default browser; the address is `http://127.0.0.1:19487/` with no token; starting the command a second time focuses the first window and the second process exits.
+Expected: a window titled `AIR` shows the conversation page. Check by hand: a link to an external site opens the default browser; the address is `http://127.0.0.1:<port>/` with no token, and the port differs from one start to the next; starting the command a second time focuses the first window and the second process exits.
+
+Restart check: end the Host process while the window is open. Fedora: `pkill -f air-host/index.js`. Windows (PowerShell): `Get-CimInstance Win32_Process -Filter "Name='electron.exe'" | Where-Object CommandLine -like '*air-host*' | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }`.
+Expected: the window shows the "starting it again" page for about half a second and then the conversation page on a new port; `host.log` has `Host exited with code` and `restarting in 500 ms`; `shell.log` has `host restarting in 500 ms` and a second `host ready`; neither file shows a token.
 
 - [ ] **Step 8: Commit**
 
-```bash
+```text
 git add air/apps/desktop air/pnpm-lock.yaml
 git commit -m "feat(air-desktop): add the main process core with Host supervision and an origin-locked window"
 ```
@@ -2987,10 +3265,9 @@ describe('menus', () => {
     expect(toggle.type).toBe('checkbox')
     expect(toggle.checked).toBe(false)
     toggle.click?.()
-    find(menu, 'Start at login').click?.()
     find(menu, 'Quit').click?.()
     find(menu, 'Open logs folder').click?.()
-    expect(patches).toEqual([{ keepRunningInBackground: true }, { startAtLogin: true }])
+    expect(patches).toEqual([{ keepRunningInBackground: true }])
     expect(log).toEqual(['quit', 'logs'])
   })
 
@@ -3201,7 +3478,6 @@ export function appMenuTemplate(input: AppMenuInput): MenuItem[] {
         ...(input.platform === 'linux'
           ? [toggle('Keep running in the background', settings.keepRunningInBackground, { keepRunningInBackground: !settings.keepRunningInBackground })]
           : []),
-        toggle('Start at login', settings.startAtLogin, { startAtLogin: !settings.startAtLogin }),
         SEPARATOR,
         { label: 'Open logs folder', click: actions.openLogs },
         { label: 'Open settings file', click: actions.openSettingsFile },
@@ -3476,39 +3752,36 @@ Expected on Windows: a tray icon appears; closing the window hides it and shows 
 
 - [ ] **Step 6: Commit**
 
-```bash
+```text
 git add air/apps/desktop
 git commit -m "feat(air-desktop): add per-platform close policy, conditional tray, and the application menu"
 ```
 
 ---
 
-### Task 5: Global hotkey, quick-entry window, start at login
+### Task 5: Global hotkey and quick-entry window
 
-Practices P9, P10. On GNOME Wayland `globalShortcut` goes through the GlobalShortcuts portal, which needs an installed `.desktop` file whose name equals `desktopName` (`air-desktop.desktop`): the hotkey works from the installed rpm, not from `electron .` or a bare AppImage (note 09 section 2.4). The fallback is a GNOME custom shortcut that runs `air-desktop --quick-entry`; the second instance forwards the request. The quick-entry window loads the Host page in a small always-on-top window; a dedicated quick-entry client page is roadmap work.
+Practices P9, P10. On GNOME Wayland `globalShortcut` goes through the GlobalShortcuts portal, which needs an installed `.desktop` file whose name equals `desktopName` (`air-desktop.desktop`): the hotkey works from the installed rpm, not from `electron .` or a bare AppImage (note 09 section 2.4). The fallback is a GNOME custom shortcut that runs `air-desktop --quick-entry`; the second instance forwards the request. The quick-entry window loads the Host page in a small always-on-top window; a dedicated quick-entry client page is roadmap work. The window belongs to one Host start: its origin and authentication cookie die with that Host, so it is destroyed and re-created when the origin has changed.
 
 **Files:**
 - Modify: `air/apps/desktop/src/electron/features.ts`
-- Create: `air/apps/desktop/src/hotkey.ts`, `src/quick-entry.ts`, `src/autostart.ts`
-- Create: `air/apps/desktop/src/electron/quick-entry.ts`, `src/electron/hotkey.ts`, `src/electron/autostart.ts`
+- Create: `air/apps/desktop/src/hotkey.ts`, `src/quick-entry.ts`
+- Create: `air/apps/desktop/src/electron/quick-entry.ts`, `src/electron/hotkey.ts`
 - Test: `air/apps/desktop/tests/assistant.spec.ts`
 
 **Interfaces:**
-- Consumes: `Shell.setQuickEntryAction`, `Shell.hostOrigin`, `lockToOrigin` (Task 3); `Settings.quickEntryHotkey`, `Settings.startAtLogin`.
+- Consumes: `Shell.setQuickEntryAction`, `Shell.hostOrigin`, `lockToOrigin` (Task 3); `Settings.quickEntryHotkey`.
 - Produces:
   - `isAccelerator(text: string): boolean`; `class HotkeyManager { constructor(registrar: ShortcutRegistrar, action: () => void); apply(accelerator: string): HotkeyStatus; dispose(): void }`; `type HotkeyStatus = { state: 'disabled' } | { state: 'registered'; accelerator: string } | { state: 'failed'; accelerator: string; reason: string }`
   - `quickEntryUrl(hostOrigin: string): string`; `quickEntryBounds(workArea: Rectangle): Rectangle` with `interface Rectangle { x: number; y: number; width: number; height: number }`
-  - `autostartEntry(input: AutostartInput): string`; `autostartFile(configHome: string, desktopName: string): string`; `applyLinuxAutostart(enabled: boolean, input: AutostartInput & { configHome: string }, io: AutostartIo): void`
-  - `installQuickEntry(shell: Shell): () => void` (returns the toggle), `installHotkey(shell: Shell, toggle: () => void): void`, `installAutostart(shell: Shell): void`
+  - `installQuickEntry(shell: Shell): () => void` (returns the toggle), `installHotkey(shell: Shell, toggle: () => void): void`
 
 - [ ] **Step 1: Write the failing tests**
 
 `air/apps/desktop/tests/assistant.spec.ts`:
 
 ```ts
-import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { applyLinuxAutostart, autostartEntry, autostartFile } from '../src/autostart.ts'
 import { HotkeyManager, isAccelerator, type ShortcutRegistrar } from '../src/hotkey.ts'
 import { quickEntryBounds, quickEntryUrl } from '../src/quick-entry.ts'
 
@@ -3565,7 +3838,7 @@ describe('HotkeyManager', () => {
 
 describe('quick entry', () => {
   it('loads the Host origin with a marker fragment', () => {
-    expect(quickEntryUrl('http://127.0.0.1:19487')).toBe('http://127.0.0.1:19487/#air-quick-entry')
+    expect(quickEntryUrl('http://127.0.0.1:51234')).toBe('http://127.0.0.1:51234/#air-quick-entry')
   })
 
   it('centres a 720x480 window in the upper part of the work area and shrinks on small screens', () => {
@@ -3573,42 +3846,10 @@ describe('quick entry', () => {
     expect(quickEntryBounds({ x: 100, y: 50, width: 600, height: 400 })).toEqual({ x: 120, y: 130, width: 560, height: 360 })
   })
 })
-
-describe('autostart', () => {
-  const input = { name: 'AIR', exec: '/opt/AIR App/air-desktop', desktopName: 'air-desktop.desktop' }
-
-  it('writes a desktop entry that starts hidden, with the executable quoted', () => {
-    expect(autostartEntry(input)).toBe([
-      '[Desktop Entry]',
-      'Type=Application',
-      'Name=AIR',
-      'Exec="/opt/AIR App/air-desktop" --hidden',
-      'X-GNOME-Autostart-enabled=true',
-      'NoDisplay=true',
-      '',
-    ].join('\n'))
-    expect(autostartEntry({ ...input, exec: '/a/b"$c' })).toContain('Exec="/a/b\\"\\$c" --hidden')
-  })
-
-  it('places the file under the XDG autostart directory', () => {
-    expect(autostartFile(join('home', '.config'), 'air-desktop.desktop')).toBe(join('home', '.config', 'autostart', 'air-desktop.desktop'))
-  })
-
-  it('writes or removes the file', () => {
-    const writes: [string, string][] = []
-    const removed: string[] = []
-    const io = { write: (file: string, content: string) => { writes.push([file, content]) }, remove: (file: string) => { removed.push(file) } }
-    const full = { ...input, configHome: join('home', '.config') }
-    applyLinuxAutostart(true, full, io)
-    applyLinuxAutostart(false, full, io)
-    expect(writes).toEqual([[autostartFile(full.configHome, full.desktopName), autostartEntry(input)]])
-    expect(removed).toEqual([autostartFile(full.configHome, full.desktopName)])
-  })
-})
 ```
 
 Run: `pnpm -C air/apps/desktop test`
-Expected: FAIL, unresolved imports of `../src/autostart.ts`, `../src/hotkey.ts`, `../src/quick-entry.ts`.
+Expected: FAIL, unresolved imports of `../src/hotkey.ts` and `../src/quick-entry.ts`.
 
 - [ ] **Step 2: Implement the pure modules**
 
@@ -3702,7 +3943,7 @@ export interface Rectangle {
 
 /**
  * Address the quick-entry window loads: the Host page with a fragment a later client plugin can read.
- * @param hostOrigin - the Host's loopback origin.
+ * @param hostOrigin - the Host's current loopback origin (it changes on every Host start).
  * @returns the URL.
  */
 export function quickEntryUrl(hostOrigin: string): string {
@@ -3727,72 +3968,6 @@ export function quickEntryBounds(workArea: Rectangle): Rectangle {
 }
 ```
 
-`air/apps/desktop/src/autostart.ts`:
-
-```ts
-/** Start at login on Linux through an XDG autostart desktop entry. Windows uses Electron's login item. */
-
-import { join } from 'node:path'
-
-/** Values written into the desktop entry. */
-export interface AutostartInput {
-  /** Product name. */
-  name: string
-  /** Absolute executable path (the AppImage file for AppImage installs). */
-  exec: string
-  /** File name of the entry, equal to the installed desktop file name. */
-  desktopName: string
-}
-
-/** File operations, injected for tests. */
-export interface AutostartIo {
-  write(file: string, content: string): void
-  remove(file: string): void
-}
-
-function quoteExec(path: string): string {
-  return `"${path.replaceAll(/(["`$\\])/gu, '\\$1')}"`
-}
-
-/**
- * Desktop entry content. `--hidden` starts the app without a window.
- * @param input - name, executable, file name.
- * @returns file content ending in a newline.
- */
-export function autostartEntry(input: AutostartInput): string {
-  return [
-    '[Desktop Entry]',
-    'Type=Application',
-    `Name=${input.name}`,
-    `Exec=${quoteExec(input.exec)} --hidden`,
-    'X-GNOME-Autostart-enabled=true',
-    'NoDisplay=true',
-    '',
-  ].join('\n')
-}
-
-/**
- * @param configHome - `$XDG_CONFIG_HOME` or `~/.config`.
- * @param desktopName - entry file name.
- * @returns the autostart file path.
- */
-export function autostartFile(configHome: string, desktopName: string): string {
-  return join(configHome, 'autostart', desktopName)
-}
-
-/**
- * Write or remove the autostart entry.
- * @param enabled - the setting.
- * @param input - entry values and the config directory.
- * @param io - file operations.
- */
-export function applyLinuxAutostart(enabled: boolean, input: AutostartInput & { configHome: string }, io: AutostartIo): void {
-  const file = autostartFile(input.configHome, input.desktopName)
-  if (enabled) io.write(file, autostartEntry({ name: input.name, exec: input.exec, desktopName: input.desktopName }))
-  else io.remove(file)
-}
-```
-
 Run: `pnpm -C air/apps/desktop test`
 Expected: `Test Files 7 passed (7)`.
 
@@ -3801,7 +3976,7 @@ Expected: `Test Files 7 passed (7)`.
 `air/apps/desktop/src/electron/quick-entry.ts`:
 
 ```ts
-/** The quick-entry window: frameless, always on top, hidden on blur or Escape. */
+/** The quick-entry window: frameless, always on top, hidden on blur or Escape, re-created after a Host restart. */
 
 import { BrowserWindow, screen } from 'electron'
 import { quickEntryBounds, quickEntryUrl } from '../quick-entry.ts'
@@ -3814,6 +3989,7 @@ import { lockToOrigin } from './window.ts'
  */
 export function installQuickEntry(shell: Shell): () => void {
   let window: BrowserWindow | undefined
+  let windowOrigin: string | undefined
   const toggle = (): void => {
     const origin = shell.hostOrigin()
     if (origin === undefined) {
@@ -3821,12 +3997,16 @@ export function installQuickEntry(shell: Shell): () => void {
       return
     }
     if (window !== undefined && !window.isDestroyed()) {
-      if (window.isVisible() && window.isFocused()) window.hide()
-      else {
-        window.show()
-        window.focus()
+      if (windowOrigin === origin) {
+        if (window.isVisible() && window.isFocused()) window.hide()
+        else {
+          window.show()
+          window.focus()
+        }
+        return
       }
-      return
+      // The Host restarted on another port; this window still points at the old one.
+      window.destroy()
     }
     const created = new BrowserWindow({
       ...quickEntryBounds(screen.getPrimaryDisplay().workArea),
@@ -3838,8 +4018,9 @@ export function installQuickEntry(shell: Shell): () => void {
       webPreferences: { contextIsolation: true, sandbox: true, nodeIntegration: false, webSecurity: true, webviewTag: false },
     })
     window = created
+    windowOrigin = origin
     created.on('page-title-updated', (event) => { event.preventDefault() })
-    lockToOrigin(created.webContents, origin)
+    lockToOrigin(created.webContents, () => shell.hostOrigin())
     created.on('blur', () => { if (!created.isDestroyed()) created.hide() })
     created.webContents.on('before-input-event', (_event, input) => {
       if (input.type === 'keyDown' && input.key === 'Escape') created.hide()
@@ -3848,7 +4029,7 @@ export function installQuickEntry(shell: Shell): () => void {
       created.show()
       created.focus()
     })
-    void created.loadURL(quickEntryUrl(origin))
+    created.loadURL(quickEntryUrl(origin)).catch((error: unknown) => { shell.log(`quick entry: load failed: ${error instanceof Error ? error.message : String(error)}`) })
   }
   shell.setQuickEntryAction(toggle)
   return toggle
@@ -3889,53 +4070,7 @@ export function installHotkey(shell: Shell, toggle: () => void): void {
 }
 ```
 
-`air/apps/desktop/src/electron/autostart.ts`:
-
-```ts
-/** Apply the start-at-login setting: login item on Windows, XDG autostart entry on Linux. Packaged builds only. */
-
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
-import { homedir } from 'node:os'
-import { dirname, join } from 'node:path'
-import { app } from 'electron'
-import { applyLinuxAutostart } from '../autostart.ts'
-import type { Shell } from './shell.ts'
-
-/** @param shell - main-process state and actions. */
-export function installAutostart(shell: Shell): void {
-  if (!app.isPackaged) {
-    shell.log('autostart: skipped in a development build')
-    return
-  }
-  let applied: boolean | undefined
-  const apply = (): void => {
-    const enabled = shell.settings.get().startAtLogin
-    if (enabled === applied) return
-    applied = enabled
-    if (process.platform === 'win32') {
-      app.setLoginItemSettings({ openAtLogin: enabled, args: ['--hidden'] })
-    } else if (process.platform === 'linux') {
-      applyLinuxAutostart(enabled, {
-        name: shell.brand.productName,
-        exec: process.env.APPIMAGE ?? process.execPath,
-        desktopName: shell.brand.desktopName,
-        configHome: process.env.XDG_CONFIG_HOME ?? join(homedir(), '.config'),
-      }, {
-        write: (file, content) => {
-          mkdirSync(dirname(file), { recursive: true })
-          writeFileSync(file, content)
-        },
-        remove: (file) => { rmSync(file, { force: true }) },
-      })
-    }
-    shell.log(`autostart: ${String(enabled)}`)
-  }
-  apply()
-  shell.settings.onChange(apply)
-}
-```
-
-Replace the body of `installFeatures` in `air/apps/desktop/src/electron/features.ts` and add the three imports (`installAutostart` from `./autostart.ts`, `installHotkey` from `./hotkey.ts`, `installQuickEntry` from `./quick-entry.ts`):
+Replace the body of `installFeatures` in `air/apps/desktop/src/electron/features.ts` and add the two imports (`installHotkey` from `./hotkey.ts`, `installQuickEntry` from `./quick-entry.ts`):
 
 ```ts
 export async function installFeatures(shell: Shell): Promise<void> {
@@ -3943,7 +4078,6 @@ export async function installFeatures(shell: Shell): Promise<void> {
   if (hasTray) installTray(shell)
   installClosePolicy(shell, hasTray)
   installHotkey(shell, installQuickEntry(shell))
-  installAutostart(shell)
   installMenu(shell, {})
   shell.log(`features: tray=${String(hasTray)}`)
 }
@@ -3959,16 +4093,16 @@ Expected: a frameless 720×480 window with the conversation page appears above o
 
 - [ ] **Step 5: Commit**
 
-```bash
+```text
 git add air/apps/desktop
-git commit -m "feat(air-desktop): add the quick-entry window, global shortcut, and start at login"
+git commit -m "feat(air-desktop): add the quick-entry window and global shortcut"
 ```
 
 ---
 
 ### Task 6: Packaging configuration
 
-electron-builder through its programmatic API, driven by one factory that reads the resolved brand. The staged tree and the optional primary-runtime payload ship as `extraResources`; the application archive holds only `lib/main.js`, the brand, and the icon, so electron-builder never collects `node_modules` (practices P1, P12, P13, P16). Builds are unsigned unless a signing hook is configured.
+electron-builder through its programmatic API, driven by one factory that reads the resolved brand. The staged tree and the optional primary-runtime payload ship as `extraResources`; the application archive holds only `lib/main.js`, the brand, and the icon, so electron-builder never collects `node_modules` (practices P1, P12, P13, P16). Builds are unsigned unless a signing hook is configured. Commands and file names in this plan show the placeholder executable name `air-desktop`; after a rename, read the name from `brand.json`.
 
 **Files:**
 - Modify: `air/apps/desktop/package.json` (devDependency `electron-builder`, script `package`)
@@ -3978,10 +4112,10 @@ electron-builder through its programmatic API, driven by one factory that reads 
 **Interfaces:**
 - Consumes: `Brand`, `resolveBrand` (Task 3); `StageTarget`, `stageTarget` (Task 1); `lib/icon.png` (Task 4); staged tree `.stage/<target>/runtime` and optional `.stage/<target>/primary-runtime`.
 - Produces:
-  - `createBuilderConfig(input: BuilderInput): Configuration` with `interface BuilderInput { brand: Brand; target: StageTarget; appRoot: string; hasPrimaryRuntime: boolean; publish: boolean; signHook?: string }`
+  - `createBuilderConfig(input: BuilderInput): Configuration` (also sets `electronLanguages: ['en-US']`; `verifyUpdateCodeSignature` is on only for signed builds) with `interface BuilderInput { brand: Brand; target: StageTarget; appRoot: string; hasPrimaryRuntime: boolean; publish: boolean; signHook?: string }`
   - Command `pnpm -C air/apps/desktop run package [--dir] [--skip-stage] [--primary-runtime]` writing `air/apps/desktop/dist/`
   - Unpacked executables used by Task 8: `dist/linux-unpacked/air-desktop`, `dist/win-unpacked/air-desktop.exe`
-  - Environment: `AIR_DESKTOP_RELEASE=1` embeds the GitHub update feed; `AIR_WIN_SIGN_HOOK=<path to a CommonJS module exporting sign(configuration)>` signs Windows files
+  - Environment: `AIR_DESKTOP_RELEASE=1` embeds the GitHub update feed and fails until `identifiersFinal` is `true` in `brand.json`; `AIR_WIN_SIGN_HOOK=<path to a CommonJS module exporting sign(configuration)>` signs Windows files
 
 - [ ] **Step 1: Add the dependency and script**
 
@@ -4018,11 +4152,11 @@ const base = { brand, appRoot, hasPrimaryRuntime: false, publish: false }
 describe('createBuilderConfig', () => {
   it('takes every brand value from the brand file and marks unsigned artifacts', () => {
     const config = createBuilderConfig({ ...base, target: 'linux-x64' })
-    expect(config.appId).toBe('io.github.hxman76.air')
-    expect(config.productName).toBe('AIR')
-    expect(config.artifactName).toBe('air-desktop-${version}-${os}-${arch}-unsigned.${ext}')
-    expect(config.protocols).toEqual([{ name: 'AIR', schemes: ['air'] }])
-    expect(config.extraMetadata).toEqual({ desktopName: 'air-desktop.desktop' })
+    expect(config.appId).toBe(brand.appId)
+    expect(config.productName).toBe(brand.productName)
+    expect(config.artifactName).toBe(`${brand.executableName}-` + '${version}-${os}-${arch}-unsigned.${ext}')
+    expect(config.protocols).toEqual([{ name: brand.productName, schemes: [brand.protocolScheme] }])
+    expect(config.extraMetadata).toEqual({ desktopName: brand.desktopName })
     expect(JSON.stringify(config).toLowerCase()).not.toContain('deepseek harness')
   })
 
@@ -4033,6 +4167,7 @@ describe('createBuilderConfig', () => {
     expect(config.npmRebuild).toBe(false)
     expect(config.asarUnpack).toEqual(['**/*.{node,dll,so,exe}', '**/*.so.*', '**/spawn-helper', '**/@vscode/ripgrep-*/bin/rg*'])
     expect(config.electronFuses).toEqual({ runAsNode: true })
+    expect(config.electronLanguages).toEqual(['en-US'])
   })
 
   it('adds the primary runtime payload when it was staged', () => {
@@ -4047,26 +4182,26 @@ describe('createBuilderConfig', () => {
     const config = createBuilderConfig({ ...base, target: 'linux-x64' })
     expect(config.linux).toMatchObject({
       target: ['rpm', 'AppImage'],
-      executableName: 'air-desktop',
-      mimeTypes: ['x-scheme-handler/air'],
-      desktop: { entry: { Name: 'AIR', StartupWMClass: 'air-desktop' } },
+      executableName: brand.executableName,
+      mimeTypes: [`x-scheme-handler/${brand.protocolScheme}`],
+      desktop: { entry: { Name: brand.productName, StartupWMClass: brand.executableName } },
     })
     expect(config.rpm).toEqual({ fpm: ['--rpm-rpmbuild-define=_build_id_links none'] })
   })
 
   it('builds a per-user NSIS installer on Windows, unsigned by default and signed through the hook', () => {
     const unsigned = createBuilderConfig({ ...base, target: 'win-x64' })
-    expect(unsigned.win).toMatchObject({ target: ['nsis'], executableName: 'air-desktop', forceCodeSigning: false, verifyUpdateCodeSignature: false })
+    expect(unsigned.win).toMatchObject({ target: ['nsis'], executableName: brand.executableName, forceCodeSigning: false, verifyUpdateCodeSignature: false })
     expect(unsigned.nsis).toMatchObject({ oneClick: false, perMachine: false })
     const signed = createBuilderConfig({ ...base, target: 'win-x64', signHook: 'C:\\hooks\\sign.cjs' })
-    expect(signed.win).toMatchObject({ signtoolOptions: { sign: 'C:\\hooks\\sign.cjs' } })
-    expect(signed.artifactName).toBe('air-desktop-${version}-${os}-${arch}.${ext}')
+    expect(signed.win).toMatchObject({ signtoolOptions: { sign: 'C:\\hooks\\sign.cjs' }, verifyUpdateCodeSignature: true })
+    expect(signed.artifactName).toBe(`${brand.executableName}-` + '${version}-${os}-${arch}.${ext}')
   })
 
   it('embeds the GitHub feed only for release builds', () => {
     expect(createBuilderConfig({ ...base, target: 'linux-x64' }).publish).toBeNull()
     expect(createBuilderConfig({ ...base, target: 'linux-x64', publish: true }).publish).toEqual([
-      { provider: 'github', owner: 'HXMAN76', repo: 'AIR-harness', releaseType: 'draft' },
+      { provider: 'github', owner: brand.publish.owner, repo: brand.publish.repo, releaseType: 'draft' },
     ])
   })
 })
@@ -4121,6 +4256,8 @@ export function createBuilderConfig(input: BuilderInput): Configuration {
     // The archive holds no native files today; the list guards later additions.
     asarUnpack: ['**/*.{node,dll,so,exe}', '**/*.so.*', '**/spawn-helper', '**/@vscode/ripgrep-*/bin/rg*'],
     npmRebuild: false,
+    // Chromium ships about fifty locale packs; the app's pages are English only.
+    electronLanguages: ['en-US'],
     // The Host runs as `ELECTRON_RUN_AS_NODE=1 <app executable> air-host/index.js`.
     electronFuses: { runAsNode: true },
     extraMetadata: { desktopName: brand.desktopName },
@@ -4134,7 +4271,8 @@ export function createBuilderConfig(input: BuilderInput): Configuration {
       target: ['nsis'],
       executableName: brand.executableName,
       forceCodeSigning: false,
-      verifyUpdateCodeSignature: false,
+      // An unsigned build has no publisher to verify; a signed one verifies updates (this also needs `publisherName`, set by the signing plan).
+      verifyUpdateCodeSignature: signed,
       ...(input.signHook === undefined ? {} : { signtoolOptions: { sign: input.signHook } }),
     },
     nsis: {
@@ -4167,22 +4305,19 @@ export function createBuilderConfig(input: BuilderInput): Configuration {
 ```ts
 /** Build both workspaces, stage the runtime, and run electron-builder for the current platform. */
 
-import { spawnSync } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { parseArgs } from 'node:util'
 import { build } from 'electron-builder'
-import { resolveBrand } from '../src/brand.ts'
+import { assertReleasable, resolveBrand } from '../src/brand.ts'
 import { createBuilderConfig } from './builder-config.ts'
+import { runPnpm } from './pnpm.ts'
 import { stageTarget } from './stage-lib.ts'
 
 const APP_ROOT = resolve(import.meta.dirname, '..')
 const AIR_ROOT = resolve(APP_ROOT, '..', '..')
 
-function pnpm(args: readonly string[], cwd: string): void {
-  const result = spawnSync('pnpm', [...args], { cwd, shell: process.platform === 'win32', stdio: 'inherit' })
-  if (result.status !== 0) throw new Error(`air desktop package: pnpm ${args.join(' ')} exited with ${String(result.status)}`)
-}
+const pnpm = (args: readonly string[], cwd: string): void => { runPnpm(args, { cwd }) }
 
 const { values } = parseArgs({
   options: {
@@ -4192,9 +4327,13 @@ const { values } = parseArgs({
   },
 })
 const target = stageTarget(process.platform, process.arch)
+const brand = resolveBrand(JSON.parse(readFileSync(join(APP_ROOT, 'brand.json'), 'utf8')), process.env)
+const release = process.env.AIR_DESKTOP_RELEASE === '1'
+// Fail before building anything: release builds embed the update feed under the brand identifiers.
+assertReleasable(brand, release)
 const version = (JSON.parse(readFileSync(join(APP_ROOT, 'package.json'), 'utf8')) as { version: string }).version
 const tag = process.env.GITHUB_REF_NAME
-if (tag !== undefined && tag.startsWith('air-desktop-v') && tag !== `air-desktop-v${version}`) {
+if (tag !== undefined && tag.startsWith(brand.releaseTagPrefix) && tag !== `${brand.releaseTagPrefix}${version}`) {
   throw new Error(`air desktop package: tag ${tag} does not match package version ${version}`)
 }
 
@@ -4208,14 +4347,13 @@ if (!existsSync(join(stage, 'runtime', 'air-host', 'index.js'))) {
   throw new Error('air desktop package: the staged runtime has no Host entry; run without --skip-stage')
 }
 
-const brand = resolveBrand(JSON.parse(readFileSync(join(APP_ROOT, 'lib', 'brand.resolved.json'), 'utf8')))
 const signHook = process.env.AIR_WIN_SIGN_HOOK
 const config = createBuilderConfig({
   brand,
   target,
   appRoot: APP_ROOT,
   hasPrimaryRuntime: existsSync(join(stage, 'primary-runtime', 'runtime.json')),
-  publish: process.env.AIR_DESKTOP_RELEASE === '1',
+  publish: release,
   ...(signHook === undefined || signHook === '' ? {} : { signHook }),
 })
 const artifacts = await build({
@@ -4256,14 +4394,13 @@ Fedora, installed check: `sudo dnf install -y ./air/apps/desktop/dist/air-deskto
 - `ls /usr/share/applications/air-desktop.desktop` exists and contains `MimeType=x-scheme-handler/air;`. If the file has another name, set `executableName` in `brand.json` so that `<executableName>.desktop` equals it, rebuild, and reinstall: the Wayland portal identity depends on this match.
 - Launch "AIR" from the GNOME app grid; the window icon and name in the top bar are AIR's.
 - Press `Control+Shift+Space`: GNOME asks once to allow the shortcut; after allowing, the quick-entry window toggles, and `shell.log` shows `"state":"registered"`.
-- Tick "Start at login" in the menu: `~/.config/autostart/air-desktop.desktop` appears with `Exec="/opt/AIR/air-desktop" --hidden`.
 - `sudo dnf remove -y air-desktop` removes the app.
 
-Windows, installed check: run the installer (SmartScreen: More info, Run anyway); the Start menu has "AIR"; the tray icon appears; "Start at login" adds an entry under Settings, Apps, Startup; uninstall from Settings, Apps removes it.
+Windows, installed check: run the installer (SmartScreen: More info, Run anyway); the Start menu has "AIR"; the tray icon appears; uninstall from Settings, Apps removes it.
 
 - [ ] **Step 6: Commit**
 
-```bash
+```text
 git add air/apps/desktop air/pnpm-lock.yaml
 git commit -m "build(air-desktop): package NSIS, rpm, and AppImage from the brand file and the staged runtime"
 ```
@@ -4577,7 +4714,6 @@ export async function installFeatures(shell: Shell): Promise<void> {
   if (hasTray) installTray(shell)
   installClosePolicy(shell, hasTray)
   installHotkey(shell, installQuickEntry(shell))
-  installAutostart(shell)
   installMenu(shell, { checkForUpdates: installUpdates(shell) })
   shell.log(`features: tray=${String(hasTray)}`)
 }
@@ -4595,7 +4731,7 @@ Expected: exit 0, and `shell.log` contains `updates: {"kind":"disabled","reason"
 
 - [ ] **Step 5: Commit**
 
-```bash
+```text
 git add air/apps/desktop air/pnpm-lock.yaml
 git commit -m "feat(air-desktop): add updates from GitHub Releases with a mode per install type"
 ```
@@ -4613,7 +4749,7 @@ One workflow builds unsigned artifacts on `windows-2025` and `ubuntu-24.04` for 
 - Modify: `air/UPSTREAM-DELTA.md`
 
 **Interfaces:**
-- Consumes: `dist/linux-unpacked/air-desktop` or `dist/win-unpacked/air-desktop.exe` (Task 6); the `host ready` line in `<userData>/logs/shell.log` and the `AIR_DESKTOP_PORT` override (Task 3).
+- Consumes: `dist/linux-unpacked/air-desktop` or `dist/win-unpacked/air-desktop.exe` (Task 6); the `host ready` line in `<userData>/logs/shell.log` (Task 3).
 - Produces: command `pnpm -C air/apps/desktop run test:smoke`; workflow `air-desktop` with artifacts `air-desktop-linux-x64` and `air-desktop-win-x64`.
 
 - [ ] **Step 1: Add Playwright and write the smoke test**
@@ -4660,13 +4796,12 @@ const brand = JSON.parse(readFileSync(join(appRoot, 'lib', 'brand.resolved.json'
 const executablePath = process.platform === 'win32'
   ? join(appRoot, 'dist', 'win-unpacked', `${brand.executableName}.exe`)
   : join(appRoot, 'dist', 'linux-unpacked', brand.executableName)
-const PORT = '19490'
 
 test('the packaged app boots the Host and shows the app page without a token in the address', async () => {
   expect(existsSync(executablePath), `run "pnpm -C air/apps/desktop run package --dir" first: ${executablePath}`).toBe(true)
   const home = mkdtempSync(join(tmpdir(), 'air-smoke-home-'))
   const userData = mkdtempSync(join(tmpdir(), 'air-smoke-data-'))
-  const env: Record<string, string> = { DSH_HOME: home, AIR_DESKTOP_PORT: PORT }
+  const env: Record<string, string> = { DSH_HOME: home }
   for (const [name, value] of Object.entries(process.env)) {
     if (value !== undefined && env[name] === undefined) env[name] = value
   }
@@ -4676,7 +4811,7 @@ test('the packaged app boots the Host and shows the app page without a token in 
     await expect.poll(() => (existsSync(shellLog) ? readFileSync(shellLog, 'utf8') : ''), { timeout: 120_000 }).toContain('host ready')
     const page = await app.firstWindow()
     // The token URL answers with a redirect to the app page; the client may then change the path.
-    await expect.poll(() => page.url(), { timeout: 60_000 }).toMatch(new RegExp(`^http://127\\.0\\.0\\.1:${PORT}/(?!\\?token=)`, 'u'))
+    await expect.poll(() => page.url(), { timeout: 60_000 }).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/(?!\?token=)/u)
     expect(page.url()).not.toContain('token=')
     for (const name of ['shell.log', 'host.log']) {
       const file = join(userData, 'logs', name)
@@ -4705,6 +4840,7 @@ Expected: `1 passed`. On Fedora this runs in the desktop session; no display ser
 name: air-desktop
 on:
   push:
+    # `<releaseTagPrefix>*` from brand.json; tests/workflow.spec.ts fails when they differ.
     tags: ['air-desktop-v*']
   workflow_dispatch:
 
@@ -4724,6 +4860,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 120
     env:
+      # A tag build is a release build: it fails in the package step until identifiersFinal is true in brand.json,
+      # so the release job below cannot run under placeholder identifiers.
       AIR_DESKTOP_RELEASE: ${{ startsWith(github.ref, 'refs/tags/air-desktop-v') && '1' || '0' }}
     steps:
       - uses: actions/checkout@v4
@@ -4803,7 +4941,30 @@ jobs:
         run: gh release create "$GITHUB_REF_NAME" artifacts/* --repo "$GITHUB_REPOSITORY" --draft --title "$GITHUB_REF_NAME" --notes "Unsigned build. Windows shows a SmartScreen warning; see air/apps/desktop/README.md."
 ```
 
-Publishing the draft by hand makes it the update feed: `latest.yml`, `latest-linux.yml`, and (for prerelease versions) `beta.yml` files are among the assets.
+Publishing the draft by hand makes it the update feed: `latest.yml`, `latest-linux.yml`, and (for prerelease versions) `beta.yml` files are among the assets. The plan 00 job (`air.yml`) installs and tests only `packages/*` and `bundles/*` and lints `packages` and `apps`; this workflow owns the build and tests of `apps/*`.
+
+`air/apps/desktop/tests/workflow.spec.ts`:
+
+```ts
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { describe, expect, it } from 'vitest'
+import { resolveBrand } from '../src/brand.ts'
+
+const appRoot = join(import.meta.dirname, '..')
+const brand = resolveBrand(JSON.parse(readFileSync(join(appRoot, 'brand.json'), 'utf8')))
+const workflow = readFileSync(join(appRoot, '..', '..', '..', '.github', 'workflows', 'air-desktop.yml'), 'utf8')
+
+describe('air-desktop workflow', () => {
+  it('uses the release tag prefix of the brand file in its trigger, its release switch, and its release job', () => {
+    expect(workflow).toContain(`tags: ['${brand.releaseTagPrefix}*']`)
+    expect(workflow.match(new RegExp(`refs/tags/${brand.releaseTagPrefix}`, 'gu'))).toHaveLength(2)
+  })
+})
+```
+
+Run: `pnpm -C air/apps/desktop test`
+Expected: `Test Files 10 passed (10)`.
 
 - [ ] **Step 4: Record the in-tree file**
 
@@ -4817,15 +4978,25 @@ In the "Candidates not yet made" paragraph of the same file, delete the item "Li
 
 - [ ] **Step 5: Run the text gates, then commit**
 
+Run: `pnpm -C air run lint`
+Expected: exit 0. Plan 00's lint configuration forbids `console` in `apps/*/src` and applies its other rules to the two app workspaces; fix findings in the files that carry them.
+
 Run: `pnpm run verify-concrete-terms` and `pnpm run verify-repository-references` and `pnpm run verify-no-unknown-casts`
 Expected: each exits 0.
 
-```bash
+```text
 git add .github/workflows/air-desktop.yml air/UPSTREAM-DELTA.md air/apps/desktop air/pnpm-lock.yaml
 git commit -m "ci(air-desktop): build and smoke-test Windows and Linux installers and draft releases"
 ```
 
-After the branch is merged to `air/main`, run the workflow once from the Actions tab (workflow_dispatch) and confirm both jobs pass and upload artifacts. A release is cut with `git tag air-desktop-v0.1.0 && git push origin air-desktop-v0.1.0` after `version` in `air/apps/desktop/package.json` is `0.1.0`.
+After the branch is merged to `air/main`, run the workflow once from the Actions tab (workflow_dispatch) and confirm both jobs pass and upload artifacts. This is not a release.
+
+**Release gate.** Do not cut a release while `identifiersFinal` in `brand.json` is `false`; a tag build fails in the package step then. Once the owner has fixed the product name and set the identifiers and `identifiersFinal: true`, update `version` in `air/apps/desktop/package.json`, then run two separate commands (the tag is `<releaseTagPrefix><version>`, shown here with the placeholder prefix and version `0.1.0`):
+
+```text
+git tag air-desktop-v0.1.0
+git push origin air-desktop-v0.1.0
+```
 
 ---
 
@@ -4848,11 +5019,11 @@ After the branch is merged to `air/main`, run the workflow once from the Actions
 
 ## Summary
 
-An Electron shell around the AIR Host for Windows and Linux. The main process takes the single-instance lock, starts the Host (`air/apps/desktop-host`) with Electron in Node mode from the bundled runtime tree, and loads the Host's authenticated loopback address in one sandboxed window that cannot leave that origin. It adds a close policy per platform, a tray icon where the desktop can show one, a global shortcut with a quick-entry window, start at login, and updates from GitHub Releases. Product name, application id, URL scheme, and release repository come from [brand.json](brand.json).
+An Electron shell around the AIR Host for Windows and Linux. The main process takes the single-instance lock, starts the Host (`air/apps/desktop-host`) with Electron in Node mode from the bundled runtime tree, and loads the Host's authenticated loopback address (an operating-system-assigned port, different on every start) in one sandboxed window that cannot leave that origin. It adds a close policy per platform, a tray icon where the desktop can show one, a global shortcut with a quick-entry window, and updates from GitHub Releases. Product name, application id, URL scheme, release tag prefix, and release repository come from [brand.json](brand.json); the identifiers are placeholders until the owner sets `identifiersFinal`.
 
 ## Commands
 
-Run from the repository root, in PowerShell or a POSIX shell, after `pnpm install`, `pnpm run build`, and `pnpm -C air install`.
+Run from the repository root, in PowerShell or a POSIX shell, after `pnpm install`, `pnpm run build`, and `pnpm -C air install`. The AIR install downloads Electron (about 110 MB); `pnpm -C air install --ignore-scripts` skips it for work outside the desktop app, and `pnpm -C air rebuild electron` fetches it later.
 
 | Command | Result |
 |---|---|
@@ -4873,7 +5044,6 @@ Add `--primary-runtime` to `stage` or `package` to bundle the standalone Node, p
 | Close button | Hides to the tray | Quits; with "Keep running in the background" it hides, shows a notification once, and the app grid or the shortcut reopens it |
 | Tray | Always | Only when a StatusNotifier host is running (KDE, or GNOME with the AppIndicator extension) |
 | Quick-entry shortcut | `Control+Shift+Space` (setting `quickEntryHotkey`) | Same, through the GlobalShortcuts portal; installed rpm only. Fallback: bind a system shortcut to `air-desktop --quick-entry` |
-| Start at login | Login item | `~/.config/autostart/air-desktop.desktop` |
 | Updates | Download, install on quit | AppImage: same. rpm: notification with a link |
 
 Settings live in `settings.json` in the app's data directory (`%APPDATA%\AIR` or `~/.config/AIR`) and are edited through the application menu. Logs are `logs/shell.log` and `logs/host.log` in the same directory; token values are replaced before writing.
@@ -4882,22 +5052,30 @@ Settings live in `settings.json` in the app's data directory (`%APPDATA%\AIR` or
 
 Builds are unsigned and carry `-unsigned` in the file name. Windows shows a SmartScreen warning on first run (More info, Run anyway). To sign, set `AIR_WIN_SIGN_HOOK` to a CommonJS module that exports `sign(configuration)`; electron-builder calls it for each file. The intended signer is SignPath Foundation after the first public release.
 
+Updates of an unsigned build have no publisher check. electron-updater compares the SHA-512 values in the release's update files with the downloaded installer, and both come from the same release, so whoever can publish a release in the update repository can replace the app on every machine that updates automatically. The draft release step keeps a person between a build and the feed. A signed build turns on update signature verification (`verifyUpdateCodeSignature`), which also needs `publisherName`; the signing plan sets it.
+
+## Releasing
+
+Nothing is released while `identifiersFinal` in [brand.json](brand.json) is `false`: a build with `AIR_DESKTOP_RELEASE=1` and a tag build in CI fail in the package step. The owner sets it to `true` after the product name, application id, URL scheme, executable name, and release tag prefix are final. Changing any of them after a release resets users' data and the global-shortcut consent.
+
 ## Known Limitations
 
 - Only `linux-x64` and `win-x64`. macOS, deb, and Flatpak are not built.
 - GNOME's Background Apps list shows Flatpak apps; the rpm build does not appear there. The Background portal request is sent but gives no visible control.
 - The global shortcut needs the installed desktop file. It does not register from `pnpm run dev` or a bare AppImage on GNOME Wayland.
-- The Host listens on the fixed loopback port 19487. If another program holds it, startup fails with an error dialog. `AIR_DESKTOP_PORT` overrides it for tests.
+- The Host's port and token change on every start and every Host restart. A bookmark or an external tool cannot rely on the address, and a restart returns the window to the conversation page but not to the same scroll position.
+- Closing the window on GNOME quits the app, and quitting stops the Host without asking, even while an agent run is active. Upstream's desktop Host answers a quit-inspection request that the AIR Host does not implement yet.
+- The URL scheme is registered only by packaged builds. A link of the scheme focuses the window; opening a given conversation from a link is not implemented.
 - The app runs the plain Web client. Features that upstream's desktop app implements in its own preload (native directory picker, in-app update status, account views) are absent.
 - Links that the page opens in a new window are sent to the default browser when they are web links and are otherwise dropped, including same-origin pop-ups.
 - A GUI launch inherits the desktop session's environment, not the login shell's; tools on a `PATH` set only in shell profiles may be missing for agent commands.
-- The staged tree is about 500 MB before compression (measured on `linux-x64`) and is installed as loose files, so installation is slower than for a single-archive app.
+- The staged tree is about 500 MB before compression (measured on `linux-x64` at the earlier tag; `stage` prints the current file count, size, largest packages, and longest path) and is installed as loose files, so installation is slower than for a single-archive app. Source maps and non-English Chromium locales are already removed.
 - Update settings apply at the next start. rpm updates are manual.
 - Office skills and the bundled LibreOffice engine are not wired; only the workspace-dependencies payload is mounted when it is bundled.
 
 ## After an upstream merge
 
-Rebuild the root, then run `pnpm -C air/apps/desktop-host run build`, `pnpm -C air/apps/desktop run stage --verify`, and `pnpm -C air/apps/desktop-host run test:boot`. The Host depends on `runProfile`, `loadProfileDirectory`, `initProfile`, `resolveProfileDir`, `PROFILE_TEMPLATES`, `ctx.connection.authenticatedUrl`, and `ctx.webServer.port`; a change to any of them is fixed in `air/apps/desktop-host/src/boot.ts`. If staging reports required packages that are neither staged nor in a workspace, upstream added a registry dependency that only a peer names; report it before changing the script.
+Rebuild the root, then run `pnpm -C air/apps/desktop-host run build`, `pnpm -C air/apps/desktop run stage --verify`, and `pnpm -C air/apps/desktop-host run test:boot`. The Host depends on `runProfile` (with the `--port 0` argument), `loadProfileDirectory`, `initProfile`, `resolveProfileDir`, `PROFILE_TEMPLATES`, `ctx.connection.authenticatedUrl`, and `ctx.webServer.port`; a change to any of them is fixed in `air/apps/desktop-host/src/boot.ts`. Upstream's own Host in `apps/desktop-host/src/index.ts` is the reference for how it calls them. If staging reports required packages that are neither staged nor in a workspace, upstream added a registry dependency that only a peer names; report it before changing the script.
 ````
 
 - [ ] **Step 2: Write the safety notes**
@@ -4914,7 +5092,7 @@ Status: covers the desktop shell. The threat model for MCP servers, permissions,
 - The window runs with context isolation, the Chromium sandbox, no Node integration, and web security on. It has no preload script and no access to Electron or Node APIs.
 - The window can navigate only to the Host's loopback origin. Other web links open in the default browser; other schemes are dropped; new windows and `<webview>` are denied.
 - Page permission requests are granted only to the Host origin and only for microphone and camera capture, notifications, fullscreen, and clipboard access.
-- The Host listens on `127.0.0.1` only and requires the per-launch token, which the first navigation exchanges for an HttpOnly, SameSite=Strict cookie. The shell never writes the token to its logs.
+- The Host listens on `127.0.0.1` only, on a port the operating system picks at each start, and requires the per-start token, which the first navigation exchanges for an HttpOnly, SameSite=Strict cookie. The shell redacts tokens per output line before writing its logs, and catches load errors (whose text names the URL) before Electron can print them.
 - One instance runs per user; a second launch forwards its arguments and exits.
 
 ## What the desktop shell does not sandbox
@@ -4922,7 +5100,7 @@ Status: covers the desktop shell. The threat model for MCP servers, permissions,
 - **The Host and the agent.** The Host is an ordinary process with the user's permissions. Commands the agent runs are confined only by the harness's own sandbox backends (bubblewrap, then Landlock, on Linux; the harness's Windows backend on Windows) and by the permission mode in use. The shell adds no confinement.
 - **Other local programs.** Any process of the same user can connect to the loopback port. The token and cookie protect the API; they do not hide that the port is open.
 - **MCP servers and network access.** Child servers and outbound requests are outside the shell's control.
-- **Installers and updates.** Builds are unsigned until a signing service is in place. Update integrity rests on HTTPS to GitHub and the SHA-512 values in the release's update files; there is no publisher signature check.
+- **Installers and updates.** Builds are unsigned until a signing service is in place. Update integrity rests on HTTPS to GitHub and the SHA-512 values in the release's update files; there is no publisher signature check. Anyone who can publish a release in the update repository can replace the app on every machine that updates automatically (Windows and AppImage); rpm installs only show a notification.
 - **Local files.** Sessions, memory, settings, and logs are stored unencrypted under the Harness home and the app's data directory.
 
 ## Privacy
@@ -4980,13 +5158,13 @@ pnpm -C air/apps/desktop run stage --verify
 pnpm -C air/apps/desktop run dev
 ```
 
-`stage --verify` must end with `boot ok`. If it fails on Windows with a path-length error, stage into a short directory: `pnpm -C air/apps/desktop run stage --verify --out C:\air-stage`, and report it. Re-run `stage` after every root rebuild or change under `air/bundles` or `air/apps/desktop-host`. Logs are under `%APPDATA%\AIR\logs` or `~/.config/AIR/logs`.
+The workspace install downloads Electron (about 110 MB); if you do not work on the desktop app, run `pnpm -C air install --ignore-scripts` instead. `stage --verify` must end with `boot ok`. If it fails on Windows with a path-length error, stage into a short directory: `pnpm -C air/apps/desktop run stage --verify --out C:\air-stage`, and report it. Re-run `stage` after every root rebuild or change under `air/bundles` or `air/apps/desktop-host`. Logs are under `%APPDATA%\AIR\logs` or `~/.config/AIR/logs`.
 ````
 
 In `air/BRANDING.md`, replace the Layer 3 bullet that begins "Desktop: product name, app id, icons" with:
 
 ```markdown
-- Desktop: none. The AIR-owned shell reads every brand value from `air/apps/desktop/brand.json` (`{{PRODUCT_NAME}}`, `{{PRODUCT_TAGLINE}}`, application id, URL scheme); upstream's `apps/desktop` is not used.
+- Desktop: none. The AIR-owned shell reads every brand value from `air/apps/desktop/brand.json` (`{{PRODUCT_NAME}}`, `{{PRODUCT_TAGLINE}}`, application id, URL scheme, executable name, release tag prefix, and the `identifiersFinal` release gate); upstream's `apps/desktop` is not used.
 ```
 
 - [ ] **Step 4: Run the text gates and commit**
@@ -4994,7 +5172,7 @@ In `air/BRANDING.md`, replace the Layer 3 bullet that begins "Desktop: product n
 Run: `pnpm run verify-concrete-terms` and `pnpm run verify-repository-references` and `pnpm run verify-translation-pairing`
 Expected: each exits 0 (AIR documents are excluded from translation pairing by the manifest entry listed in `air/UPSTREAM-DELTA.md`).
 
-```bash
+```text
 git add air/apps/desktop/README.md air/SAFETY.md air/README.md air/ONBOARDING.md air/BRANDING.md
 git commit -m "docs(air-desktop): document the desktop app, onboarding on Windows and Fedora, and safety notes"
 ```
@@ -5015,13 +5193,19 @@ Out of scope here; each is its own plan.
 - **Login-shell environment probe** for GUI launches on Linux.
 - **rpm in-place updates** through electron-updater's package-manager path, once the password prompt is acceptable.
 - **`utilityProcess` Host** so the `runAsNode` fuse can be disabled.
-- **Size reduction** of the staged tree (declaration files, unused optional providers) after confirming nothing reads them at run time.
+- **Size reduction** of the staged tree beyond source maps and locales (declaration files, unused optional providers) after confirming nothing reads them at run time.
+- **Start at login** (Linux XDG autostart entry, Windows login item, a `--hidden` launch flag, a setting and menu entry). Moved out of phase 1: no owner decision or demo step needs it, it writes to the user's startup configuration under placeholder identifiers, and the Windows login item cannot be checked before there is a signed build.
+- **Deep-link routing**: open a given conversation from a link of the app's URL scheme, building the address from the Host's current origin. Phase 1 registers the scheme in packaged builds and only focuses the window.
+- **Quit inspection**: ask before quitting while an agent run is active, as upstream's desktop Host does through its quit-inspection message; needs a matching message in the AIR Host protocol.
+- **Windows publisher name** for update verification, together with SignPath onboarding.
 - **First-run checks** (Ollama running, model pulled) before the first conversation.
 
 ## Self-Review
 
-- **Spec coverage.** Staging and boot check: Task 1. Host entry with ready, fatal, and shutdown over IPC and a real boot under an isolated home: Task 2. Single instance, supervision with restart policy and crash log, sandboxed window, origin lock, external links: Task 3. Close policy per OS, conditional tray, menu: Task 4. Hotkey, quick entry, start at login, `.desktop` identity documented: Task 5. electron-builder config from the brand file, NSIS, rpm, AppImage, `asarUnpack`, `extraResources`, unsigned default and signing hook, upstream license in the package: Tasks 1 and 6. Updates by package type with a channel setting, disabled in development and feed-less builds: Task 7. CI matrix, Playwright smoke, UPSTREAM-DELTA row: Task 8. README with Summary and Known Limitations, onboarding for PowerShell and Fedora, safety notes: Task 9. Deferred items are listed under Follow-up plans.
+- **Spec coverage.** Staging and boot check: Task 1. Host entry with ready, fatal, and shutdown over IPC and a real boot under an isolated home: Task 2. Single instance, supervision with restart policy, per-line redacted logs and a restarting page, dynamic Host port, sandboxed window, origin lock that follows the current origin, external links: Task 3. Close policy per OS, conditional tray, menu: Task 4. Hotkey and quick entry (re-created after a Host restart), `.desktop` identity documented: Task 5. electron-builder config from the brand file, NSIS, rpm, AppImage, `asarUnpack`, `extraResources`, unsigned default and signing hook, upstream license in the package: Tasks 1 and 6. Updates by package type with a channel setting, disabled in development and feed-less builds: Task 7. CI matrix, Playwright smoke, release gate and tag-prefix check, UPSTREAM-DELTA row: Task 8. README with Summary and Known Limitations, onboarding for PowerShell and Fedora, safety notes: Task 9. Deferred items are listed under Follow-up plans.
+- **Deviations from the 2026-10-03 text, on purpose (2026-10-08).** Dynamic Host port instead of a fixed one; start at login moved to Follow-up plans; the release path gated on `identifiersFinal`. See the Revision log for the reasons.
 - **Deviations from note 09, on purpose.** The staged tree ships as `extraResources` instead of inside the archive; `desktopName` is `air-desktop.desktop` (the file electron-builder installs) instead of a reverse-DNS file name; `pnpm deploy` alone is not enough and a workspace peer fill was added; the Background portal does not put the rpm build into GNOME's Background Apps list, so a notification and launcher path were added; rpm updates notify instead of installing.
-- **Types across tasks.** `HostEvent`/`HostCommand` (Task 2) are used by `HostSupervisor` and `HostChild` (Task 3). `Shell` (Task 3) is the only parameter of every `install*` function (Tasks 4, 5, 7). `Settings` fields used later (`keepRunningInBackground`, `startAtLogin`, `quickEntryHotkey`, `checkForUpdates`, `updateChannel`) are all defined in Task 3. `CommandRunner` is defined in `tray-support.ts` and reused by `background-portal.ts` and `run-command.ts`. `MenuActions.checkForUpdates` is optional in Task 4 and supplied in Task 7. `StageTarget` and `stageTarget` (Task 1) are used by Tasks 2 and 6. `bootStage` (Task 1) is used by Task 2's boot test.
+- **Types across tasks.** `HostEvent`/`HostCommand` (Task 2) are used by `HostSupervisor` and `HostChild` (Task 3). `Shell` (Task 3) is the only parameter of every `install*` function (Tasks 4, 5, 7). `Settings` fields used later (`keepRunningInBackground`, `quickEntryHotkey`, `checkForUpdates`, `updateChannel`) are all defined in Task 3. `Brand.releaseTagPrefix` and `Brand.identifiersFinal` (Task 3) are used by `package.ts` (Task 6) and `tests/workflow.spec.ts` (Task 8). `SupervisorHandlers.restarting` (Task 3) is implemented in `main.ts`. `CommandRunner` is defined in `tray-support.ts` and reused by `background-portal.ts` and `run-command.ts`. `MenuActions.checkForUpdates` is optional in Task 4 and supplied in Task 7. `StageTarget` and `stageTarget` (Task 1) are used by Tasks 2 and 6. `bootStage` (Task 1) is used by Task 2's boot test.
+- **Verified at the 2026-10-08 revision (Fedora, scratch copy outside the repository).** Every TypeScript file of the plan, as written after the revision, was extracted into a scratch tree and typechecked with `tsc` 6 under the `air/tsconfig.base.json` options (including `noUncheckedIndexedAccess` and `exactOptionalPropertyTypes`) against the real types of Electron 44.0.0, electron-builder, electron-updater, and the upstream packages the Host imports, except the Playwright smoke test and `playwright.config.ts` (the package is not installed here): exit 0. The 14 unit test files (10 in `air/apps/desktop`, 4 in `air/apps/desktop-host`) ran with Vitest 4: 116 tests passed, which is the count of the tests written in this plan. The upstream calls were checked by reading the tree at `dsh-v0.2.1-alpha.1`. The peer-only count (28) comes from a script over the manifests, not from a `pnpm deploy`.
 - **Verified at writing time (2026-10-03, Fedora, scratch copy outside the repository).** Every TypeScript file in this plan was extracted and typechecked with `tsc` 6 under the `air/tsconfig.base.json` options against the real types of Electron 44.0.0, electron-builder, electron-updater, and the upstream packages the Host imports: exit 0. The 13 unit test files ran with Vitest: 111 tests passed. The staging commands, the peer fill, and a Host with the same upstream calls were run in the scratch spike (note 13 section 2).
-- **Not run.** Launching Electron, the tsdown bundles, electron-builder packaging, the Playwright smoke, the workflow, and everything on Windows. The steps that first exercise them state the expected output; treat the first failing step as the place where an assumption is corrected.
+- **Not run.** `pnpm deploy` and the staging script at the new tag (so the filled-package count, the size figures, and the longest path are unmeasured), launching Electron (including the Host restart page, the origin change across a restart, and the quick-entry re-creation), the tsdown bundles, electron-builder packaging, `electronLanguages`, the Playwright smoke, the lint run under plan 00's configuration, the workflow, and everything on Windows (including `taskkill` on the Host tree). The steps that first exercise them state the expected output; treat the first failing step as the place where an assumption is corrected.
