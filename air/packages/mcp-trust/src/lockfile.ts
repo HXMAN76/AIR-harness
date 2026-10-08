@@ -6,7 +6,7 @@
  */
 
 import { watch } from 'node:fs'
-import { mkdir, readFile } from 'node:fs/promises'
+import { mkdir, readFile, stat } from 'node:fs/promises'
 import { basename, dirname } from 'node:path'
 import { withFileLock, writeFileAtomic } from '@deepseek-ai/dsh-atomic-write'
 
@@ -198,6 +198,27 @@ export function parseLockDocument(value: unknown): LockDocument {
 }
 
 /**
+ * Reject a lockfile path whose parent is a regular file. Linux reports ENOTDIR for that read and Windows reports ENOENT,
+ * so an ENOENT read checks the parent before the lockfile counts as missing.
+ * @param path - absolute lockfile path whose read reported ENOENT.
+ * @returns nothing when the parent directory is absent or is a directory.
+ * @throws LockfileError when the parent exists and is not a directory, or cannot be inspected.
+ */
+async function assertParentIsNotFile(path: string): Promise<void> {
+  const parent = dirname(path)
+  let isDirectory: boolean
+  try {
+    isDirectory = (await stat(parent)).isDirectory()
+  } catch (error) {
+    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') return
+    throw new LockfileError(`cannot read ${path}: ${reason(error)}. ${REPAIR}`)
+  }
+  if (!isDirectory) {
+    throw new LockfileError(`cannot read ${path}: the lockfile directory path ${parent} is occupied by a file. ${REPAIR}`)
+  }
+}
+
+/**
  * Read and validate the lockfile.
  * @param path - absolute lockfile path.
  * @returns the document; an absent file is an empty document.
@@ -208,7 +229,10 @@ export async function readLockfile(path: string): Promise<LockDocument> {
   try {
     raw = await readFile(path, 'utf8')
   } catch (error) {
-    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') return emptyLock()
+    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
+      await assertParentIsNotFile(path)
+      return emptyLock()
+    }
     throw new LockfileError(`cannot read ${path}: ${reason(error)}. ${REPAIR}`)
   }
   // A Windows editor may save a byte order mark; CRLF line ends need no handling because JSON.parse accepts them.
