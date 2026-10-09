@@ -109,6 +109,7 @@ describe('--key on pin, diff, and verify', () => {
     expect(out).toEqual([])
     expect(err).toHaveLength(1)
     expect(err[0]).toContain('belongs to a project and is reviewed inside a session in that project')
+    expect(err[0]).toContain('/mcp-trust diff <server> --key <prefix>')
     expect(err[0]).toContain('"browser"')
     expect(trust.observed).not.toHaveBeenCalled()
     expect(trust.pin).not.toHaveBeenCalled()

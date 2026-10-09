@@ -14,11 +14,13 @@ import { dirname, isAbsolute } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import type {} from '@deepseek-ai/dsh-agent'
+import type {} from '@deepseek-ai/dsh-commands'
 import type {} from '@deepseek-ai/dsh-mcp-client'
 import type {} from '@deepseek-ai/dsh-tools'
 import type {} from '@deepseek-ai/dsh-user-approval'
 import { createPreStep } from './approval.ts'
 import { Audit } from './audit.ts'
+import { createTrustCommand } from './command.ts'
 import { TrustEngine, type EngineConfig } from './engine.ts'
 import { watchLockfile } from './lockfile.ts'
 import type { McpTrust } from './types.ts'
@@ -29,6 +31,8 @@ export type {
 } from './types.ts'
 
 export { clip, visible } from './render.ts'
+export { listCandidates, matchKeyPrefix, KEY_PREFIX, MIN_KEY_PREFIX } from './resolve.ts'
+export type { KeyMatch } from './resolve.ts'
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -169,6 +173,15 @@ export function apply(ctx: Context, config: Config): void {
     engine, audit, approval: () => ctx.get('approval'), logger, cli: resolved.cliCommand, enrolls: resolved.enrollOnApproval,
   })
   ctx.on('agent/pre-step', preStep)
+  // The `air-mcp` command line has no command registry, so the command exists only where `commands` is provided.
+  ctx.inject(['commands'], (scope) => {
+    scope.commands.register({
+      name: 'mcp-trust',
+      description: 'Review, pin, or revoke the tool surfaces of MCP servers seen in this session',
+      input: { hint: '[status | diff <server> | pin <server> --surface <prefix> | revoke <server>] [--key <prefix>]' },
+      handler: createTrustCommand(engine),
+    })
+  })
   ctx.provide('mcpToolReview', engine)
   ctx.provide('mcpTrust', engine)
 }

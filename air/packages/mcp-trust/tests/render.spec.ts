@@ -139,9 +139,11 @@ describe('naming same-named servers apart', () => {
   })
 
   it('builds one command argument text for pin, diff, and revoke', () => {
-    expect(commandHint('pin', 'browser')).toBe('pin browser')
-    expect(commandHint('diff', 'browser', KEY)).toBe('diff browser --key 0123456789ab')
-    expect(commandHint('revoke', 'b\nc', `${ESC}x`)).toBe('revoke b<U+000A>c --key <U+001B>x')
+    expect(commandHint('cli x', 'pin', 'browser')).toBe('cli x pin browser')
+    expect(commandHint('cli x', 'diff', 'b\nc')).toBe('cli x diff b<U+000A>c')
+    expect(commandHint('cli x', 'diff', 'browser', KEY)).toBe('/mcp-trust diff browser --key 0123456789ab')
+    expect(commandHint('cli x', 'pin', 'browser', KEY)).toBe('/mcp-trust diff browser --key 0123456789ab')
+    expect(commandHint('cli x', 'revoke', 'b\nc', `${ESC}x`)).toBe('/mcp-trust revoke b<U+000A>c --key <U+001B>x')
   })
 })
 

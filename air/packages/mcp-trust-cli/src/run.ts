@@ -6,7 +6,7 @@
  * @module
  */
 
-import { clip } from '@air/dsh-mcp-trust'
+import { clip, listCandidates, matchKeyPrefix, MIN_KEY_PREFIX } from '@air/dsh-mcp-trust'
 import type { LockEntrySummary, McpTrust, ObservedSurface, ServerRef } from '@air/dsh-mcp-trust'
 
 /** One parsed command. `key` is the review key prefix of a project server's lockfile entry. */
@@ -60,7 +60,6 @@ const TRUSTED: readonly string[] = ['approved', 'tofu']
 const NAME_LIMIT = 64
 const MESSAGE_LIMIT = 500
 const KEY_PREFIX = 12
-const MIN_KEY_PREFIX = 8
 const DRIFT_LIST_LIMIT = 10
 
 function drifted(surface: ObservedSurface): boolean {
@@ -83,7 +82,7 @@ function isProject(entry: LockEntrySummary): entry is ProjectEntry {
 }
 
 function candidates(entries: readonly ProjectEntry[]): string {
-  return entries.map(each => `${name(each.serverName)}  key ${name(each.reviewKey.slice(0, KEY_PREFIX))}`).join('; ')
+  return listCandidates(entries, NAME_LIMIT)
 }
 
 /** Lockfile entries, or why they could not be read. */
@@ -97,7 +96,7 @@ async function readEntries(trust: McpTrust): Promise<{ entries: readonly LockEnt
 
 function keyed(named: string | undefined, io: CliIo, key: string): number {
   const label = named === undefined ? 'a server' : `server "${name(named)}"`
-  io.err(`air-mcp: ${label} (key ${name(key)}) belongs to a project and is reviewed inside a session in that project; this profile cannot observe it. Only revoke and list accept --key.`)
+  io.err(`air-mcp: ${label} (key ${name(key)}) belongs to a project and is reviewed inside a session in that project with \`/mcp-trust diff <server> --key <prefix>\`; this profile cannot observe it. Only revoke and list accept --key.`)
   return EXIT_USAGE
 }
 
@@ -199,23 +198,23 @@ async function target(
   const named = found.entries.filter(each => each.serverName === server)
   const projects = named.filter(isProject)
   if (key !== undefined) {
-    if (key.length < MIN_KEY_PREFIX || !/^[0-9a-f]+$/i.test(key)) {
-      io.err(`air-mcp: --key needs at least ${String(MIN_KEY_PREFIX)} hexadecimal characters of the entry's key. Run \`${COMMAND} list\` to see the keys.`)
-      return EXIT_USAGE
+    const found = matchKeyPrefix(projects, key)
+    switch (found.kind) {
+      case 'one': return { serverName: server, reviewKey: found.match.reviewKey }
+      case 'invalid':
+        io.err(`air-mcp: --key needs at least ${String(MIN_KEY_PREFIX)} hexadecimal characters of the entry's key. Run \`${COMMAND} list\` to see the keys.`)
+        return EXIT_USAGE
+      case 'none': {
+        const rest = projects.length > 0
+          ? `Project entries named "${name(server)}": ${candidates(projects)}.`
+          : `The lockfile has no project entries named "${name(server)}".`
+        io.err(`air-mcp: no entry named "${name(server)}" has a key starting with ${name(key)}. ${rest}`)
+        return EXIT_USAGE
+      }
+      case 'ambiguous':
+        io.err(`air-mcp: key prefix ${name(key)} matches ${String(found.matches.length)} entries named "${name(server)}": ${candidates(found.matches)}. Use a longer prefix.`)
+        return EXIT_USAGE
     }
-    const prefix = key.toLowerCase()
-    const matches = projects.filter(each => each.reviewKey.startsWith(prefix))
-    const [only] = matches
-    if (matches.length === 1 && only !== undefined) return { serverName: server, reviewKey: only.reviewKey }
-    if (matches.length === 0) {
-      const rest = projects.length > 0
-        ? `Project entries named "${name(server)}": ${candidates(projects)}.`
-        : `The lockfile has no project entries named "${name(server)}".`
-      io.err(`air-mcp: no entry named "${name(server)}" has a key starting with ${name(key)}. ${rest}`)
-    } else {
-      io.err(`air-mcp: key prefix ${name(key)} matches ${String(matches.length)} entries named "${name(server)}": ${candidates(matches)}. Use a longer prefix.`)
-    }
-    return EXIT_USAGE
   }
   if (named.some(each => each.reviewKey === undefined)) return { serverName: server }
   if (projects.length > 0) {

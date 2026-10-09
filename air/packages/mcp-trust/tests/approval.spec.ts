@@ -123,12 +123,13 @@ describe('pre-step approval bridge (collaborators faked)', () => {
     expect(promptReason(keyed, CLI, true)).toBe(
       'MCP server "browser" (key aaaaaaaaaaaa) has not been approved yet. It offers 0 tools: . '
       + 'Approve to use it and remember the approval in the trust lockfile. '
-      + `To read the definitions first, decline and run \`${CLI} diff browser --key aaaaaaaaaaaa\`.`,
+      + 'To read the definitions first and get the command that saves the approval, decline and run `/mcp-trust diff browser --key aaaaaaaaaaaa`.',
     )
+    expect(promptReason(keyed, CLI, false)).toContain('Approve to use it until the process exits. To read the definitions first and get the command that saves the approval')
     const changed: PendingSurface = { serverName: 'browser', reviewKey: KEY_X, surface: { ...surface, reviewKey: KEY_X }, resync: vi.fn() }
     const text = promptReason(changed, CLI, true)
     expect(text).toContain('MCP server "browser" (key aaaaaaaaaaaa) changed its tool surface: added browser_evaluate.')
-    expect(text).toContain(`\`${CLI} pin browser --key aaaaaaaaaaaa\``)
+    expect(text).toContain('`/mcp-trust diff browser --key aaaaaaaaaaaa`')
     expect(text).not.toContain(KEY_X)
   })
 
@@ -293,7 +294,7 @@ describe('pre-step approval bridge (real engine, lockfile, and approval service)
     expect((await review([A], { reviewKey: KEY_X }).run()).tools).toEqual([])
     const denial = engine.guard('mcp__browser__a')
     expect(denial).toContain('blocked')
-    expect(denial).toContain(`${CLI} diff browser --key aaaaaaaaaaaa`)
+    expect(denial).toContain('`/mcp-trust diff browser --key aaaaaaaaaaaa`')
     await expect(readFile(lockfile, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
     expect(recorded).toHaveLength(1)
   })

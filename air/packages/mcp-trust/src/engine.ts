@@ -39,10 +39,14 @@ function keyNote(reviewKey: string | undefined): string {
  * @param cli - command prefix of the `air-mcp` profile, for example `pnpm dsh --profile air-mcp`.
  * @param server - local server name.
  * @param reviewKey - identity of the server definition, when it has one.
- * @returns two sentences naming the `diff`, `pin`, and `revoke` commands.
+ * @returns two sentences naming the commands: `diff`, `pin`, and `revoke` of the `air-mcp` profile for a profile-level
+ *   server, or `/mcp-trust diff` (which prints the approval command) and `/mcp-trust revoke` for a project server.
  */
 export function nextSteps(cli: string, server: string, reviewKey?: string): string {
-  const command = (action: 'pin' | 'diff' | 'revoke'): string => `\`${cli} ${commandHint(action, server, reviewKey)}\``
+  const command = (action: 'pin' | 'diff' | 'revoke'): string => `\`${commandHint(cli, action, server, reviewKey)}\``
+  if (reviewKey !== undefined) {
+    return `The person can run ${command('diff')} in this session to see what differs; it prints the command that approves exactly that surface. Running ${command('revoke')} keeps it blocked. An allow rule never approves a server.`
+  }
   return `The person can run ${command('diff')} to see what differs, then ${command('pin')} to approve it or ${command('revoke')} to keep it blocked. An allow rule never approves a server.`
 }
 
@@ -292,7 +296,7 @@ export class TrustEngine implements McpToolReview, McpTrust {
     if (decision.tofu !== undefined) {
       const first = decision.tofu
       this.lock = await updateLockfile(config.lockfile, (doc) => { doc.servers[key] ??= first }, config.lockWaitMs)
-      logger.warn(`mcp-trust(${visible(serverName)}${keyNote(request.reviewKey)}): no pin existed, so the first surface was pinned on first use; review it with \`${config.cliCommand} ${commandHint('diff', serverName, request.reviewKey)}\``)
+      logger.warn(`mcp-trust(${visible(serverName)}${keyNote(request.reviewKey)}): no pin existed, so the first surface was pinned on first use; review it with \`${commandHint(config.cliCommand, 'diff', serverName, request.reviewKey)}\``)
     }
 
     this.unregister(key)
@@ -327,7 +331,7 @@ export class TrustEngine implements McpToolReview, McpTrust {
     this.arm(key, request)
     if (hasDrift(decision.diff)) {
       const { added, removed, changed } = decision.diff
-      logger.warn(`mcp-trust(${visible(serverName)}${keyNote(request.reviewKey)}): tool surface differs from its pin (${String(added.length)} added, ${String(removed.length)} removed, ${String(changed.length)} changed); action ${decision.action}. Run \`${config.cliCommand} ${commandHint('diff', serverName, request.reviewKey)}\` to review it.`)
+      logger.warn(`mcp-trust(${visible(serverName)}${keyNote(request.reviewKey)}): tool surface differs from its pin (${String(added.length)} added, ${String(removed.length)} removed, ${String(changed.length)} changed); action ${decision.action}. Run \`${commandHint(config.cliCommand, 'diff', serverName, request.reviewKey)}\` to review it.`)
       this.options.drift({ ...ref, ...decision.diff, action: decision.action })
     }
     return { tools: decision.accepted, instructions: decision.instructions }
@@ -447,6 +451,10 @@ export class TrustEngine implements McpToolReview, McpTrust {
 
   servers(): readonly ServerRef[] {
     return [...this.observations.values()].map(observation => refOf(observation.surface.serverName, observation.surface.reviewKey))
+  }
+
+  reviewFailure(server: ServerRef): string | undefined {
+    return this.observations.get(lockKey(server.serverName, server.reviewKey))?.failure
   }
 
   describe(server: ServerRef): string {

@@ -61,17 +61,21 @@ const KEY_PREFIX = 12
  */
 export function promptReason(pending: PendingSurface, cli: string, enrolls: boolean): string {
   const { surface, serverName, reviewKey } = pending
-  const command = (action: 'pin' | 'diff'): string => `\`${cli} ${commandHint(action, serverName, reviewKey)}\``
+  const command = (action: 'pin' | 'diff'): string => `\`${commandHint(cli, action, serverName, reviewKey)}\``
   if (surface.state === 'unpinned') {
     const names = surface.tools.map(tool => clip(tool.name, NAME_LIMIT))
     const extra = names.length > NAMES_SHOWN ? `, and ${String(names.length - NAMES_SHOWN)} more` : ''
     const offered = `It offers ${String(names.length)} tool${names.length === 1 ? '' : 's'}: ${names.slice(0, NAMES_SHOWN).join(', ')}${extra}.`
     const effect = enrolls
       ? 'Approve to use it and remember the approval in the trust lockfile.'
-      : `Approve to use it until the process exits, or run ${command('pin')} to save the approval.`
+      : reviewKey === undefined
+        ? `Approve to use it until the process exits, or run ${command('pin')} to save the approval.`
+        : 'Approve to use it until the process exits.'
     const key = reviewKey === undefined ? '' : ` (key ${visible(reviewKey.slice(0, KEY_PREFIX))})`
     return `MCP server "${clip(serverName, NAME_LIMIT)}"${key} has not been approved yet. ${offered} ${effect} `
-      + `To read the definitions first, decline and run ${command('diff')}.`
+      + (reviewKey === undefined
+        ? `To read the definitions first, decline and run ${command('diff')}.`
+        : `To read the definitions first and get the command that saves the approval, decline and run ${command('diff')}.`)
   }
   return `${renderDiffSummary(serverName, surface.diff, reviewKey)} The lockfile is not changed. ${nextSteps(cli, serverName, reviewKey)}`
 }

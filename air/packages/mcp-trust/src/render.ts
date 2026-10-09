@@ -75,17 +75,21 @@ function keyNote(reviewKey: string | undefined): string {
 }
 
 /**
- * Argument text of a trust command for one server, shared by every denial and prompt that names a command.
- * The caller prepends the configured command prefix. A server with a review key gets `--key` with the first
- * 12 characters of the key, so two servers with the same name stay distinguishable.
+ * Command that reviews, approves, or blocks one server, shared by every denial and prompt that names a command.
+ * A server without a review key is a profile-level server and is handled by the `air-mcp` command line, so the result starts
+ * with `cli`. A server with a review key exists only inside a session and is handled by `/mcp-trust`, with `--key` set to the
+ * first 12 characters of the key so two servers with the same name stay distinguishable. The `/mcp-trust` approval command
+ * needs the digest of the surface under review, which only `diff` prints, so for a keyed server `pin` returns the `diff` command.
+ * @param cli - command prefix of the `air-mcp` profile, for example `pnpm dsh --profile air-mcp`.
  * @param action - the command to run.
  * @param serverName - local server name.
  * @param reviewKey - identity of the server definition, when it has one.
- * @returns for example `pin browser` or `pin browser --key 0123456789ab`.
+ * @returns for example `pnpm dsh --profile air-mcp pin browser` or `/mcp-trust diff browser --key 0123456789ab`.
  */
-export function commandHint(action: 'pin' | 'diff' | 'revoke', serverName: string, reviewKey?: string): string {
-  const key = reviewKey === undefined ? '' : ` --key ${clip(reviewKey.slice(0, KEY_PREFIX), KEY_PREFIX)}`
-  return `${action} ${clip(serverName, NAME_LIMIT)}${key}`
+export function commandHint(cli: string, action: 'pin' | 'diff' | 'revoke', serverName: string, reviewKey?: string): string {
+  const name = clip(serverName, NAME_LIMIT)
+  if (reviewKey === undefined) return `${cli} ${action} ${name}`
+  return `/mcp-trust ${action === 'pin' ? 'diff' : action} ${name} --key ${clip(reviewKey.slice(0, KEY_PREFIX), KEY_PREFIX)}`
 }
 
 /**

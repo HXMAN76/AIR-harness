@@ -478,9 +478,11 @@ describe('server definitions with review keys', () => {
     await trust.review(keyed([{ ...A, description: 'Changed.' }], KEY_X).value)
     const blocked = trust.guard('mcp__srv__a')
     expect(blocked).toContain(`server "srv" (key ${KEY_X.slice(0, 12)})`)
-    expect(blocked).toContain(`\`${CLI} diff srv --key ${KEY_X.slice(0, 12)}\``)
-    expect(blocked).toContain(`\`${CLI} pin srv --key ${KEY_X.slice(0, 12)}\``)
-    expect(blocked).toContain(`\`${CLI} revoke srv --key ${KEY_X.slice(0, 12)}\``)
+    expect(blocked).toContain(`\`/mcp-trust diff srv --key ${KEY_X.slice(0, 12)}\``)
+    expect(blocked).toContain('it prints the command that approves exactly that surface')
+    expect(blocked).toContain(`\`/mcp-trust revoke srv --key ${KEY_X.slice(0, 12)}\``)
+    expect(blocked).not.toContain(CLI)
+    expect(blocked).not.toContain('/mcp-trust pin')
     expect(trust.describe(X)).toContain(`(key ${KEY_X.slice(0, 12)})`)
     expect(() => trust.describe({ serverName: 'srv', reviewKey: 'c'.repeat(64) })).toThrow(`(key ${'c'.repeat(12)})`)
     expect(warns.some(line => line.includes(`diff srv --key ${KEY_X.slice(0, 12)}`))).toBe(true)
@@ -493,7 +495,7 @@ describe('server definitions with review keys', () => {
     const x = keyed([A], KEY_X)
     await trust.review(x.value)
     await trust.revoke(X, {})
-    expect(trust.guard('mcp__srv__a')).toContain(`\`${CLI} pin srv --key ${KEY_X.slice(0, 12)}\``)
+    expect(trust.guard('mcp__srv__a')).toContain(`\`/mcp-trust diff srv --key ${KEY_X.slice(0, 12)}\``)
   })
 
   it('writes a tofu pin under the key with its identity', async () => {
