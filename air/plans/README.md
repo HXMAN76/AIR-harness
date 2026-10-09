@@ -1,6 +1,6 @@
 # AIR development roadmap
 
-Date: 2026-09-30. Upstream base: `dsh-v0.2.1-alpha.1` (plans were written against `dsh-v0.2.0-rc.2`; see "Changes the 2026-10-08 upstream sync requires"). Product name: placeholder ("AIR", see [../BRANDING.md](../BRANDING.md)).
+Date: 2026-09-30. Upstream base: `dsh-v0.2.1-alpha.2` (plans were written against `dsh-v0.2.0-rc.2`; see "Changes the 2026-10-08 upstream sync requires"). Product name: placeholder ("AIR", see [../BRANDING.md](../BRANDING.md)).
 
 This page orders the work, names each plan, and lists what is still unplanned. The reasoning behind every choice is in [research/research.md](../../research/research.md); the exact APIs and verified commands are in the [spikes](spikes/).
 
@@ -151,6 +151,18 @@ All of these were applied to the plan files in the 2026-10-08 revision (see "Pla
 - **Plan 07:** done in the 2026-10-08 revision (dynamic port, origin handling, release gate, start-at-login moved to follow-ups).
 - **All plans:** version strings and line references cite `0.2.0-rc.2`; re-verify line numbers at the first step of each task. Peer range `^0.2.0-rc.1` still matches `0.2.1-alpha.1`.
 - **Spikes 01, 03, 05:** mentions of the schedule bundle as a template refer to a package that no longer exists; use `packages/experimental/voice-input-bundle` or `auto-review` as the bundle template.
+
+## Changes the 2026-10-09 upstream sync requires in the written plans
+
+The merge of `dsh-v0.2.1-alpha.2` had no conflicts, the five plan 01 packages build and pass their tests unchanged, and the only AIR change needed was bringing `preset-air` in line with the upstream standard preset (removed rows `tool-subagent-codex`, `tool-subagent-claude-code`, and `tool-ralph`; removed `backgroundMode` on the two sub-agent tools; removed the working-directory suffix; reworded the plan-mode sentence). The plans were last revised against `0.2.1-alpha.1`; the items below are not yet applied. Detail is in [research.md](../../research/research.md) section 2b.
+
+- **Plan 01 packages (already built):** `instruction-conventions` (`header.cwd` at lines 220 and 241), `command-conventions` (237), and `mcp-conventions` (347) read `agent.session.header.cwd`. Upstream now reads the current directory from `ctx.workingDirectory.ensure(agent, signal)` and keeps `header.cwd` for the original project. Decide per call site: file discovery should follow the current directory; trust roots should keep the original. Needs the `workingDirectory` service in `inject` and a test that changes directory mid-session.
+- **Plan 02:** no hook change (`mcp-client` only had dependency bumps). The out-of-scope item on `append({ ignorable })` stays out: `appendPluginRecord()` now exists but is reserved for upstream experimental packages. Plan 02's `mcp-conventions` dependency follows the plan 01 item above.
+- **Plan 03:** the `cwd` field of the rule-matching input (grep `Session working directory; relative path arguments resolve`) and the table row citing `agent.session.header.cwd` must use the current working directory for relative paths; permission roots stay on the original project. Re-verify the cited approval and interaction line numbers (those packages had version-only changes).
+- **Plan 04:** `projectScopeId(cwd)` should receive `agent.session.header.cwd` (original project identity), not the current directory, so a worktree switch does not create a second scope; state this in decision 3 (grep `Project scope id`).
+- **Plan 05:** no change needed; `session.v4.jsonl` and the V4 header are unchanged, and the session format status now lists V4 as released.
+- **Plan 07:** re-verify, at the first task, that `@deepseek-ai/dsh/profile-boot` and `runProfile` are still exported (the step that recorded this was made at `alpha.1`), and read upstream `apps/desktop/scripts/prepare-runtime-patches.ts`, `runtime-patch-policy.ts`, and `.github/workflows/windows-package.yml` before writing `stage-runtime.ts` and the Windows packaging job. The Host stays on `host: 127.0.0.1`; wildcard hosts are now rejected, which does not affect the plan.
+- **Plan 06 and spikes:** no change.
 
 ## Open decisions for the project owner
 
