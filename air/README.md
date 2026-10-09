@@ -10,7 +10,11 @@ New here? Start with [ONBOARDING.md](ONBOARDING.md); coding agents start with [A
 air/
   pnpm-workspace.yaml     separate pnpm workspace (bundles/*, packages/*)
   bundles/air/            @air/dsh-air-bundle: product defaults as a Cordis patch
-  packages/<pkg>/         AIR plugins (added feature by feature)
+  packages/convention-core/          shared discovery library for the convention plugins
+  packages/skill-conventions/        skill provider: .claude/skills, project skill roots, ~/.air/skills
+  packages/instruction-conventions/  .claude/CLAUDE.md, @path imports, .claude/rules
+  packages/mcp-conventions/          .mcp.json servers per Agent, with approval (/mcp)
+  packages/command-conventions/      .claude/commands with $ARGUMENTS
   apps/                   AIR desktop app and its Host entry (plan 07; not built yet)
   plans/                  roadmap, implementation plans, and API spikes
   examples/               profile-patch examples, e.g. the local Ollama route
@@ -57,9 +61,21 @@ New packages follow the templates in [plans/spikes/01-toolchain.md](plans/spikes
 
 Upstream workflows under `.github/workflows/` also run on pushes to this fork; disable the ones that need upstream secrets in the fork's Actions settings.
 
-## Known issues
+## File conventions
 
-- Skill discovery also reads the user-level `~/.agents/skills` and `~/.dsh/skills` roots, so every skill installed there for other agents enters the AIR skill catalog. With a small local model this derails answers (observed with `qwen3:8b` and 36 unrelated user skills). The AIR bundle should point `skill-filesystem` at an AIR-owned root once its Config fields are confirmed.
+New sessions use the `air` agent preset, a copy of the upstream `standard` preset with the convention plugins added (`bundles/air/cordis.patch.yml`). After every upstream merge, run `pnpm -C air exec vitest run scripts/tests/preset-air-drift.spec.ts`; a failure names the upstream row to re-copy into `preset-air`, and `pnpm -C air run check:composition` confirms the composed profile.
+
+User-level folders written for other agents (`~/.agents/skills`, `~/.claude/skills`, `~/.claude/commands`, `~/.claude/CLAUDE.md`) are not read by default, because a large unrelated skill catalog derails small local models. `~/.air/skills` and `~/.air/commands` are always read. To opt in, add to `$DSH_HOME/profiles/air/cordis.patch.yml`:
+
+```yaml
+- id: air-command-conventions
+  config:
+    includeUserRoots: true
+```
+
+and copy the `preset-air` row from the bundle patch into the same file with `includeUserRoots: true` added to the `air-skill-conventions` and `air-instruction-conventions` configs (a patch replaces a row's whole `config`, so the full plugin list must be repeated).
+
+Project MCP servers from `.mcp.json` start only after `/mcp approve <server>`; run it before the first message of a session. Approvals are stored in `$DSH_HOME/air/mcp-approvals.json`.
 
 ## Quality bar
 

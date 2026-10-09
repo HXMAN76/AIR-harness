@@ -13,7 +13,9 @@
     "lint": "tsx scripts/gen-oxlintrc.ts --check && oxlint --config .oxlintrc.json --type-aware --no-error-on-unmatched-pattern packages apps",
     "lint:gen": "tsx scripts/gen-oxlintrc.ts",
     "test": "vitest run && pnpm -r --if-present run test",
-    "smoke": "tsx scripts/smoke-profile.ts"
+    "smoke": "tsx scripts/smoke-profile.ts",
+    "check:composition": "tsx scripts/check-air-composition.ts",
+    "demo": "tsx scripts/make-demo-project.ts"
   },
   "devDependencies": {
     "@stylistic/eslint-plugin": "^5.10.0",
@@ -25,6 +27,7 @@
     "tsdown": "^0.22.2",
     "tsx": "^4.22.4",
     "typescript": "^6.0.3",
-    "vitest": "^4.1.8"
+    "vitest": "^4.1.8",
+    "yaml": "^2.9.0"
   }
 }

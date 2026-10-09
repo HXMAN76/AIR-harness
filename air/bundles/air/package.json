@@ -8,6 +8,12 @@
   "files": [
     "cordis.patch.yml"
   ],
+  "dependencies": {
+    "@air/dsh-command-conventions": "workspace:*",
+    "@air/dsh-instruction-conventions": "workspace:*",
+    "@air/dsh-mcp-conventions": "workspace:*",
+    "@air/dsh-skill-conventions": "workspace:*"
+  },
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
