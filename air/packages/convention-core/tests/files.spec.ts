@@ -129,11 +129,17 @@ describe('readContained', () => {
     expect(await readContained(join(other, 'a.md'), limits(dir, other))).toEqual({ kind: 'ok', text: 'elsewhere' })
   })
 
-  it('compares paths with the supplied path module', async () => {
+  it.skipIf(process.platform === 'win32')('treats a root that differs only by case as a different directory on a case-sensitive filesystem', async () => {
     const dir = await tempDir()
     await writeFile(join(dir, 'a.md'), 'hello')
     const shouted = [dir.toUpperCase()]
     expect(await readContained(join(dir, 'a.md'), { roots: shouted, maxBytes: 100 })).toEqual({ kind: 'outside-root' })
+  })
+
+  it('compares paths with the supplied path module', async () => {
+    const dir = await tempDir()
+    await writeFile(join(dir, 'a.md'), 'hello')
+    const shouted = [dir.toUpperCase()]
     expect(await readContained(join(dir, 'a.md'), { roots: shouted, maxBytes: 100, pathApi: win32 })).toEqual({ kind: 'ok', text: 'hello' })
   })
 
