@@ -9,6 +9,24 @@ import SessionStore from '@deepseek-ai/dsh-session'
 import * as commandConventions from '../src/index.ts'
 import { stubAgent, type StubAgent } from './harness.ts'
 
+const scopeFault = vi.hoisted(() => ({ message: undefined as string | undefined }))
+
+// Wraps the real scope so a test can make `dispose` reject after the commands are registered.
+vi.mock('@deepseek-ai/dsh-scope', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@deepseek-ai/dsh-scope')>()
+  return Object.assign({}, actual, {
+    createScope(...args: Parameters<typeof actual.createScope>) {
+      const scope = actual.createScope(...args)
+      const dispose = scope.dispose.bind(scope)
+      scope.dispose = async () => {
+        await dispose()
+        if (scopeFault.message !== undefined) throw new Error(scopeFault.message)
+      }
+      return scope
+    },
+  })
+})
+
 const created: string[] = []
 const contexts: Context[] = []
 
@@ -230,6 +248,66 @@ describe('containment', () => {
     expect(names(ctx, await live(ctx, root))).toEqual(['compact', 'small'])
     expect(warn).toHaveBeenCalledWith(`air-command-conventions: ${join(root, '.claude/commands/big.md')} skipped: it is larger than 50 bytes`)
     expect(warn).toHaveBeenCalledWith(`air-command-conventions: ${join(root, '.claude/commands')} listing stopped after 2 entries; later entries were not read`)
+  })
+})
+
+describe('Agent lifecycle races', () => {
+  it('registers no commands for an Agent disposed while its files are being discovered', async () => {
+    const { root, config } = await world()
+    await write(join(root, '.claude/commands/late.md'), 'Late.')
+    const { ctx } = await mount(config)
+    const find = ctx.commands.find.bind(ctx.commands)
+    const stub = stubAgent(ctx, root)
+    let disposed = false
+    vi.spyOn(ctx.commands, 'find').mockImplementation((agent, commandName) => {
+      if (!disposed) {
+        disposed = true
+        ctx.emit('agent/disposed', { agent: stub.agent })
+      }
+      return find(agent, commandName)
+    })
+    await ctx.agents.register(stub.agent)
+    expect(disposed).toBe(true)
+    expect(names(ctx, stub)).toEqual(['compact'])
+  })
+
+  it('keeps Agent creation working when discovery fails after the Agent was disposed', async () => {
+    const { root, config } = await world()
+    await write(join(root, '.claude/commands/late.md'), 'Late.')
+    const { ctx } = await mount(config)
+    const stub = stubAgent(ctx, root)
+    vi.spyOn(ctx.commands, 'find').mockImplementation(() => {
+      ctx.emit('agent/disposed', { agent: stub.agent })
+      throw new Error('find boom')
+    })
+    const warn = vi.spyOn(ctx.logger, 'warn')
+    await ctx.agents.register(stub.agent)
+    expect(warn).toHaveBeenCalledWith('air-command-conventions: command files could not be read: find boom')
+  })
+
+  it('logs one warning, with no unhandled rejection, when removing commands fails', async () => {
+    const { root, config } = await world()
+    await write(join(root, '.claude/commands/one.md'), 'One.')
+    const { ctx, fiber } = await mount(config)
+    const warn = vi.spyOn(ctx.logger, 'warn')
+    const unhandled = vi.fn()
+    process.on('unhandledRejection', unhandled)
+    try {
+      const stub = await live(ctx, root)
+      scopeFault.message = 'dispose boom'
+      ctx.emit('agent/disposed', { agent: stub.agent })
+      await vi.waitFor(() => { expect(warn).toHaveBeenCalledTimes(1) })
+      expect(warn).toHaveBeenCalledWith('air-command-conventions: removing commands failed: dispose boom')
+      const second = await live(ctx, root)
+      expect(second).toBeDefined()
+      await fiber.dispose()
+      expect(warn).toHaveBeenCalledTimes(2)
+      await new Promise<void>((done) => { setTimeout(done, 5) })
+      expect(unhandled).not.toHaveBeenCalled()
+    } finally {
+      scopeFault.message = undefined
+      process.off('unhandledRejection', unhandled)
+    }
   })
 })
 

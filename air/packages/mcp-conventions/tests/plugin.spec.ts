@@ -16,6 +16,73 @@ import { ApprovalStore, approvalKey } from '../src/approvals.ts'
 import { parseMcpJson } from '../src/config.ts'
 import { stubAgent } from './harness.ts'
 
+interface Gate {
+  /** Holds every `mcp-client` start until it settles. */
+  hold?: Promise<void> | undefined
+  /** Holds every `.mcp.json` read until it settles. */
+  holdRead?: Promise<void> | undefined
+  /** Makes the `mcp-client` plugin wait for a service nobody provides, so its fiber stays pending. */
+  pendingFiber: boolean
+  /** Makes the first `Scope.dispose` call return without disposing, as when a mount finishes just as it is stopped. */
+  skipFirstDispose: boolean
+  /** Makes `Scope.dispose` reject after it disposed. */
+  disposeError?: string | undefined
+  /** Number of `.mcp.json` reads begun. */
+  reads: number
+  /** Number of `mcp-client` starts. */
+  started: number
+}
+
+const gate = vi.hoisted((): Gate => ({ pendingFiber: false, skipFirstDispose: false, reads: 0, started: 0 }))
+
+// Wraps the real scope so a test can hold the client mount, count live scopes, and fail disposal.
+vi.mock('@deepseek-ai/dsh-scope', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@deepseek-ai/dsh-scope')>()
+  return Object.assign({}, actual, {
+    createScope(...args: Parameters<typeof actual.createScope>) {
+      const scope = actual.createScope(...args)
+      const dispose = scope.dispose.bind(scope)
+      scope.dispose = async () => {
+        if (gate.skipFirstDispose) {
+          gate.skipFirstDispose = false
+          return
+        }
+        await dispose()
+        if (gate.disposeError !== undefined) throw new Error(gate.disposeError)
+      }
+      return scope
+    },
+  })
+})
+
+// Wraps the real file read so a test can dispose an Agent while its `.mcp.json` is being read.
+vi.mock('@air/dsh-convention-core', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@air/dsh-convention-core')>()
+  return Object.assign({}, actual, {
+    async readContained(...args: Parameters<typeof actual.readContained>) {
+      gate.reads += 1
+      await gate.holdRead
+      return actual.readContained(...args)
+    },
+  })
+})
+
+// Wraps the real client so a test can hold its start or leave it pending on a service nobody provides.
+vi.mock('@deepseek-ai/dsh-mcp-client', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@deepseek-ai/dsh-mcp-client')>()
+  const wrapped = Object.assign({}, actual, {
+    async apply(...args: Parameters<typeof actual.apply>) {
+      gate.started += 1
+      await gate.hold
+      return actual.apply(...args)
+    },
+  })
+  return Object.defineProperty(wrapped, 'inject', {
+    enumerable: true,
+    get() { return gate.pendingFiber ? [...actual.inject, 'airNeverProvided'] : actual.inject },
+  })
+})
+
 const echoServer = join(import.meta.dirname, 'fixtures', 'echo-server.mjs')
 const created: string[] = []
 const contexts: Context[] = []
@@ -24,6 +91,14 @@ const contexts: Context[] = []
 const REVIEW_SERVICE: string = 'mcpToolReview'
 
 afterEach(async () => {
+  gate.hold = undefined
+  gate.holdRead = undefined
+  gate.pendingFiber = false
+  gate.skipFirstDispose = false
+  gate.disposeError = undefined
+  gate.started = 0
+  gate.reads = 0
+  vi.restoreAllMocks()
   for (const ctx of contexts.splice(0)) await ctx.fiber.dispose()
   for (const dir of created.splice(0)) await rm(dir, { recursive: true, force: true })
 })
@@ -256,6 +331,207 @@ describe('air-mcp-conventions', () => {
   })
 })
 
+interface Deferred {
+  promise: Promise<void>
+  resolve: () => void
+}
+
+function deferred(): Deferred {
+  let resolve: () => void = () => {}
+  const promise = new Promise<void>((done) => { resolve = done })
+  return { promise, resolve }
+}
+
+const withPid = (base: string) => ({ mcpServers: { demo: { command: process.execPath, args: [echoServer], env: { ECHO_PID_FILE: join(base, 'echo.pid') } } } })
+
+async function pidsIn(base: string): Promise<number[]> {
+  return (await readdir(base)).filter(name => name.startsWith('echo.pid.')).map(name => Number(name.slice('echo.pid.'.length)))
+}
+
+describe('Agent lifecycle races', () => {
+  it('starts nothing for an Agent disposed while its approvals are being read', async () => {
+    const { root, approvalsFile } = await world()
+    const spec = withPid(dirname(root))
+    await writeFile(join(root, '.mcp.json'), JSON.stringify(spec))
+    await approveInFile(approvalsFile, root, spec)
+    const { ctx } = await mount(approvalsFile)
+    const reading = deferred()
+    const has = vi.spyOn(ApprovalStore.prototype, 'has').mockImplementation(async () => {
+      await reading.promise
+      return true
+    })
+    const { agent } = stubAgent(ctx, root)
+    const registered = ctx.agents.register(agent)
+    await vi.waitFor(() => { expect(has).toHaveBeenCalledTimes(1) })
+    ctx.emit('agent/disposed', { agent })
+    reading.resolve()
+    await registered
+    expect(gate.started).toBe(0)
+    expect(toolNames(ctx, agent)).toEqual([])
+    expect(await pidsIn(dirname(root))).toEqual([])
+  })
+
+  it('keeps no state for an Agent disposed while its .mcp.json is being read', async () => {
+    const { root, approvalsFile } = await world(demo)
+    const { ctx } = await mount(approvalsFile)
+    const reading = deferred()
+    gate.holdRead = reading.promise
+    const { agent } = stubAgent(ctx, root)
+    const registered = ctx.agents.register(agent)
+    await vi.waitFor(() => { expect(gate.reads).toBe(1) })
+    ctx.emit('agent/disposed', { agent })
+    reading.resolve()
+    await registered
+    expect((await command(ctx, agent, '/mcp')).text).toContain('no working directory')
+  })
+
+  it('reads nothing for an Agent disposed while its project root is being found', async () => {
+    const { root, approvalsFile } = await world(demo)
+    const { ctx } = await mount(approvalsFile)
+    const { agent } = stubAgent(ctx, root)
+    const registered = ctx.agents.register(agent)
+    ctx.emit('agent/disposed', { agent })
+    await registered
+    expect(gate.reads).toBe(0)
+  })
+
+  it('starts nothing for an Agent whose plugin is disposed while its approvals are being read', async () => {
+    const { root, approvalsFile } = await world(demo)
+    const { ctx, fiber } = await mount(approvalsFile)
+    const reading = deferred()
+    const has = vi.spyOn(ApprovalStore.prototype, 'has').mockImplementation(async () => {
+      await reading.promise
+      return true
+    })
+    const { agent } = stubAgent(ctx, root)
+    const registered = ctx.agents.register(agent)
+    await vi.waitFor(() => { expect(has).toHaveBeenCalledTimes(1) })
+    await fiber.dispose()
+    reading.resolve()
+    await registered
+    expect(gate.started).toBe(0)
+  })
+
+  it('stops a server whose Agent is disposed while the server is starting', async () => {
+    const { root, approvalsFile } = await world()
+    const spec = withPid(dirname(root))
+    await writeFile(join(root, '.mcp.json'), JSON.stringify(spec))
+    await approveInFile(approvalsFile, root, spec)
+    const { ctx } = await mount(approvalsFile)
+    const starting = deferred()
+    gate.hold = starting.promise
+    const { agent } = stubAgent(ctx, root)
+    const registered = ctx.agents.register(agent)
+    await vi.waitFor(() => { expect(gate.started).toBe(1) })
+    ctx.emit('agent/disposed', { agent })
+    starting.resolve()
+    await registered
+    expect(toolNames(ctx, agent)).toEqual([])
+    await vi.waitFor(async () => { expect((await pidsIn(dirname(root))).some(isAlive)).toBe(false) }, { timeout: 5000 })
+  })
+
+  it('starts one client when the same server is approved twice at once', async () => {
+    const { root, approvalsFile } = await world(demo)
+    const { ctx } = await mount(approvalsFile)
+    const agent = await live(ctx, root)
+    const starting = deferred()
+    gate.hold = starting.promise
+    const add = vi.spyOn(ApprovalStore.prototype, 'add')
+    const first = command(ctx, agent, '/mcp approve demo')
+    const second = command(ctx, agent, '/mcp approve demo')
+    await vi.waitFor(() => { expect(add.mock.settledResults.filter(result => result.type === 'fulfilled')).toHaveLength(2) })
+    starting.resolve()
+    expect((await first).kind).toBe('success')
+    expect((await second).kind).toBe('success')
+    expect(gate.started).toBe(1)
+    expect(toolNames(ctx, agent)).toEqual(['mcp__demo__echo'])
+    expect(await command(ctx, agent, '/mcp revoke demo')).toMatchObject({ kind: 'success' })
+  })
+
+  it('leaves no server running when a server is revoked while it is starting', async () => {
+    const { root, approvalsFile } = await world()
+    const spec = withPid(dirname(root))
+    await writeFile(join(root, '.mcp.json'), JSON.stringify(spec))
+    const { ctx } = await mount(approvalsFile)
+    const agent = await live(ctx, root)
+    const starting = deferred()
+    gate.hold = starting.promise
+    const approving = command(ctx, agent, '/mcp approve demo')
+    await vi.waitFor(() => { expect(gate.started).toBe(1) })
+    const revoking = command(ctx, agent, '/mcp revoke demo')
+    starting.resolve()
+    expect((await revoking).kind).toBe('success')
+    const approved = await approving
+    expect(approved.kind).toBe('error')
+    expect(approved.text).toContain('Approved "demo", but it did not start: ')
+    expect(approved.text).toContain('Approved "demo", but it did not start: ')
+    expect(toolNames(ctx, agent)).toEqual([])
+    await vi.waitFor(async () => { expect((await pidsIn(dirname(root))).some(isAlive)).toBe(false) }, { timeout: 5000 })
+    expect((await command(ctx, agent, '/mcp')).text).toContain('): not approved')
+  })
+
+  it('disposes a server that finished starting after it was stopped', async () => {
+    const { root, approvalsFile } = await world()
+    const spec = withPid(dirname(root))
+    await writeFile(join(root, '.mcp.json'), JSON.stringify(spec))
+    const { ctx } = await mount(approvalsFile)
+    const agent = await live(ctx, root)
+    const starting = deferred()
+    gate.hold = starting.promise
+    gate.skipFirstDispose = true
+    const approving = command(ctx, agent, '/mcp approve demo')
+    await vi.waitFor(() => { expect(gate.started).toBe(1) })
+    const revoking = command(ctx, agent, '/mcp revoke demo')
+    starting.resolve()
+    expect((await revoking).kind).toBe('success')
+    expect(await approving).toEqual({
+      kind: 'error',
+      text: 'Approved "demo", but it did not start: it was stopped before it finished starting',
+    })
+    expect(toolNames(ctx, agent)).toEqual([])
+    await vi.waitFor(async () => { expect((await pidsIn(dirname(root))).some(isAlive)).toBe(false) }, { timeout: 5000 })
+  })
+
+  it('logs one warning and no unhandled rejection when stopping a server fails', async () => {
+    const { root, approvalsFile } = await world(demo)
+    const { ctx, fiber } = await mount(approvalsFile)
+    const warn = vi.spyOn(ctx.logger, 'warn')
+    const unhandled = vi.fn()
+    process.on('unhandledRejection', unhandled)
+    try {
+      const agent = await live(ctx, root)
+      await command(ctx, agent, '/mcp approve demo')
+      gate.disposeError = 'dispose boom'
+      ctx.emit('agent/disposed', { agent })
+      await vi.waitFor(() => { expect(warn).toHaveBeenCalledTimes(1) })
+      expect(warn).toHaveBeenCalledWith('air-mcp-conventions: stopping servers failed: dispose boom')
+      const second = await live(ctx, root)
+      await command(ctx, second, '/mcp approve demo')
+      await fiber.dispose()
+      expect(warn).toHaveBeenCalledTimes(2)
+      await new Promise<void>((done) => { setTimeout(done, 5) })
+      expect(unhandled).not.toHaveBeenCalled()
+    } finally {
+      process.off('unhandledRejection', unhandled)
+    }
+  })
+
+  it('discards servers still starting when the plugin is disposed', async () => {
+    const { root, approvalsFile } = await world(demo)
+    const { ctx, fiber } = await mount(approvalsFile)
+    const agent = await live(ctx, root)
+    const starting = deferred()
+    gate.hold = starting.promise
+    const approving = command(ctx, agent, '/mcp approve demo')
+    await vi.waitFor(() => { expect(gate.started).toBe(1) })
+    const closing = fiber.dispose()
+    starting.resolve()
+    await closing
+    expect((await approving).kind).toBe('error')
+    expect(toolNames(ctx, agent)).toEqual([])
+  })
+})
+
 describe('secrets and consent scope', () => {
   const canary = 'SECRET-CANARY-7c41'
   const secretServers = {
@@ -364,9 +640,41 @@ describe('reviewTools', () => {
     const agent = await live(ctx, root)
     const pending = await command(ctx, agent, '/mcp approve demo')
     expect(pending.kind).toBe('error')
-    expect(pending.text).toContain('did not start within 500 ms')
     expect(pending.text).toContain('MCP tool reviewer')
     expect(toolNames(ctx, agent)).toEqual([])
+  })
+
+  it('fails at once, naming the reviewer, instead of waiting out the startup timeout', async () => {
+    const { root, approvalsFile } = await world(demo)
+    const { ctx } = await mount(approvalsFile, 600_000, { reviewTools: true })
+    const agent = await live(ctx, root)
+    const began = Date.now()
+    const pending = await command(ctx, agent, '/mcp approve demo')
+    expect(Date.now() - began).toBeLessThan(10_000)
+    expect(pending.kind).toBe('error')
+    expect(pending.text).toContain('MCP tool reviewer service (mcpToolReview) is required and is not loaded')
+    expect(pending.text).toContain('set reviewTools to false')
+    expect(toolNames(ctx, agent)).toEqual([])
+  })
+
+  it('fails at once when a server plugin does not become active without a reviewer', async () => {
+    const { root, approvalsFile } = await world(demo)
+    const { ctx } = await mount(approvalsFile, 600_000)
+    const agent = await live(ctx, root)
+    gate.pendingFiber = true
+    expect(await command(ctx, agent, '/mcp approve demo')).toEqual({
+      kind: 'error',
+      text: 'Approved "demo", but it did not start: the server plugin did not become active',
+    })
+    expect(toolNames(ctx, agent)).toEqual([])
+  })
+
+  it('pins the active fiber state to the cordis release in use', async () => {
+    const ctx = new Context()
+    contexts.push(ctx)
+    const fiber = await ctx.plugin({ name: 'air-fiber-probe', apply: () => {} })
+    const state: number = fiber.state
+    expect(state).toBe(mcpConventions.FIBER_ACTIVE)
   })
 
   it('starts the server once the MCP tool reviewer exists', async () => {

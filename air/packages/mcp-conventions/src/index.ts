@@ -27,8 +27,8 @@ const USAGE = 'Usage: /mcp [approve <server> | revoke <server>]'
 /** Service the MCP trust plan provides; an `mcp-client` child that must be reviewed waits for it. */
 const REVIEW_SERVICE = 'mcpToolReview'
 
-/** Value of upstream cordis `FiberState.ACTIVE`; the enum is `const` and cannot be imported. */
-const FIBER_ACTIVE = 2
+/** Value of upstream cordis `FiberState.ACTIVE`; the enum is `const` and cannot be imported. A test pins it to a real fiber. */
+export const FIBER_ACTIVE = 2
 
 /** Plugin configuration. */
 export interface Config {
@@ -98,13 +98,23 @@ export function resolveConfig(config: Config): ResolvedConfig {
   return resolved
 }
 
+/** One server's mount, registered under its name before the first await so concurrent callers join it. */
+interface Mount {
+  readonly scope: Scope
+  status: 'starting' | 'running'
+  /** Set by revoke or release; a mount that finishes starting afterwards disposes itself. */
+  cancelled: boolean
+  /** Settles with the failure text, or undefined once the server runs. Never rejects. */
+  readonly done: Promise<string | undefined>
+}
+
 interface AgentState {
   readonly projectRoot: string
   readonly servers: readonly ServerSpec[]
   /** File problems and approvals-file problems, shown by `/mcp`. */
   readonly problems: string[]
-  /** Running servers by name; each scope owns one `mcp-client` child. */
-  readonly mounted: Map<string, Scope>
+  /** Starting and running servers by name; each scope owns one `mcp-client` child. */
+  readonly mounted: Map<string, Mount>
 }
 
 /**
@@ -116,6 +126,10 @@ export function apply(ctx: Context, config: Config = {}): void {
   const resolved = resolveConfig(config)
   const approvals = new ApprovalStore(resolved.approvalsFile)
   const states = new Map<Agent, AgentState>()
+  // Agents whose release began. An attach or mount that resumes after an await checks this and discards what it built.
+  const released = new WeakSet<Agent>()
+  let closed = false
+  const isGone = (agent: Agent): boolean => closed || released.has(agent)
   // Declaring the reviewer service in `inject` keeps the child pending until the service exists. The
   // object repeats the merge the Loader performs for a row-level `inject`.
   const client = resolved.reviewTools
@@ -133,8 +147,14 @@ export function apply(ctx: Context, config: Config = {}): void {
     }
   }
 
-  /** Start one server in the Agent's scope. Returns the failure text, or undefined on success. */
-  const mount = async (agent: Agent, state: AgentState, spec: ServerSpec): Promise<string | undefined> => {
+  /**
+   * Start one server in the Agent's scope. The mount is registered before any await, so a second caller
+   * for the same server joins it. Returns the failure text, or undefined on success.
+   */
+  const mount = (agent: Agent, state: AgentState, spec: ServerSpec): Promise<string | undefined> => {
+    const existing = state.mounted.get(spec.serverName)
+    if (existing !== undefined) return existing.done
+    if (isGone(agent)) return Promise.resolve('the session ended before the server started')
     const scope = createScope(ctx, agent)
     const common = { toolCallTimeoutMs: resolved.toolCallTimeoutMs, failOnStartupError: true }
     const clientConfig = spec.transport === 'stdio'
@@ -142,37 +162,66 @@ export function apply(ctx: Context, config: Config = {}): void {
       : McpClient.Config({ transport: 'streamable-http', serverName: spec.serverName, url: spec.url, headers: spec.headers, ...common })
     const start = async (): Promise<void> => {
       const fiber = await scope.ctx.plugin(client, clientConfig)
-      // A child that waits for the reviewer service resolves while still pending; it has mounted nothing,
-      // so report it through the startup timeout instead of as a started server.
-      const state: number = fiber.state
-      if (state !== FIBER_ACTIVE) await new Promise<never>(() => {})
+      // A child that waits for the reviewer service resolves while still pending; it has mounted nothing.
+      const fiberState: number = fiber.state
+      if (fiberState !== FIBER_ACTIVE) {
+        throw new Error(resolved.reviewTools
+          ? 'the MCP tool reviewer service (mcpToolReview) is required and is not loaded; load the reviewer plugin or set reviewTools to false'
+          : 'the server plugin did not become active')
+      }
     }
-    let timer: NodeJS.Timeout | undefined
-    try {
-      await Promise.race([
-        start(),
-        new Promise<never>((_resolve, reject) => {
-          const reason = resolved.reviewTools ? '; the MCP tool reviewer is required and is not loaded' : ''
-          timer = setTimeout(() => { reject(new Error(`did not start within ${resolved.startupTimeoutMs} ms${reason}`)) }, resolved.startupTimeoutMs)
-        }),
-      ])
-      state.mounted.set(spec.serverName, scope)
-      return undefined
-    } catch (error: unknown) {
-      await scope.dispose()
-      // Upstream messages can quote the spawned command line, so expanded values are scrubbed.
-      return redact((error as Error).message, spec.secrets)
-    } finally {
-      clearTimeout(timer)
+    const run = async (): Promise<string | undefined> => {
+      let timer: NodeJS.Timeout | undefined
+      try {
+        await Promise.race([
+          start(),
+          new Promise<never>((_resolve, reject) => {
+            timer = setTimeout(() => { reject(new Error(`did not start within ${resolved.startupTimeoutMs} ms`)) }, resolved.startupTimeoutMs)
+          }),
+        ])
+        if (record.cancelled || isGone(agent)) {
+          record.cancelled = true
+          await scope.dispose()
+          return 'it was stopped before it finished starting'
+        }
+        record.status = 'running'
+        return undefined
+      } catch (error: unknown) {
+        // Upstream messages can quote the spawned command line, so expanded values are scrubbed.
+        const text = redact((error as Error).message, spec.secrets)
+        await scope.dispose()
+        return text
+      } finally {
+        clearTimeout(timer)
+        if (record.status !== 'running' && state.mounted.get(spec.serverName) === record) state.mounted.delete(spec.serverName)
+      }
     }
+    const record: Mount = { scope, status: 'starting', cancelled: false, done: run() }
+    state.mounted.set(spec.serverName, record)
+    return record.done
+  }
+
+  /** Stop one mount, starting or running, and wait until its scope is gone. */
+  const stop = async (state: AgentState, name: string): Promise<void> => {
+    const record = state.mounted.get(name)
+    if (record === undefined) return
+    record.cancelled = true
+    state.mounted.delete(name)
+    await Promise.all([record.scope.dispose(), record.done])
   }
 
   const release = async (agent: Agent): Promise<void> => {
+    released.add(agent)
     const state = states.get(agent)
     if (state === undefined) return
     states.delete(agent)
-    await Promise.all([...state.mounted.values()].map(scope => scope.dispose()))
+    await Promise.all([...state.mounted.keys()].map(serverName => stop(state, serverName)))
   }
+
+  /** Release an Agent from a listener, where a rejection would be unhandled. */
+  const releaseLogged = (agent: Agent): Promise<void> => release(agent).catch((error: unknown) => {
+    ctx.logger.warn(`air-mcp-conventions: stopping servers failed: ${(error as Error).message}`)
+  })
 
   const describeServers = async (state: AgentState): Promise<string> => {
     const lines: string[] = []
@@ -184,7 +233,7 @@ export function apply(ctx: Context, config: Config = {}): void {
       if (names.length > 0) details.push(`${label}: ${names.join(', ')}`)
       if (spec.transport === 'stdio') details.push(`cwd: ${spec.cwd}`)
       let status = 'not approved'
-      if (state.mounted.has(spec.serverName)) status = 'running'
+      if (state.mounted.get(spec.serverName)?.status === 'running') status = 'running'
       else if (await isApproved(state, spec)) status = 'approved, not running'
       lines.push(`${spec.serverName} (${spec.transport}: ${details.join('; ')}): ${status}`)
     }
@@ -210,9 +259,7 @@ export function apply(ctx: Context, config: Config = {}): void {
     const key = approvalKey(state.projectRoot, spec)
     if (action === 'revoke') {
       // Stop the server first so an unwritable approvals file cannot leave a revoked server running.
-      const scope = state.mounted.get(spec.serverName)
-      state.mounted.delete(spec.serverName)
-      await scope?.dispose()
+      await stop(state, spec.serverName)
       try {
         await approvals.remove(key)
       } catch (error: unknown) {
@@ -222,7 +269,7 @@ export function apply(ctx: Context, config: Config = {}): void {
     }
     const record = { projectRoot: state.projectRoot, server: spec.serverName, approvedAt: new Date().toISOString() }
     await approvals.add(key, spec.transport === 'stdio' ? Object.assign({ cwd: spec.cwd }, record) : record)
-    if (state.mounted.has(spec.serverName)) return { kind: 'success', text: `"${spec.serverName}" is already running.` }
+    if (state.mounted.get(spec.serverName)?.status === 'running') return { kind: 'success', text: `"${spec.serverName}" is already running.` }
     const failure = await mount(invocation.agent, state, spec)
     return failure === undefined
       ? { kind: 'success', text: `Approved and started "${spec.serverName}".` }
@@ -233,7 +280,9 @@ export function apply(ctx: Context, config: Config = {}): void {
   const attach = async (agent: Agent, cwd: string): Promise<void> => {
     const projectRoot = await findProjectRoot(cwd, resolved.projectRootMarkers)
     const file = join(projectRoot, '.mcp.json')
+    if (isGone(agent)) return
     const read = await readContained(file, { roots: [projectRoot], maxBytes: resolved.maxFileBytes })
+    if (isGone(agent)) return
     let parsed: ReturnType<typeof parseMcpJson> = { servers: [], problems: [] }
     if (read.kind === 'ok') parsed = parseMcpJson(read.text, { file, cwd, env: process.env })
     else if (read.kind !== 'absent') parsed = { servers: [], problems: [describeSkip(file, read.kind, resolved.maxFileBytes)] }
@@ -248,7 +297,7 @@ export function apply(ctx: Context, config: Config = {}): void {
         return
       }
       const failure = await mount(agent, state, spec)
-      if (failure !== undefined) ctx.logger.warn(`air-mcp-conventions: server "${spec.serverName}" did not start: ${failure}`)
+      if (failure !== undefined && !isGone(agent)) ctx.logger.warn(`air-mcp-conventions: server "${spec.serverName}" did not start: ${failure}`)
     }))
     if (pending > 0) ctx.logger.info(`air-mcp-conventions: ${pending} server(s) in ${join(projectRoot, '.mcp.json')} await approval; run /mcp in the session`)
   }
@@ -264,11 +313,12 @@ export function apply(ctx: Context, config: Config = {}): void {
   })
 
   ctx.on('agent/disposed', ({ agent }) => {
-    void release(agent)
+    void releaseLogged(agent)
   })
 
   ctx.effect(() => async () => {
-    await Promise.all([...states.keys()].map(agent => release(agent)))
+    closed = true
+    await Promise.all([...states.keys()].map(agent => releaseLogged(agent)))
   }, 'air-mcp-conventions.servers')
 
   ctx.commands.register({

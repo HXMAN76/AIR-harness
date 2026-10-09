@@ -151,7 +151,8 @@ function firstLine(text: string): string {
  */
 export function apply(ctx: Context, config: Config = {}): void {
   const resolved = resolveConfig(config)
-  const scopes = new Map<Agent, Scope>()
+  /** One entry per Agent from the first moment its discovery starts; `scope` is set once commands are registered. */
+  const scopes = new Map<Agent, { released: boolean; scope?: Scope }>()
 
   /** Read and parse one command file; undefined when it is gone, refused, empty, or does not parse. */
   const load = async (path: string, confine: string): Promise<LoadedCommand | undefined> => {
@@ -219,26 +220,40 @@ export function apply(ctx: Context, config: Config = {}): void {
   }
 
   const release = async (agent: Agent): Promise<void> => {
-    const scope = scopes.get(agent)
-    if (scope === undefined) return
+    const entry = scopes.get(agent)
+    if (entry === undefined) return
     scopes.delete(agent)
-    await scope.dispose()
+    entry.released = true
+    await entry.scope?.dispose()
   }
+
+  /** Release an Agent from a listener, where a rejection would be unhandled. */
+  const releaseLogged = (agent: Agent): Promise<void> => release(agent).catch((error: unknown) => {
+    ctx.logger.warn(`air-command-conventions: removing commands failed: ${(error as Error).message}`)
+  })
 
   ctx.on('agent/created', async ({ agent }) => {
     const cwd = agent.session.header.cwd
     if (cwd === undefined) return
+    // Registered before the first await so a disposal during discovery finds the entry and marks it released.
+    const entry: { released: boolean; scope?: Scope } = { released: false }
+    scopes.set(agent, entry)
     let files: CommandFile[]
     try {
       files = await discover(agent, cwd)
     } catch (error: unknown) {
       // A command folder that cannot be read costs the Agent its commands, never its creation.
       ctx.logger.warn(`air-command-conventions: command files could not be read: ${(error as Error).message}`)
+      if (scopes.get(agent) === entry) scopes.delete(agent)
       return
     }
-    if (files.length === 0) return
+    if (entry.released) return
+    if (files.length === 0) {
+      scopes.delete(agent)
+      return
+    }
     const scope = createScope(ctx, agent)
-    scopes.set(agent, scope)
+    entry.scope = scope
     for (const file of files) {
       scope.ctx.commands.register({
         name: file.name,
@@ -250,10 +265,10 @@ export function apply(ctx: Context, config: Config = {}): void {
   })
 
   ctx.on('agent/disposed', ({ agent }) => {
-    void release(agent)
+    void releaseLogged(agent)
   })
 
   ctx.effect(() => async () => {
-    await Promise.all([...scopes.keys()].map(agent => release(agent)))
+    await Promise.all([...scopes.keys()].map(agent => releaseLogged(agent)))
   }, 'air-command-conventions.scopes')
 }
