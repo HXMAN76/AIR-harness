@@ -10,6 +10,20 @@
 
 **Spec:** [spikes/02-file-conventions.md](spikes/02-file-conventions.md) (primary; §0, §1, §3, §4, §5, §9), [spikes/01-toolchain.md](spikes/01-toolchain.md) (package templates, native Loader test, pitfalls), [research/research.md §5.1](../../research/research.md), [research/notes/03-competitors.md §5](../../research/notes/03-competitors.md). Depends on [plan 00](2026-09-30-00-workspace-foundation.md) being done.
 
+## Execution record (2026-10-09, Fedora)
+
+All nine tasks were executed on branch `air/feat/01-file-conventions` (stacked on the plan 00 branch); the checkboxes below are left as written. Result: five packages, 196 tests passing (187 in packages at 100% coverage, 9 workspace-level), build, typecheck, lint, the composition check (8 of 8), and the profile smoke all pass. The upstream extension points the plan assumed (skill providers, `agent/pre-step`, the command registry, per-Agent MCP mounts) matched `0.2.1-alpha.1`; no design change was needed.
+
+Corrections to the plan's code found during execution:
+
+- **Frontmatter:** YAML lines keep a trailing carriage return in files saved with CRLF line endings; the parser strips it.
+- **Watcher:** a path that was absent at listing time was reported as changed on the first poll; absent and unreadable paths are now ignored on that poll, and a path created later is still detected.
+- **MCP mounts with `reviewTools: true`:** `ctx.plugin` resolves while the child is still pending on the reviewer service, so `/mcp approve` reported a start although nothing was mounted. The mount now waits for the startup timeout unless the child is active, and the message says the reviewer is required and not loaded. Two consequences for plan 02: the active state is compared with the literal `2` because upstream's fiber-state enum is a `const` enum (add a test that fails if upstream renumbers it), and a reviewer that becomes available after the child is created is reported as a timeout (plan 02 must load the reviewer before the convention plugin or revisit this wait).
+- **Tests:** a session header `cwd` must be absolute; upstream starts a stdio MCP server twice per Agent (a probe, then the mount), so process counts are lower bounds.
+- **Lint-driven changes:** `\u` escapes instead of literal non-ASCII characters, `Object.assign` instead of spreading `Config`-typed values, extracted strings instead of `expect.stringContaining` inside object matchers.
+
+Not run: anything on native Windows (Windows branches are covered only by tests that stub the platform); the manual Web UI checks of Task 9 Step 9, which need a browser and a running local model.
+
 ## Revision log
 
 **2026-10-08.** The plan was written against `dsh-v0.2.0-rc.2`, and its code has never been compiled. The fork is now at `dsh-v0.2.1-alpha.1`. Each entry gives the change and the reason.

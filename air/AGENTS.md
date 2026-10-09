@@ -16,9 +16,9 @@ Read in this order:
 
 ## Current state
 
-Research and plans 00–07 are done and were revised on 2026-10-08 for upstream `0.2.1-alpha.1`, native-Windows teammates, and the owner's decisions (the roadmap has the revision status and what was run); **no AIR feature code exists yet**. The owner started the build on 2026-10-09 with plan 00 (workspace toolchain, lint config, profile smoke, CI job), executed on branch `air/feat/00-workspace-foundation`. Do not execute a later plan until the owner says to start it.
+Research and plans 00–07 are done and were revised on 2026-10-08 for upstream `0.2.1-alpha.1`, native-Windows teammates, and the owner's decisions (the roadmap has the revision status and what was run); the owner started the build on 2026-10-09. Executed so far, on Fedora only: plan 00 (workspace toolchain, lint config, profile smoke, CI job) on branch `air/feat/00-workspace-foundation`, and plan 01 (file conventions: skills, instructions, `.mcp.json`, commands, the `air` preset) on branch `air/feat/01-file-conventions`, stacked on the first. Each plan file starts with an execution record. Do not execute a later plan until the owner says to start it.
 
-What exists and works: the `air` bundle ([bundles/air](bundles/air)), which turns off upstream-vendor uploads, accounts, and telemetry and makes a local Ollama model the default; and an `air` profile created by the commands in [README.md](README.md).
+What exists and works: five `@air/dsh-*` packages under [packages](packages) (plan 01), and the `air` bundle ([bundles/air](bundles/air)), which loads them, turns off upstream-vendor uploads, accounts, and telemetry and makes a local Ollama model the default; and an `air` profile created by the commands in [README.md](README.md).
 
 ## Rules
 
