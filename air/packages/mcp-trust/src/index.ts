@@ -41,7 +41,7 @@ export const name = 'air-mcp-trust'
 /** Services required by this plugin. */
 export const inject = ['tools']
 
-/** Plugin configuration; no field has a hidden default except `servers`. */
+/** Plugin configuration; no field has a hidden default except `servers` (empty) and `auditMaxBytes` (10 MiB). */
 export interface Config {
   /** Absolute path of the lockfile shared by every profile that must see the same pins. */
   lockfile: string
@@ -74,7 +74,7 @@ export interface Config {
 export const Config: z<Config> = z.object({
   lockfile: z.string().required().description('Absolute path of the MCP trust lockfile.'),
   auditDir: z.string().required().description('Absolute directory for JSONL audit files.'),
-  auditMaxBytes: z.number().required().description('Size a JSONL audit file may reach before it rotates to one previous file.'),
+  auditMaxBytes: z.number().default(10_485_760).description('Size a JSONL audit file may reach before it rotates to one previous file.'),
   defaults: z.any().required().description('Trust policy applied to every server.'),
   servers: z.dict(z.any()).default({}).description('Per-server trust policy overrides by serverName.'),
   denyUnreviewedMcpTools: z.boolean().required().description('Deny calls to mcp__ tools that no review registered.'),

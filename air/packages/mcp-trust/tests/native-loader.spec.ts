@@ -26,7 +26,6 @@ it('loads the built trust plugin by package name and registers a pinned surface'
         config: {
           lockfile: paths.lockPath,
           auditDir: paths.auditDir,
-          auditMaxBytes: 1_000_000,
           defaults: { mode: 'enforce', onAdded: 'withhold', onChanged: 'reject-generation', onRemoved: 'accept', instructions: 'pin' },
           denyUnreviewedMcpTools: true,
           maxPromptsPerServer: 1,

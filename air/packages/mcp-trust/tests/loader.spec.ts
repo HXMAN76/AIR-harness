@@ -309,6 +309,12 @@ describe('trust plugin lifecycle (scenario 27)', () => {
 describe('resolveConfig', () => {
   const base = trustConfig({ root: '/r', lockPath: '/r/mcp-lock.json', auditDir: '/r/audit' })
 
+  it('defaults the audit file size limit to 10 MiB in the schema', () => {
+    const { auditMaxBytes, ...rest } = base
+    expect(auditMaxBytes).toBe(1_000_000)
+    expect(trust.Config(rest as trust.Config).auditMaxBytes).toBe(10_485_760)
+  })
+
   it('resolves per-server policies over the defaults', () => {
     const resolved = trust.resolveConfig(Object.assign({}, base, { servers: { browser: { mode: 'tofu', deny: ['browser_evaluate'] } } }))
     expect(resolved.policyOf('browser')).toMatchObject({ mode: 'tofu', deny: ['browser_evaluate'], onAdded: 'withhold' })
