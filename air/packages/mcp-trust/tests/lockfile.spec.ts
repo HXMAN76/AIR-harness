@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
-  CANONICALIZATION, emptyLock, LockfileError, LOCK_VERSION, parseLockDocument, readLockfile,
+  CANONICALIZATION, emptyLock, LockfileError, LOCK_VERSION, lockKey, parseLockDocument, parseLockKey, readLockfile,
   updateLockfile, watchLockfile, type LockServer,
 } from '../src/lockfile.ts'
 
@@ -70,10 +70,15 @@ describe('parseLockDocument', () => {
     expect(({} as Record<string, unknown>)['echo']).toBeUndefined()
   })
 
-  it('round-trips an optional identity and rejects a malformed one', () => {
+  it('requires identity to equal the part after @ in the key, and forbids it otherwise', () => {
     const pinned = { ...SERVER, identity: IDENTITY }
-    expect(parseLockDocument(document({ s: pinned })).servers['s']).toEqual(pinned)
-    expect(() => parseLockDocument(document({ s: { ...SERVER, identity: 'xyz' } }))).toThrow('lockfile.servers.s.identity')
+    const key = lockKey('s', IDENTITY)
+    expect(parseLockDocument(document({ [key]: pinned })).servers[key]).toEqual(pinned)
+    expect(() => parseLockDocument(document({ [key]: { ...SERVER, identity: 'xyz' } }))).toThrow(`lockfile.servers.${key}.identity`)
+    expect(() => parseLockDocument(document({ [key]: { ...SERVER, identity: 'c'.repeat(64) } }))).toThrow('must equal the part of the key after @')
+    expect(() => parseLockDocument(document({ [key]: SERVER }))).toThrow('identity is required')
+    expect(() => parseLockDocument(document({ s: pinned }))).toThrow('identity must be absent')
+    expect(parseLockDocument(document({ s: SERVER })).servers['s']).toEqual(SERVER)
   })
 
   it('drops members it does not know, so they are not carried into the pin', () => {
@@ -99,6 +104,19 @@ describe('parseLockDocument', () => {
   ])('rejects %s', (_label, value, message) => {
     expect(() => parseLockDocument(value)).toThrow(LockfileError)
     expect(() => parseLockDocument(value)).toThrow(message)
+  })
+})
+
+describe('lockKey', () => {
+  it('keys by name alone without a reviewKey and by name and reviewKey with one', () => {
+    expect(lockKey('browser')).toBe('browser')
+    expect(lockKey('browser', IDENTITY)).toBe(`browser@${IDENTITY}`)
+  })
+
+  it('is inverted by parseLockKey', () => {
+    expect(parseLockKey('browser')).toEqual({ serverName: 'browser' })
+    expect(parseLockKey(`browser@${IDENTITY}`)).toEqual({ serverName: 'browser', reviewKey: IDENTITY })
+    expect(parseLockKey(lockKey('a-b_c', IDENTITY))).toEqual({ serverName: 'a-b_c', reviewKey: IDENTITY })
   })
 })
 

@@ -26,6 +26,27 @@ const REPAIR = 'The file was not changed. Repair it, or move it aside and pin ea
 const DIGEST = /^sha256:[0-9a-f]{64}$/
 const IDENTITY = /^[0-9a-f]{64}$/
 
+/**
+ * Key of a server's entry in `LockDocument.servers`. Two servers with the same name but different
+ * definitions (for example from two projects) get separate pins.
+ * @param serverName - local server name; it cannot contain `@`.
+ * @param reviewKey - opaque identity of the exact server definition, when the server has one.
+ * @returns `serverName`, or `serverName@reviewKey` when a `reviewKey` is given.
+ */
+export function lockKey(serverName: string, reviewKey?: string): string {
+  return reviewKey === undefined ? serverName : `${serverName}@${reviewKey}`
+}
+
+/**
+ * Inverse of {@link lockKey}.
+ * @param key - a key of `LockDocument.servers`.
+ * @returns the server name and, when the key contains `@`, the review key after the first `@`.
+ */
+export function parseLockKey(key: string): { serverName: string; reviewKey?: string } {
+  const at = key.indexOf('@')
+  return at < 0 ? { serverName: key } : { serverName: key.slice(0, at), reviewKey: key.slice(at + 1) }
+}
+
 /** One approved tool definition. */
 export interface LockTool {
   digest: string
@@ -39,8 +60,8 @@ export interface LockTool {
 export interface LockServer {
   /**
    * `approvalKey` (64 lowercase hex) of the server specification the pin was taken for: project root,
-   * server name, unexpanded definition, and working directory. When present, a pin applies only to a
-   * server whose current `approvalKey` is equal. Absent means the pin is by name alone.
+   * server name, unexpanded definition, and working directory. Present exactly when the entry key
+   * contains `@`, and then equal to the part of the key after it (see {@link lockKey}).
    */
   identity?: string
   surfaceDigest: string
@@ -124,7 +145,7 @@ function parseTool(value: unknown, path: string): LockTool {
   }
 }
 
-function parseServer(value: unknown, path: string): LockServer {
+function parseServer(key: string, value: unknown, path: string): LockServer {
   const raw = record(value, path)
   const tools = bare<LockTool>()
   for (const [name, tool] of Object.entries(record(raw['tools'], `${path}.tools`))) {
@@ -135,6 +156,16 @@ function parseServer(value: unknown, path: string): LockServer {
     const identity = text(raw['identity'], `${path}.identity`)
     if (!IDENTITY.test(identity)) throw new LockfileError(`${path}.identity must be 64 lowercase hex characters`)
     server.identity = identity
+  }
+  const { reviewKey } = parseLockKey(key)
+  if (reviewKey === undefined && server.identity !== undefined) {
+    throw new LockfileError(`${path}.identity must be absent for a key without @`)
+  }
+  if (reviewKey !== undefined && server.identity === undefined) {
+    throw new LockfileError(`${path}.identity is required for a key with @`)
+  }
+  if (reviewKey !== undefined && server.identity !== reviewKey) {
+    throw new LockfileError(`${path}.identity must equal the part of the key after @`)
   }
   if (raw['instructions'] !== undefined) {
     const instructions = record(raw['instructions'], `${path}.instructions`)
@@ -161,7 +192,7 @@ export function parseLockDocument(value: unknown): LockDocument {
   }
   const servers = bare<LockServer>()
   for (const [name, server] of Object.entries(record(root['servers'], 'lockfile.servers'))) {
-    servers[name] = parseServer(server, `lockfile.servers.${name}`)
+    servers[name] = parseServer(name, server, `lockfile.servers.${name}`)
   }
   return { version: LOCK_VERSION, canonicalization: CANONICALIZATION, servers }
 }
