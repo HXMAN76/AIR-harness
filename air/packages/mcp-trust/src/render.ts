@@ -50,8 +50,13 @@ export function visible(text: string): string {
   return out
 }
 
-/** Make `text` printable and at most `limit` UTF-16 units long, saying how much was cut. */
-function clip(text: string, limit: number): string {
+/**
+ * Make untrusted text printable and cut it to a fixed length.
+ * @param text - untrusted text.
+ * @param limit - most UTF-16 units kept.
+ * @returns printable text, ending with how many characters were cut when it was shortened.
+ */
+export function clip(text: string, limit: number): string {
   if (text.length <= limit) return visible(text)
   const high = text.charCodeAt(limit - 1)
   const end = high >= 0xd800 && high <= 0xdbff ? limit - 1 : limit

@@ -13,8 +13,11 @@ import { mkdirSync } from 'node:fs'
 import { dirname, isAbsolute } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
+import type {} from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-mcp-client'
 import type {} from '@deepseek-ai/dsh-tools'
+import type {} from '@deepseek-ai/dsh-user-approval'
+import { createPreStep } from './approval.ts'
 import { Audit } from './audit.ts'
 import { TrustEngine, type EngineConfig } from './engine.ts'
 import { watchLockfile } from './lockfile.ts'
@@ -159,6 +162,11 @@ export function apply(ctx: Context, config: Config): void {
     engine.watchFailed,
   ), 'air-mcp-trust.watch')
   ctx.tools.guard(execution => engine.guard(execution.name))
+  // The approval service is optional: read it through the service store on each turn.
+  const preStep = createPreStep({
+    engine, audit, approval: () => ctx.get('approval'), logger, cli: resolved.cliCommand, enrolls: resolved.enrollOnApproval,
+  })
+  ctx.on('agent/pre-step', preStep)
   ctx.provide('mcpToolReview', engine)
   ctx.provide('mcpTrust', engine)
 }

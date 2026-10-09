@@ -5,12 +5,15 @@ import { pathToFileURL } from 'node:url'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
+import { Session, SessionId } from '@deepseek-ai/dsh-session'
+import type { PreStepDecision } from '@deepseek-ai/dsh-agent'
 import * as mcpClient from '@deepseek-ai/dsh-mcp-client'
 import SystemPrompt, { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import * as trust from '../src/index.ts'
 import { readLockfile, updateLockfile } from '../src/lockfile.ts'
 import { pinSurface, withTools } from '../src/verdict.ts'
+import { sessionAgent } from './support/agent.ts'
 import { boot, PUBLIC, type Booted, type BootPaths, type Surface } from './support/boot.ts'
 
 declare global {
@@ -143,6 +146,18 @@ describe('reviewed mcp-client row', () => {
         type: 'mcp/drift', data: { serverName: 'mutable', added: ['browser_evaluate'], action: 'withhold' },
       })
     }, { timeout: 5000 })
+  })
+
+  it('audits the surface of a turn at agent/pre-step and delegates, with no approval service composed', async () => {
+    const { ctx, auditDir } = await start({ tools: [ECHO] }, { pin: false })
+    await vi.waitFor(() => { expect(ctx.get('mcpTrust')?.observed(MUTABLE)?.state).toBe('unpinned') }, { timeout: 10_000 })
+    const agent = sessionAgent(Session.create(SessionId('pre-step-session')))
+    const decision: PreStepDecision = { kind: 'enter', messages: [] }
+    const next = vi.fn(() => Promise.resolve(decision))
+    expect(await ctx.waterfall('agent/pre-step', { agent, messages: [], turn: 1, step: 1, signal: new AbortController().signal }, next)).toBe(decision)
+    expect(next).toHaveBeenCalledTimes(1)
+    const [record] = (await readFile(join(auditDir, 'pre-step-session.jsonl'), 'utf8')).trimEnd().split('\n')
+    expect(JSON.parse(record!)).toMatchObject({ type: 'mcp/surface', data: { serverName: 'mutable', verdict: 'unpinned' } })
   })
 
   it('registers only allowed tools and never a denied one (scenarios 8 and 9)', async () => {
