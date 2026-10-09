@@ -63,7 +63,7 @@ export interface BootPaths {
 /** One booted tree and its scratch paths. */
 export interface Booted extends BootPaths {
   ctx: Context
-  writeSurface(surface: Surface): Promise<void>
+  writeSurface: (surface: Surface) => Promise<void>
   dispose(): Promise<void>
 }
 
