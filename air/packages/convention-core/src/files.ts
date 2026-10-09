@@ -99,8 +99,11 @@ export async function readContained(path: string, options: ContainedReadOptions)
   const real = await realpathIfPresent(path)
   if (real === undefined) return { kind: 'absent' }
   const roots = await realRootsOf(options.roots)
-  if (!roots.some(root => isInside(root, real, options.pathApi))) return { kind: 'outside-root' }
-  if (isSensitivePath(path) || isSensitivePath(real)) return { kind: 'sensitive' }
+  const root = roots.find(candidate => isInside(candidate, real, options.pathApi))
+  if (root === undefined) return { kind: 'outside-root' }
+  // Only the part below the matched root is classified; a lexical path outside every root counts by file name.
+  const lexical = options.roots.find(candidate => isInside(candidate, path, options.pathApi))
+  if (isSensitivePath(path, lexical, options.pathApi) || isSensitivePath(real, root, options.pathApi)) return { kind: 'sensitive' }
   const info = await statIfPresent(real)
   if (info?.isFile() !== true) return { kind: 'not-file' }
   if (info.size > options.maxBytes) return { kind: 'too-large' }

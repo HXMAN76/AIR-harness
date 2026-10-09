@@ -1,6 +1,6 @@
 /** Resolves Claude Code `@path` imports found in instruction files. */
 import { dirname, resolve } from 'node:path'
-import { expandHome, fileSize, isInside, isSensitivePath, readTextFile, realpathIfPresent } from '@air/dsh-convention-core'
+import { expandHome, isInside, readContained, realpathIfPresent } from '@air/dsh-convention-core'
 
 /** Claude Code follows imports at most this many files deep from the file that starts the chain. */
 export const MAX_IMPORT_HOPS = 4
@@ -79,8 +79,6 @@ export async function resolveImports(
   const skipped: SkippedImport[] = []
   const visited = new Set(seeds.map(seed => pathKey(resolve(seed.path))))
   const lexicalRoots = [options.projectRoot, ...options.allowedRoots]
-  const realRoots = await Promise.all(lexicalRoots.map(async root => (await realpathIfPresent(root)) ?? root))
-  const permitted = (roots: readonly string[], path: string): boolean => roots.some(root => isInside(root, path))
   const visit = async (file: InstructionFile, hop: number): Promise<void> => {
     for (const [index, written] of findImportPaths(file.content).entries()) {
       if (index >= options.maxImportsPerFile) {
@@ -90,34 +88,24 @@ export async function resolveImports(
       const target = resolve(dirname(file.path), expandHome(written, options.home))
       if (visited.has(pathKey(target))) continue
       visited.add(pathKey(target))
-      if (!permitted(lexicalRoots, target)) {
+      if (!lexicalRoots.some(root => isInside(root, target))) {
         skipped.push({ path: target, reason: 'outside-project' })
         continue
       }
       const real = await realpathIfPresent(target)
       if (real === undefined) continue
       visited.add(pathKey(real))
-      if (!permitted(realRoots, real)) {
-        skipped.push({ path: target, reason: 'outside-project' })
-        continue
-      }
-      if (isSensitivePath(target) || isSensitivePath(real)) {
-        skipped.push({ path: target, reason: 'sensitive' })
-        continue
-      }
-      const size = await fileSize(real)
-      if (size === undefined) continue
-      if (size > options.maxFileBytes) {
-        skipped.push({ path: target, reason: 'too-large' })
+      const read = await readContained(target, { roots: lexicalRoots, maxBytes: options.maxFileBytes })
+      if (read.kind === 'absent' || read.kind === 'not-file') continue
+      if (read.kind !== 'ok') {
+        skipped.push({ path: target, reason: read.kind === 'outside-root' ? 'outside-project' : read.kind })
         continue
       }
       if (hop + 1 > MAX_IMPORT_HOPS) {
         skipped.push({ path: target, reason: 'max-hops' })
         continue
       }
-      const content = await readTextFile(real)
-      /* v8 ignore next -- the size was read a moment ago; only a concurrent delete reaches this. */
-      if (content === undefined) continue
+      const content = read.text
       const imported = { path: target, content }
       files.push(imported)
       await visit(imported, hop + 1)

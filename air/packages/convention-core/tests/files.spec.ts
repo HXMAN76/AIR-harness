@@ -99,6 +99,28 @@ describe('readContained', () => {
     expect(await readContained(join(dir, '.env'), limits(dir))).toEqual({ kind: 'sensitive' })
   })
 
+  it('reads a project that sits under a directory with a sensitive name and still refuses sensitive files inside it', async () => {
+    const parent = join(await tempDir(), '.docker')
+    const project = join(parent, 'work')
+    await mkdir(join(project, '.aws'), { recursive: true })
+    await writeFile(join(project, 'a.md'), 'hello')
+    await writeFile(join(project, '.env'), 'SECRET=1')
+    await writeFile(join(project, '.aws', 'notes.md'), 'key')
+    expect(await readContained(join(project, 'a.md'), limits(project))).toEqual({ kind: 'ok', text: 'hello' })
+    expect(await readContained(join(project, '.env'), limits(project))).toEqual({ kind: 'sensitive' })
+    expect(await readContained(join(project, '.aws', 'notes.md'), limits(project))).toEqual({ kind: 'sensitive' })
+  })
+
+  it.skipIf(process.platform === 'win32')('refuses a link inside the project to an in-root sensitive file, and a link from outside to one', async () => {
+    const dir = await tempDir()
+    const outside = await tempDir()
+    await writeFile(join(dir, '.env'), 'SECRET=1')
+    await symlink(join(dir, '.env'), join(dir, 'link.md'))
+    await symlink(join(dir, '.env'), join(outside, 'link.md'))
+    expect(await readContained(join(dir, 'link.md'), limits(dir))).toEqual({ kind: 'sensitive' })
+    expect(await readContained(join(outside, 'link.md'), limits(dir))).toEqual({ kind: 'sensitive' })
+  })
+
   it('refuses a file outside every root and accepts any listed root', async () => {
     const dir = await tempDir()
     const other = await tempDir()
