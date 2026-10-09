@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "MCP trust command line",
+    "description": "pin, diff, verify, and revoke commands for the air-mcp profile"
+  }
+}

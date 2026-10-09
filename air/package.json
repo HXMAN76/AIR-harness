@@ -13,7 +13,7 @@
     "lint": "tsx scripts/gen-oxlintrc.ts --check && oxlint --config oxlint.air.json --type-aware --no-error-on-unmatched-pattern packages apps scripts",
     "lint:gen": "tsx scripts/gen-oxlintrc.ts",
     "test": "vitest run && pnpm -r --no-bail --if-present run test",
-    "smoke": "tsx scripts/smoke-profile.ts",
+    "smoke": "tsx scripts/smoke-profile.ts && tsx scripts/smoke-air-mcp.ts",
     "check:composition": "tsx scripts/check-air-composition.ts",
     "demo": "tsx scripts/make-demo-project.ts"
   },

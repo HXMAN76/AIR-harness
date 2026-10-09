@@ -14,7 +14,7 @@ pnpm dsh --profile air-mcp revoke browser --tool browser_evaluate
 pnpm dsh --profile air-mcp revoke browser --key a1b2c3d4e5f6
 ```
 
-`list` prints one line per lockfile entry: server name, the first 12 characters of the entry's key (or `-` for a profile-level server), the number of approved tools, and the newest approval time. A lockfile that cannot be read is reported with its path and the parse error, and the command exits 2.
+`list` prints one line per lockfile entry with four columns: server name, the first 12 characters of the entry's key (or `-` for a profile-level server), the number of approved tools, and the newest approval time. On an empty or missing lockfile it prints `the lockfile has no entries` and exits 0. A lockfile that cannot be read is reported with its path and the parse error, and the command exits 2.
 
 Servers come in two kinds. A profile-level server is mounted by a row in a profile patch; its lockfile entry has no key. A project server comes from a project's `.mcp.json`; the `air` profile mounts it inside a session in that project, and its lockfile entry carries a key that identifies the exact definition. This process can observe only the first kind, so:
 
@@ -33,12 +33,12 @@ Everything that comes from a server or from the lockfile (names, descriptions, i
 
 `pin` writes what the process fetched during startup, including tools the review withheld. `revoke` without `--tool` leaves an empty entry for the server, so `tofu` mode cannot pin it again without a person. A running `air` process watches the lockfile and applies a revocation without a restart.
 
-Create the profile once per harness home (the first command prints the composed configuration and can be ignored):
+Create the profile once per harness home, from the repository root so the relative bundle paths resolve (the first command prints the composed configuration and can be ignored):
 
 ```sh
 pnpm dsh --profile air-mcp --from-default-profile headless --dump-config
-pnpm dsh plugin --profile air-mcp add "$PWD/air/bundles/mcp-servers"
-pnpm dsh plugin --profile air-mcp add "$PWD/air/bundles/air-mcp"
+pnpm dsh plugin --profile air-mcp add air/bundles/mcp-servers
+pnpm dsh plugin --profile air-mcp add air/bundles/air-mcp
 ```
 
 ## Model Experience

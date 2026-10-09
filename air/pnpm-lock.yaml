@@ -53,6 +53,9 @@ importers:
       '@air/dsh-mcp-conventions':
         specifier: workspace:*
         version: link:../../packages/mcp-conventions
+      '@air/dsh-mcp-trust':
+        specifier: workspace:*
+        version: link:../../packages/mcp-trust
       '@air/dsh-skill-conventions':
         specifier: workspace:*
         version: link:../../packages/skill-conventions
@@ -62,6 +65,12 @@ importers:
       '@air/dsh-mcp-trust-cli':
         specifier: workspace:*
         version: link:../../packages/mcp-trust-cli
+
+  bundles/mcp-servers:
+    dependencies:
+      '@air/dsh-mcp-trust':
+        specifier: workspace:*
+        version: link:../../packages/mcp-trust
 
   packages/command-conventions:
     dependencies:

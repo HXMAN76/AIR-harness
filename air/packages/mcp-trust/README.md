@@ -36,7 +36,7 @@ In `tofu` and `enforce`, a change to a pinned surface is handled by the policy f
 | `cliCommand` | none, required | Command prefix of the `air-mcp` profile named in prompts and denials, for example `pnpm dsh --profile air-mcp`. |
 | `enrollOnApproval` | none, required | Approving a server that has no lock entry also writes its pin. A changed surface is never pinned by a prompt. |
 
-The plugin does not choose the lockfile or audit locations; the bundle that loads it sets them. Put both inside the user's home data directory so the `air` and `air-mcp` profiles share one lockfile. The lockfile directory is created with mode 0700 if it is missing.
+The plugin does not choose the lockfile or audit locations; the bundle that loads it sets them. The `air` bundle and `air/bundles/mcp-servers` (used by the `air-mcp` profile) both set the lockfile to `$DSH_HOME/air/mcp-lock.json` and the audit directory to `$DSH_HOME/air/mcp-audit`, so the two profiles share one lockfile. Both bundles set `defaults.mode` to `enforce` with `enrollOnApproval: true`. The lockfile directory is created with mode 0700 if it is missing.
 
 ## Lockfile and audit
 

@@ -51,6 +51,8 @@ writeFileSync(join(home, '.env'), 'OLLAMA_API_KEY=ollama\n')
 const dump = dsh(['--profile', profile, '--dump-config'])
 if (LAUNCHER_PROBLEM.test(dump.stderr)) fail('composition problems:', dump.stderr)
 if (!dump.stdout.includes('patched by @air/dsh-air-bundle')) fail('AIR bundle layer missing from the composed tree')
+if (!dump.stdout.includes('@air/dsh-mcp-trust')) fail('MCP trust row missing from the composed tree')
+if (!/reviewTools:\s*true/u.test(dump.stdout)) fail('reviewTools is not set on the mcp-conventions row')
 
 const child = spawn(process.execPath, [...launcher, '--profile', profile, '--no-open', '--port', port], { cwd: repoRoot, env })
 let out = ''
