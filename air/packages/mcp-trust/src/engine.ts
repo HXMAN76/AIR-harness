@@ -13,9 +13,9 @@
 
 import type { McpToolReview, McpToolReviewRequest, McpToolReviewVerdict } from '@deepseek-ai/dsh-mcp-client'
 import { DIGEST_FIELDS, type ToolDigest } from './canonical.ts'
-import { lockKey, readLockfile, updateLockfile, type LockDocument, type LockTool } from './lockfile.ts'
+import { lockKey, parseLockKey, readLockfile, updateLockfile, type LockDocument, type LockTool } from './lockfile.ts'
 import { commandHint, renderSurfaceDiff, visible } from './render.ts'
-import type { McpTool, McpTrust, ObservedSurface, ServerPolicy, ServerRef, SurfaceDiff, TrustAction } from './types.ts'
+import type { LockEntrySummary, McpTool, McpTrust, ObservedSurface, ServerPolicy, ServerRef, SurfaceDiff, TrustAction } from './types.ts'
 import { buildEntry, decide, emptyDiff, hasDrift, withTools } from './verdict.ts'
 
 /** Error text for log lines and rendered messages. */
@@ -518,6 +518,17 @@ export class TrustEngine implements McpToolReview, McpTrust {
     if (server === undefined) return this.surfaces()
     const surface = this.observed(server)
     return surface === undefined ? [] : [surface]
+  }
+
+  async entries(): Promise<readonly LockEntrySummary[]> {
+    const doc = await readLockfile(this.options.config.lockfile)
+    return Object.entries(doc.servers)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([key, entry]): LockEntrySummary => {
+        const { serverName, reviewKey } = parseLockKey(key)
+        const times = Object.values(entry.tools).map(tool => tool.approvedAt).sort()
+        return { serverName, ...reviewKey === undefined ? {} : { reviewKey }, tools: times.length, approvedAt: times.at(-1) ?? '' }
+      })
   }
 
   /** Cancel every pending TTL re-verification and release every per-server record. */

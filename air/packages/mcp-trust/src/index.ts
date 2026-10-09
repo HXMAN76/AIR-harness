@@ -25,8 +25,10 @@ import type { McpTrust } from './types.ts'
 import { resolvePolicy } from './verdict.ts'
 
 export type {
-  McpTrust, ObservedSurface, ServerPolicy, ServerRef, ServerTrustState, SurfaceDiff, TrustAction, TrustMode,
+  LockEntrySummary, McpTrust, ObservedSurface, ServerPolicy, ServerRef, ServerTrustState, SurfaceDiff, TrustAction, TrustMode,
 } from './types.ts'
+
+export { clip, visible } from './render.ts'
 
 declare module '@deepseek-ai/cordis' {
   interface Context {

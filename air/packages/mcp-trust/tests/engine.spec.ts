@@ -632,3 +632,29 @@ describe('denial text', () => {
     expect(trust.verify(S)).toHaveLength(1)
   })
 })
+
+describe('entries', () => {
+  it('summarizes every lock entry with its key, tool count, and newest approval time, sorted by lockfile key', async () => {
+    const later = new Date('2026-10-01T00:00:00.000Z')
+    await updateLockfile(lockfile, (doc) => {
+      doc.servers['zed'] = pinSurface([A, B], '', 'cli', NOW.toISOString())
+      doc.servers[lockKey('alpha', KEY_Y)] = pinSurface([A], '', 'prompt', later.toISOString(), KEY_Y)
+      doc.servers[lockKey('alpha', KEY_X)] = pinSurface([A], '', 'cli', NOW.toISOString(), KEY_X)
+      doc.servers['empty'] = withTools(undefined, {})
+      doc.servers['alpha'] = pinSurface([B], '', 'cli', NOW.toISOString())
+    }, 2000)
+    expect(await engine().entries()).toEqual([
+      { serverName: 'alpha', tools: 1, approvedAt: NOW.toISOString() },
+      { serverName: 'alpha', reviewKey: KEY_X, tools: 1, approvedAt: NOW.toISOString() },
+      { serverName: 'alpha', reviewKey: KEY_Y, tools: 1, approvedAt: later.toISOString() },
+      { serverName: 'empty', tools: 0, approvedAt: '' },
+      { serverName: 'zed', tools: 2, approvedAt: NOW.toISOString() },
+    ])
+  })
+
+  it('is empty without a lockfile and rejects with the repair text when the file is unreadable', async () => {
+    expect(await engine().entries()).toEqual([])
+    await writeFile(lockfile, '{')
+    await expect(engine().entries()).rejects.toThrow('The file was not changed.')
+  })
+})

@@ -51,6 +51,18 @@ export interface ServerRef {
   reviewKey?: string
 }
 
+/** One lockfile entry as the command line lists it. */
+export interface LockEntrySummary {
+  /** Local server name. */
+  serverName: string
+  /** 64-hex approval key of a project server definition; absent for profile-level servers. */
+  reviewKey?: string
+  /** Number of approved tools; an entry left by a whole-server revoke has none. */
+  tools: number
+  /** Newest tool approval time as an ISO 8601 string; empty when the entry has no approved tool. */
+  approvedAt: string
+}
+
 /** The latest surface a server presented, including tools that were not registered. */
 export interface ObservedSurface {
   serverName: string
@@ -110,4 +122,10 @@ export interface McpTrust {
    * @returns the surfaces; a named server that was never reviewed is omitted.
    */
   verify(server?: ServerRef): readonly ObservedSurface[]
+  /**
+   * Every lockfile entry, read fresh from disk, so a command line can list and address entries it cannot observe.
+   * @returns the entries sorted by lockfile key (the server name, then `@` and the review key).
+   * @throws LockfileError when the lockfile is unreadable or invalid.
+   */
+  entries(): Promise<readonly LockEntrySummary[]>
 }
