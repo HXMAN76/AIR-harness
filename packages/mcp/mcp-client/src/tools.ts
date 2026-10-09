@@ -30,6 +30,8 @@ export interface ToolBridgeOptions {
   /** Whether a registry conflict is contained or rejects this synchronization. */
   registrationFailure: 'contain' | 'throw'
   serverName: string
+  /** Opaque server-definition identity forwarded to the reviewer. */
+  reviewKey?: string
   toolCallTimeoutMs: number
   /** Raw instructions of the generation being synchronized; reviewed together with its tools. */
   instructions?: string
@@ -196,6 +198,7 @@ async function reviewGeneration(
   try {
     return await reviewer.review({
       serverName: opts.serverName,
+      ...opts.reviewKey === undefined ? {} : { reviewKey: opts.reviewKey },
       tools: response.tools.map((definition: Tool) => ({
         rawName: definition.name,
         publicName: publicToolName(opts.serverName, definition.name),

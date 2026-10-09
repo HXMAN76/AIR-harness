@@ -23,6 +23,8 @@ export interface McpReviewedTool {
 export interface McpToolReviewRequest {
   /** Local namespace from configuration; never the server's self-reported name. */
   readonly serverName: string
+  /** Opaque identity of the server definition from the `reviewKey` config field; absent when none was configured. */
+  readonly reviewKey?: string
   /** Every fetched tool; duplicate raw names were already rejected. */
   readonly tools: readonly McpReviewedTool[]
   /** Raw server instructions of the connection generation without attribution; empty when absent. */

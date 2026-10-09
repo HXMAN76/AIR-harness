@@ -7,6 +7,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
+import { Config as ConfigSchema } from '@deepseek-ai/dsh-mcp-client'
 import type { Config, McpToolReview, McpToolReviewRequest } from '@deepseek-ai/dsh-mcp-client'
 
 const { mockConnect, mockClose, mockListTools, MockClient } = vi.hoisted(() => {
@@ -132,6 +133,21 @@ describe('syncTools with a tool reviewer', () => {
     await ctx.fiber.dispose()
   })
 
+  it('carries the configured reviewKey in the request and omits it otherwise', async () => {
+    const requests: McpToolReviewRequest[] = []
+    ctx.provide('mcpToolReview', {
+      review(request) {
+        requests.push(request)
+        return Promise.resolve({ tools: [], instructions: '' })
+      },
+    } satisfies McpToolReview)
+    await syncTools(clientListing([tool('a')]) as never, ctx, { ...opts, reviewKey: 'abc-123' }, new Map())
+    await syncTools(clientListing([tool('a')]) as never, ctx, opts, new Map())
+    expect(requests[0]!.reviewKey).toBe('abc-123')
+    expect(Object.hasOwn(requests[1]!, 'reviewKey')).toBe(false)
+    await ctx.fiber.dispose()
+  })
+
   it('registers only the accepted subset and applies a replaced description', async () => {
     ctx.provide('mcpToolReview', {
       review: request => Promise.resolve({
@@ -245,6 +261,24 @@ describe('connection supervisor with a tool reviewer', () => {
     }
   })
 
+  it('forwards the configured reviewKey from the connection config to the reviewer', async () => {
+    const requests: McpToolReviewRequest[] = []
+    ctx.provide('mcpToolReview', {
+      review(request) {
+        requests.push(request)
+        return Promise.resolve({ tools: [], instructions: '' })
+      },
+    } satisfies McpToolReview)
+    const handle = startConnection(ctx, { ...stdioConfig, reviewKey: 'key-1' }, resolveReconnectPolicy(undefined, 'reconnect'))
+    try {
+      await handle.ready
+      expect(requests[0]!.reviewKey).toBe('key-1')
+    } finally {
+      await handle.dispose()
+      await ctx.fiber.dispose()
+    }
+  })
+
   it('ignores a re-sync request after the supervisor was disposed', async () => {
     const requests: McpToolReviewRequest[] = []
     ctx.provide('mcpToolReview', {
@@ -261,5 +295,21 @@ describe('connection supervisor with a tool reviewer', () => {
     await new Promise(resolve => setTimeout(resolve, 20))
     expect(mockListTools.mock.calls.length).toBe(calls)
     await ctx.fiber.dispose()
+  })
+})
+
+describe('reviewKey config', () => {
+  const base = { transport: 'stdio', serverName: 'srv', command: 'echo' } as const
+
+  it('accepts a bounded identifier and leaves it absent by default', () => {
+    expect(ConfigSchema({ ...base, reviewKey: 'a1.B2_c3:d4-e5' }).reviewKey).toBe('a1.B2_c3:d4-e5')
+    expect(ConfigSchema({ ...base, reviewKey: 'k'.repeat(128) }).reviewKey).toHaveLength(128)
+    expect(Object.hasOwn(ConfigSchema({ ...base }), 'reviewKey')).toBe(false)
+  })
+
+  it('rejects an empty, overlong, or badly spelled reviewKey at load', () => {
+    for (const reviewKey of ['', 'k'.repeat(129), 'has space', 'slash/key', 'caf\u00e9']) {
+      expect(() => ConfigSchema({ ...base, reviewKey })).toThrow()
+    }
   })
 })

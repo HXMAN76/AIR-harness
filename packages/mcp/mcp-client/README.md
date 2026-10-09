@@ -65,6 +65,7 @@ Add one entry per server; nothing else is required. After the harness starts, th
 | `reconnect.initialDelayMs` | `500` | First reconnect delay; doubles per consecutive failed attempt |
 | `reconnect.maxDelayMs` | `30,000` | Backoff ceiling; also the uptime after which the attempt budget resets |
 | `reconnect.maxAttempts` | `10` | Consecutive failed attempts per outage before giving up |
+| `reviewKey` | none | Opaque identity of this server definition, supplied by the mounting code and forwarded unchanged to the `mcpToolReview` service; `[A-Za-z0-9._:-]{1,128}` |
 
 The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-mcp-client) is the exhaustive source for every accepted field.
 
