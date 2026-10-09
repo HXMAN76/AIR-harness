@@ -102,8 +102,8 @@ describe('composeBaseline', () => {
     const input = await world()
     const root = input.projectRoot
     await write(join(root, '.claude/CLAUDE.md'), 'Short.')
-    await write(join(root, '.claude/rules/we&ird.md'), 'x'.repeat(400))
-    const { baseline } = await composeBaseline({ ...input, maxBytes: 200 })
+    await write(join(root, '.claude/rules/we&ird.md'), 'x'.repeat(8000))
+    const { baseline } = await composeBaseline({ ...input, maxBytes: 4000 })
     expect(baseline?.text).toContain('Short.')
     expect(baseline?.text).not.toContain('xxxx')
     expect(baseline?.text).toContain(`<skipped path="${join(root, '.claude/rules/we&amp;ird.md')}" reason="budget"/>`)
