@@ -39,6 +39,24 @@ pnpm dsh --profile air                                # boot the Web UI
 
 The bundle disables the upstream rows that send data to, or depend on accounts with, the upstream vendor's services, and makes a local Ollama model the default. See [bundles/air/cordis.patch.yml](bundles/air/cordis.patch.yml).
 
+## Toolchain
+
+Run the root build first; AIR packages link to its `lib/` outputs.
+
+```sh
+pnpm install && pnpm run build        # repository root
+pnpm -C air install                   # AIR workspace (pnpm 11.7.0, lockfile committed)
+pnpm -C air run build                 # every AIR package
+pnpm -C air run typecheck
+pnpm -C air run lint                  # fails if air/.oxlintrc.json is stale; regenerate with lint:gen
+pnpm -C air run test
+pnpm -C air run smoke                 # isolated DSH_HOME: compose and boot the AIR bundle
+```
+
+New packages follow the templates in [plans/spikes/01-toolchain.md](plans/spikes/01-toolchain.md): `tsconfig.build.json` extends `../../tsconfig.base.json`, upstream packages are `link:` devDependencies with `^0.2.0-rc.1` peers, and each product-visible plugin has a native-resolution Loader test whose `cordis.yml` is written inside the package directory.
+
+Upstream workflows under `.github/workflows/` also run on pushes to this fork; disable the ones that need upstream secrets in the fork's Actions settings.
+
 ## Known issues
 
 - Skill discovery also reads the user-level `~/.agents/skills` and `~/.dsh/skills` roots, so every skill installed there for other agents enters the AIR skill catalog. With a small local model this derails answers (observed with `qwen3:8b` and 36 unrelated user skills). The AIR bundle should point `skill-filesystem` at an AIR-owned root once its Config fields are confirmed.

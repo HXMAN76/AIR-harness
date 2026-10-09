@@ -10,7 +10,7 @@
   "scripts": {
     "build": "pnpm -r --if-present run build",
     "typecheck": "pnpm -r --if-present run typecheck",
-    "lint": "tsx scripts/gen-oxlintrc.ts --check && oxlint --config .oxlintrc.json --type-aware packages apps",
+    "lint": "tsx scripts/gen-oxlintrc.ts --check && oxlint --config .oxlintrc.json --type-aware --no-error-on-unmatched-pattern packages apps",
     "lint:gen": "tsx scripts/gen-oxlintrc.ts",
     "test": "vitest run && pnpm -r --if-present run test",
     "smoke": "tsx scripts/smoke-profile.ts"
