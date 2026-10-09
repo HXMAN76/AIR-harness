@@ -24,6 +24,17 @@ Corrections to the plan's code found during execution:
 
 Not run: anything on native Windows (Windows branches are covered only by tests that stub the platform); the manual Web UI checks of Task 9 Step 9, which need a browser and a running local model.
 
+## Review and fix round (2026-10-09)
+
+After execution, two read-only reviews (security, code quality) and one re-review were run over the five packages; the findings were fixed on the same branch, a failing test first for most of them. Where this section and the task text below disagree, this section and the code are current.
+
+- **Confined reads:** every file the plugins read (seed files, rules, skills, commands, `.mcp.json`, `@path` imports) goes through `readContained` in `convention-core`: real path inside an allowed root, sensitive-file check relative to that root, size cap. Directory walks skip entries that leave the roots, enter each real directory once, and report when the entry cap is reached. New Config fields: `maxFileBytes` (262144), `maxWalkEntries` (2000), `maxImportsPerFile` (32). In-root symlinks still work; a user-root skill or command that links outside its user root is refused.
+- **MCP approvals:** the approval key covers the project root, server name, the full unexpanded entry, and the working directory (null for HTTP servers); approvals stored before this change no longer match. `/mcp` shows the unexpanded command or URL and each env and header as `NAME=<text as written>`, never an expanded value; parse and validation errors carry no file content. Approve, revoke, and the startup approval check are ordered per approval key; revoke stops the server in every Agent that mounted it.
+- **Lifecycle:** per-Agent released state and in-flight mount records close the races between Agent disposal, approve, revoke, and mounting, in the MCP and command plugins. With `reviewTools: true` and no reviewer the mount fails at once; a test pins the fiber-state constant to upstream.
+- **Tooling:** `air/scripts` is linted and typechecked; the smoke script matches the launcher's exact failure phrases and picks a free port; the CI job runs on Linux and Windows.
+- **Result:** 298 tests pass (289 in packages at 100% coverage, 9 workspace-level); build, typecheck, lint, composition check, and smoke pass on Fedora.
+- **Open:** the Windows CI leg has not run yet; lifecycle tests force orderings with mocked scope, MCP client, and file reader, not real processes; upstream's MCP client still logs an expanded command when a spawn fails; residual risks are listed in `air/packages/convention-core/README.md`.
+
 ## Revision log
 
 **2026-10-08.** The plan was written against `dsh-v0.2.0-rc.2`, and its code has never been compiled. The fork is now at `dsh-v0.2.1-alpha.1`. Each entry gives the change and the reason.
