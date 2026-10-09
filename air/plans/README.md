@@ -1,6 +1,6 @@
 # AIR development roadmap
 
-Date: 2026-09-30. Upstream base: `dsh-v0.2.1-alpha.1` (plans were written against `dsh-v0.2.0-rc.2`; see "Changes the 2026-10-08 upstream sync requires"). Product name: placeholder ("AIR", see [../BRANDING.md](../BRANDING.md)).
+Date: 2026-09-30. Upstream base: `dsh-v0.2.1-alpha.2` (plans were written against `dsh-v0.2.0-rc.2`; see "Changes the 2026-10-08 upstream sync requires"). Product name: placeholder ("AIR", see [../BRANDING.md](../BRANDING.md)).
 
 This page orders the work, names each plan, and lists what is still unplanned. The reasoning behind every choice is in [research/research.md](../../research/research.md); the exact APIs and verified commands are in the [spikes](spikes/).
 
@@ -47,6 +47,7 @@ This page orders the work, names each plan, and lists what is still unplanned. T
 - **Plans 02 and 03 prompt order:** plan 03's MCP ask can appear before plan 02's trust guard denies an unapproved server; a per-server trust level that skips the per-call ask is a plan 03 follow-up.
 - **Plan 03 imports from plan 01:** the Claude-to-dsh tool-name table exported by `@air/dsh-convention-core`.
 - **Plan 02 carried upstream changes:** the review hook in `packages/mcp/mcp-client` and the regenerated cordis catalog docs go into [../UPSTREAM-DELTA.md](../UPSTREAM-DELTA.md).
+- **From executing plan 01 to plan 02:** the MCP approval key now includes the working directory, `/mcp` shows unexpanded env and header text, and a mount with `reviewTools: true` fails at once when the reviewer service is absent (the fiber-state constant is pinned by a test). Plan 02's lockfile and review hook must use the same key inputs and load the reviewer before the convention plugin mounts servers; it should also decide how to keep expanded commands out of upstream's MCP client log lines. Plan 01's "Review and fix round" section lists everything that changed after the plan text was written.
 - **Plan sizes:** plans 01 and 02 are long (about 6,000 lines each) because every step carries full code. Execute them task by task with a fresh worker per task; the code in them has not been compiled, so the first failing step of each task is where assumptions get corrected.
 
 ## Phase-1 review cut
@@ -74,7 +75,7 @@ Each item gets its own plan after the plans above land. The spike section that a
 
 ## Cross-cutting work not yet covered by any plan
 
-- **First-run experience:** check Ollama is running, pull `qwen3:8b` and `nomic-embed-text` with consent, write the profile patch; today this is the manual README procedure.
+- **First-run experience:** check Ollama is running, pull `qwen3:8b` and `nomic-embed-text` with consent, write the profile patch; today this is the manual README procedure. The context-size variant `qwen3-8b-16k` (see the Modelfile step in [air/README.md](../README.md)) is currently a manual step and is the first thing first-run setup must automate.
 - **Local-model quality:** tool-calling reliability of 7–8B models (fake tool calls, derailing on long catalogs); decide whether to port AIR's fake-tool-call guard ([research note 02](../../research/notes/02-air-extraction.md) §2.8) after measuring in the pilot.
 - **Safety documentation:** an AIR `SAFETY.md` with the threat model, what the sandbox does not cover (network, MCP children), and the privacy statement for local data.
 - **Data lifecycle:** session retention and deletion, memory export, backup of `$DSH_HOME/air/`.
@@ -119,7 +120,7 @@ Apply these when the build starts; the plan files are unchanged for now.
 | Plan | Revised for `0.2.1-alpha.1`, Windows teammates, and owner decisions |
 |---|---|
 | 00 | Done, and **executed on 2026-10-09** on branch `air/feat/00-workspace-foundation` (Fedora only; the plan file's execution record lists four deviations; native Windows and the GitHub workflow not yet run) |
-| 01 | Done (code still uncompiled): preset regenerated and keeps clock and reminder tools; one polling watcher; command files no longer read as skills; safer `@path` imports; `.mcp.json` approval keyed on the unexpanded definition; `reviewTools` Config field for plan 02; Windows path handling and cross-platform steps |
+| 01 | Done, and **executed on 2026-10-09** on branch `air/feat/01-file-conventions` (Fedora only): five packages, then a security and quality review with a fix round; 298 tests, 100% package coverage, composition check and profile smoke pass; the plan file's execution record and review section list the changes. Native Windows hand testing not yet run; pull request 2 passes the AIR job on Linux and Windows, and the manual checks passed on the owner's laptop with the local model (see the plan's live-run section) |
 | 02 | Done (lockfile module run in a scratch copy with five concurrent writers; the rest read, not compiled; Windows untested): upstream lines re-verified, first-use prompt saves the pin, every denial names the server, changed fields, and the exact command, an unreadable lockfile quarantines instead of only logging, Windows-safe steps |
 | 03 | Done (222 tests run in a scratch copy on Linux, including the real Auto review plugin in both load orders; Windows paths untested): built-in tools allow by default, only MCP tools ask; every ask and denial explains itself; Windows elevation blocked; escalation answering opt-in |
 | 04 | Done (142 tests at 100% coverage and benchmarks run in a scratch copy on Linux; Loader test, profile smoke, Ollama integration, and Windows not run): git optional, index and scan costs measured and reduced, Ollama failure causes reported to the user, writes ask only when the session can ask, memory shared only with local model routes by default, export and import command |
@@ -150,6 +151,18 @@ All of these were applied to the plan files in the 2026-10-08 revision (see "Pla
 - **Plan 07:** done in the 2026-10-08 revision (dynamic port, origin handling, release gate, start-at-login moved to follow-ups).
 - **All plans:** version strings and line references cite `0.2.0-rc.2`; re-verify line numbers at the first step of each task. Peer range `^0.2.0-rc.1` still matches `0.2.1-alpha.1`.
 - **Spikes 01, 03, 05:** mentions of the schedule bundle as a template refer to a package that no longer exists; use `packages/experimental/voice-input-bundle` or `auto-review` as the bundle template.
+
+## Changes the 2026-10-09 upstream sync requires in the written plans
+
+The merge of `dsh-v0.2.1-alpha.2` had no conflicts, the five plan 01 packages build and pass their tests unchanged, and the only AIR change needed was bringing `preset-air` in line with the upstream standard preset (removed rows `tool-subagent-codex`, `tool-subagent-claude-code`, and `tool-ralph`; removed `backgroundMode` on the two sub-agent tools; removed the working-directory suffix; reworded the plan-mode sentence). The plans were last revised against `0.2.1-alpha.1`; the items below are not yet applied. Detail is in [research.md](../../research/research.md) section 2b.
+
+- **Plan 01 packages (already built):** fixed on 2026-10-09. `instruction-conventions`, `command-conventions`, and `mcp-conventions` read `agent.session.header.cwd`, which upstream now keeps for the original project only; they now take the Agent's current directory from `ctx.workingDirectory.ensure(agent, signal)`, as upstream's instruction plugin does, with a test per plugin where the two directories differ. Commands and MCP servers are still discovered once at Agent creation; a later directory change does not re-run discovery (stated in the package READMEs). `skill-conventions` needed no change because upstream passes the current directory to skill providers.
+- **Plan 02:** no hook change (`mcp-client` only had dependency bumps). The out-of-scope item on `append({ ignorable })` stays out: `appendPluginRecord()` now exists but is reserved for upstream experimental packages. Plan 02's `mcp-conventions` dependency follows the plan 01 item above.
+- **Plan 03:** the `cwd` field of the rule-matching input (grep `Session working directory; relative path arguments resolve`) and the table row citing `agent.session.header.cwd` must use the current working directory for relative paths; permission roots stay on the original project. Re-verify the cited approval and interaction line numbers (those packages had version-only changes).
+- **Plan 04:** `projectScopeId(cwd)` should receive `agent.session.header.cwd` (original project identity), not the current directory, so a worktree switch does not create a second scope; state this in decision 3 (grep `Project scope id`).
+- **Plan 05:** no change needed; `session.v4.jsonl` and the V4 header are unchanged, and the session format status now lists V4 as released.
+- **Plan 07:** re-verify, at the first task, that `@deepseek-ai/dsh/profile-boot` and `runProfile` are still exported (the step that recorded this was made at `alpha.1`), and read upstream `apps/desktop/scripts/prepare-runtime-patches.ts`, `runtime-patch-policy.ts`, and `.github/workflows/windows-package.yml` before writing `stage-runtime.ts` and the Windows packaging job. The Host stays on `host: 127.0.0.1`; wildcard hosts are now rejected, which does not affect the plan.
+- **Plan 06 and spikes:** no change.
 
 ## Open decisions for the project owner
 

@@ -7,9 +7,16 @@ on:
 
 jobs:
   air:
-    runs-on: ubuntu-latest
-    timeout-minutes: 60
+    name: air (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
     steps:
+      - name: Keep LF line endings on Windows
+        run: git config --global core.autocrlf false
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v6
@@ -30,16 +37,15 @@ jobs:
       - name: Build AIR packages
         working-directory: air
         run: pnpm --filter "./packages/*" --filter "./bundles/*" run --if-present build
-      - name: Typecheck AIR packages
-        working-directory: air
-        run: pnpm --filter "./packages/*" --filter "./bundles/*" run --if-present typecheck
-      - name: Lint AIR packages
+      - name: Typecheck AIR packages and scripts
+        run: pnpm -C air run typecheck
+      - name: Lint AIR packages and scripts
         run: pnpm -C air run lint
       - name: Test AIR workspace
-        working-directory: air
-        run: pnpm exec vitest run && pnpm --filter "./packages/*" --filter "./bundles/*" run --if-present test
+        run: pnpm -C air run test
 
       - name: Root gates that scan air/
+        if: runner.os == 'Linux'
         run: |
           pnpm run verify-no-unknown-casts
           pnpm run verify-concrete-terms

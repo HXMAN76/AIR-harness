@@ -10,6 +10,50 @@
 
 **Spec:** [spikes/02-file-conventions.md](spikes/02-file-conventions.md) (primary; §0, §1, §3, §4, §5, §9), [spikes/01-toolchain.md](spikes/01-toolchain.md) (package templates, native Loader test, pitfalls), [research/research.md §5.1](../../research/research.md), [research/notes/03-competitors.md §5](../../research/notes/03-competitors.md). Depends on [plan 00](2026-09-30-00-workspace-foundation.md) being done.
 
+## Execution record (2026-10-09, Fedora)
+
+All nine tasks were executed on branch `air/feat/01-file-conventions` (stacked on the plan 00 branch); the checkboxes below are left as written. Result: five packages, 196 tests passing (187 in packages at 100% coverage, 9 workspace-level), build, typecheck, lint, the composition check (8 of 8), and the profile smoke all pass. The upstream extension points the plan assumed (skill providers, `agent/pre-step`, the command registry, per-Agent MCP mounts) matched `0.2.1-alpha.1`; no design change was needed.
+
+Corrections to the plan's code found during execution:
+
+- **Frontmatter:** YAML lines keep a trailing carriage return in files saved with CRLF line endings; the parser strips it.
+- **Watcher:** a path that was absent at listing time was reported as changed on the first poll; absent and unreadable paths are now ignored on that poll, and a path created later is still detected.
+- **MCP mounts with `reviewTools: true`:** `ctx.plugin` resolves while the child is still pending on the reviewer service, so `/mcp approve` reported a start although nothing was mounted. The mount now waits for the startup timeout unless the child is active, and the message says the reviewer is required and not loaded. Two consequences for plan 02: the active state is compared with the literal `2` because upstream's fiber-state enum is a `const` enum (add a test that fails if upstream renumbers it), and a reviewer that becomes available after the child is created is reported as a timeout (plan 02 must load the reviewer before the convention plugin or revisit this wait).
+- **Tests:** a session header `cwd` must be absolute; upstream starts a stdio MCP server twice per Agent (a probe, then the mount), so process counts are lower bounds.
+- **Lint-driven changes:** `\u` escapes instead of literal non-ASCII characters, `Object.assign` instead of spreading `Config`-typed values, extracted strings instead of `expect.stringContaining` inside object matchers.
+
+Not run at the time: anything on native Windows (Windows branches are covered only by tests that stub the platform), and the manual Web UI checks of Task 9 Step 9, which need a browser and a running local model. Both were run later on 2026-10-09; see "Live run and Windows CI (2026-10-09)" below.
+
+## Review and fix round (2026-10-09)
+
+After execution, two read-only reviews (security, code quality) and one re-review were run over the five packages; the findings were fixed on the same branch, a failing test first for most of them. Where this section and the task text below disagree, this section and the code are current.
+
+- **Confined reads:** every file the plugins read (seed files, rules, skills, commands, `.mcp.json`, `@path` imports) goes through `readContained` in `convention-core`: real path inside an allowed root, sensitive-file check relative to that root, size cap. Directory walks skip entries that leave the roots, enter each real directory once, and report when the entry cap is reached. New Config fields: `maxFileBytes` (262144), `maxWalkEntries` (2000), `maxImportsPerFile` (32). In-root symlinks still work; a user-root skill or command that links outside its user root is refused.
+- **MCP approvals:** the approval key covers the project root, server name, the full unexpanded entry, and the working directory (null for HTTP servers); approvals stored before this change no longer match. `/mcp` shows the unexpanded command or URL and each env and header as `NAME=<text as written>`, never an expanded value; parse and validation errors carry no file content. Approve, revoke, and the startup approval check are ordered per approval key; revoke stops the server in every Agent that mounted it.
+- **Lifecycle:** per-Agent released state and in-flight mount records close the races between Agent disposal, approve, revoke, and mounting, in the MCP and command plugins. With `reviewTools: true` and no reviewer the mount fails at once; a test pins the fiber-state constant to upstream.
+- **Tooling:** `air/scripts` is linted and typechecked; the smoke script matches the launcher's exact failure phrases and picks a free port; the CI job runs on Linux and Windows.
+- **Result:** 298 tests pass (289 in packages at 100% coverage, 9 workspace-level); build, typecheck, lint, composition check, and smoke pass on Fedora.
+- **Open:** hand testing on native Windows; link confinement and POSIX file modes on Windows, which the Linux-only tests skip (see "Live run and Windows CI (2026-10-09)"); lifecycle tests force orderings with mocked scope, MCP client, and file reader, not real processes; upstream's MCP client still logs an expanded command when a spawn fails; residual risks are listed in `air/packages/convention-core/README.md`. The Windows CI leg has run and passes.
+
+## Live run and Windows CI (2026-10-09)
+
+Windows CI:
+
+- The `air` workflow now runs on `ubuntu-latest` and `windows-latest`. After four runs on pull request 2, both legs pass: fork install and build, AIR install, build, typecheck, lint, all package tests, and the profile smoke.
+- Three tests had assumed Linux and were corrected; no product code changed. Two expected letter case to matter in paths, which is false on Windows. One used a byte budget so small that a long Windows temp path no longer fit in it.
+- Tests marked Linux-only (symbolic links, POSIX file modes) are skipped on Windows, so link confinement and the `0600` and `0700` modes have no Windows evidence.
+- The package test script now runs every package even when one fails (`--no-bail`).
+
+Live run on the owner's Fedora laptop:
+
+- Hardware and model: Ryzen AI 9 HX 370, RTX 4060 Laptop 8 GiB, Ollama, model `qwen3-8b-16k` (`qwen3:8b` with `num_ctx 16384`).
+- Web UI started with `pnpm dsh --profile air`, AIR preset, Workspace Write mode, in the demo project made by `pnpm -C air run demo`.
+- Plain session, no project files: the model answered a question about its skills coherently in 43 s with a 7.5K-token request (46% of the 16k context), about 25 tokens per second. It was not sidetracked by user-level skills, because user roots are off by default.
+- Instructions: asked what the project is called, the model answered "The project is called Demo, as stated in the imported note from notes.md" in 22 s. This shows `.claude/CLAUDE.md` and its `@notes.md` import reach the model.
+- MCP: `/mcp` listed the `demo` server as not approved, showing its unexpanded command and working directory. `/mcp approve demo` reported it approved and started, and `/mcp` then showed it running. Asked to call `mcp__demo__echo` with the text pineapple, the model made a real tool call (visible in the Trajectory view: arguments `{"text":"pineapple"}`, result `echo: pineapple`) and reported the result, in 22 s.
+- Commands: `/issue 42` sent "Summarise issue 42 in one sentence." to the model, which replied that it had no details for issue 42.
+- Not checked in this run: the `hello` skill, the path-scoped rule, the British-English instruction (the one reply that could show it used American spelling, so it may not be followed), revoke, and anything on Windows by hand.
+
 ## Revision log
 
 **2026-10-08.** The plan was written against `dsh-v0.2.0-rc.2`, and its code has never been compiled. The fork is now at `dsh-v0.2.1-alpha.1`. Each entry gives the change and the reason.

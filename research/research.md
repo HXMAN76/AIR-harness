@@ -1,6 +1,6 @@
 # AIR-harness Research: Building an Open, Local-First, Verifiable Personal Agent
 
-Date: 2026-09-28. Status: synthesis v1.7, fourteen notes merged; upstream base is now `dsh 0.2.1-alpha.1` (section 2b lists what each sync changed). Notes 01–07 were written against `dsh 0.1.6-alpha.2`; where they disagree with section 2b, section 2b wins. Detailed evidence, sources, and file citations live in `research/notes/`:
+Date: 2026-09-28. Status: synthesis v1.7, fourteen notes merged; upstream base is now `dsh 0.2.1-alpha.2` (section 2b lists what each sync changed). Notes 01–07 were written against `dsh 0.1.6-alpha.2`; where they disagree with section 2b, section 2b wins. Detailed evidence, sources, and file citations live in `research/notes/`:
 
 | Note | Topic |
 |---|---|
@@ -71,6 +71,15 @@ The fork was synced on 2026-09-28: 2,224 upstream commits, about 7,000 files cha
 - **Web `--public-url`.** The Web profile can advertise a public HTTP(S) root behind a proxy; it grants no trust. Not needed for the desktop app.
 - **Plugin display metadata.** Subpath plugins read title and description from locale files and their image from an exported `<subpath>/icon`, never from a subpath `package.json` ([upgrade guide](../docs/upgrade-guide/v0.2.0-rc.2/subpath-plugin-display-manifest/guide.md)); relevant when AIR bundles appear on the Plugins page.
 - **Unchanged:** MCP client (no pinning, no review hook), approval outcomes, Claude Code hook-bridge coverage, skill roots, speech-to-text seam, Auto review. Out-of-tree plugins still cannot write skippable session events.
+
+**Fourth sync, 0.2.1-alpha.1 to 0.2.1-alpha.2 (2026-10-09).** 669 upstream commits, 319 to 331 package directories. The merge had no conflicts, and the five plan 01 packages build and pass their tests unchanged. The changes below come from the 20 upgrade guides added under `docs/upgrade-guide/v0.2.1-alpha.1/` plus a diff of the areas the plans depend on.
+
+- **Session working directory is a service.** `@deepseek-ai/dsh-working-directory` (`ctx.workingDirectory.ensure(agent, signal)`) holds the current execution directory, and `Session.header.cwd` now means only the original project ([upgrade guide](../docs/upgrade-guide/v0.2.1-alpha.1/working-directory/guide.md)). Upstream `agent-instructions`, `file-reference-local`, and `tool-skill` already read the service. AIR's instruction, command, and MCP convention packages still read `header.cwd`, so after a `working_directory` change or a worktree tool they would discover files from the wrong root. Plan 03 (relative path arguments) needs the current directory; plan 04 (project scope id) needs the original one. The `{{cwd}}` prompt variable is gone; `preset-air` already dropped the suffix.
+- **`appendPluginRecord()` exists but is reserved** for packages under `packages/experimental/`, enforced by `verify-plugin-record-callers`. It is not a way for AIR to write session events; the "no custom session event types" rule stands.
+- **Session format.** `docs/session-format-status.md` now records V4 as released (evidence tag `dsh-v0.2.0-rc.2`). File names (`session.v4.jsonl`) are unchanged.
+- **Subagents.** `backgroundMode`, `run_in_background`, and the in-process driver are removed; delegation returns an activation and a completion notice. The Claude Code and Codex bundles now add global delegation tools. AIR's bundle patch sets no removed key.
+- **Smaller.** `dsh plugin` needs `--profile` before the pnpm arguments (AIR's documented commands already comply). Tool presentation `both` is rejected. The Web profile replaces `webRuntime` with `webStartup`, rejects a wildcard host, and the webserver gains an optional TLS listener. `skill-badge`, `hooks-*`, `webhook*`, and `tool-ralph` moved out of the base composition. Desktop gains staged runtime patches and a Windows packaging workflow (`windows-package.yml`, `build-exe-for-ssh-helper.yml`).
+- **Unchanged:** `mcp-client` (dependency bumps only, so `syncTools` is the same), approval and guard packages, `host` APIs the plans use.
 
 ## 2c. Owner decisions of 2026-10-02 and what the follow-up research found
 
