@@ -3,6 +3,10 @@
 # key, but a named `apiKeyEnv` that resolves to a non-empty value avoids pi-ai's
 # ambient key discovery, which is only defined for catalog providers. Put
 # `OLLAMA_API_KEY=ollama` in $DSH_HOME/.env.
+# Ollama runs a model at a 4,096-token context unless the model sets num_ctx, and it
+# truncates the larger agent request without an error. The model id below is a variant
+# with num_ctx 16384; create it once as described in air/README.md, and keep
+# contextWindow equal to that num_ctx.
 
 - id: llm-pi-ai
   config:
@@ -16,6 +20,11 @@
           supportsDeveloperRole: false
           maxTokensField: max_tokens
         models:
-          - id: qwen3:8b
-            contextWindow: 32768
-            maxTokens: 8192
+          - id: qwen3-8b-16k
+            contextWindow: 16384
+            maxTokens: 4096
+
+- id: agent-default-model
+  config:
+    provider: ollama
+    model: qwen3-8b-16k

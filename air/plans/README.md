@@ -75,7 +75,7 @@ Each item gets its own plan after the plans above land. The spike section that a
 
 ## Cross-cutting work not yet covered by any plan
 
-- **First-run experience:** check Ollama is running, pull `qwen3:8b` and `nomic-embed-text` with consent, write the profile patch; today this is the manual README procedure.
+- **First-run experience:** check Ollama is running, pull `qwen3:8b` and `nomic-embed-text` with consent, write the profile patch; today this is the manual README procedure. The context-size variant `qwen3-8b-16k` (see the Modelfile step in [air/README.md](../README.md)) is currently a manual step and is the first thing first-run setup must automate.
 - **Local-model quality:** tool-calling reliability of 7–8B models (fake tool calls, derailing on long catalogs); decide whether to port AIR's fake-tool-call guard ([research note 02](../../research/notes/02-air-extraction.md) §2.8) after measuring in the pilot.
 - **Safety documentation:** an AIR `SAFETY.md` with the threat model, what the sandbox does not cover (network, MCP children), and the privacy statement for local data.
 - **Data lifecycle:** session retention and deletion, memory export, backup of `$DSH_HOME/air/`.
@@ -120,7 +120,7 @@ Apply these when the build starts; the plan files are unchanged for now.
 | Plan | Revised for `0.2.1-alpha.1`, Windows teammates, and owner decisions |
 |---|---|
 | 00 | Done, and **executed on 2026-10-09** on branch `air/feat/00-workspace-foundation` (Fedora only; the plan file's execution record lists four deviations; native Windows and the GitHub workflow not yet run) |
-| 01 | Done, and **executed on 2026-10-09** on branch `air/feat/01-file-conventions` (Fedora only): five packages, then a security and quality review with a fix round; 298 tests, 100% package coverage, composition check and profile smoke pass; the plan file's execution record and review section list the changes. Native Windows and the manual Web UI checks not yet run |
+| 01 | Done, and **executed on 2026-10-09** on branch `air/feat/01-file-conventions` (Fedora only): five packages, then a security and quality review with a fix round; 298 tests, 100% package coverage, composition check and profile smoke pass; the plan file's execution record and review section list the changes. Native Windows hand testing not yet run; pull request 2 passes the AIR job on Linux and Windows, and the manual checks passed on the owner's laptop with the local model (see the plan's live-run section) |
 | 02 | Done (lockfile module run in a scratch copy with five concurrent writers; the rest read, not compiled; Windows untested): upstream lines re-verified, first-use prompt saves the pin, every denial names the server, changed fields, and the exact command, an unreadable lockfile quarantines instead of only logging, Windows-safe steps |
 | 03 | Done (222 tests run in a scratch copy on Linux, including the real Auto review plugin in both load orders; Windows paths untested): built-in tools allow by default, only MCP tools ask; every ask and denial explains itself; Windows elevation blocked; escalation answering opt-in |
 | 04 | Done (142 tests at 100% coverage and benchmarks run in a scratch copy on Linux; Loader test, profile smoke, Ollama integration, and Windows not run): git optional, index and scan costs measured and reduced, Ollama failure causes reported to the user, writes ask only when the session can ask, memory shared only with local model routes by default, export and import command |

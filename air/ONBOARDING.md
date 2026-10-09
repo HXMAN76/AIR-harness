@@ -40,6 +40,16 @@ ollama pull qwen3:8b
 pnpm dsh --profile air              # opens the Web UI on http://127.0.0.1:3080
 ```
 
+Create the context-size variant once. Ollama's default 4,096-token context truncates the agent's prompt silently, so the profile uses this variant, which sets `num_ctx 16384`:
+
+```sh
+cat > Modelfile <<'EOF'
+FROM qwen3:8b
+PARAMETER num_ctx 16384
+EOF
+ollama create qwen3-8b-16k -f Modelfile
+```
+
 Known issue: Ollama's default context is 4,096 tokens, which silently truncates the agent's prompt. Until the bundle ships a check, start Ollama with a larger context (`OLLAMA_CONTEXT_LENGTH=16384`), see [research note 10](../research/notes/10-local-models-rig.md).
 
 Known issue: skills in your personal `~/.agents/skills` are loaded too and can distract a small local model; plan 01 fixes this.

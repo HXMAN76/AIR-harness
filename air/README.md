@@ -41,6 +41,18 @@ pnpm dsh --profile air --dump-config                  # inspect the composed tre
 pnpm dsh --profile air                                # boot the Web UI
 ```
 
+The example patch routes to the model `qwen3-8b-16k`, which does not exist until you create it. After `ollama pull qwen3:8b`, create it once from a Modelfile, because Ollama's default 4,096-token context truncates the agent's prompt silently:
+
+```sh
+cat > Modelfile <<'EOF'
+FROM qwen3:8b
+PARAMETER num_ctx 16384
+EOF
+ollama create qwen3-8b-16k -f Modelfile
+```
+
+For browser automation of the Web UI, start it with `pnpm dsh --profile air --patch apps/web/tests/pin-browse-picker.overlay.yml`; "Add workspace" then opens an in-page folder picker instead of a native dialog.
+
 The bundle disables the upstream rows that send data to, or depend on accounts with, the upstream vendor's services, and makes a local Ollama model the default. See [bundles/air/cordis.patch.yml](bundles/air/cordis.patch.yml).
 
 ## Toolchain

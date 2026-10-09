@@ -22,7 +22,7 @@ Corrections to the plan's code found during execution:
 - **Tests:** a session header `cwd` must be absolute; upstream starts a stdio MCP server twice per Agent (a probe, then the mount), so process counts are lower bounds.
 - **Lint-driven changes:** `\u` escapes instead of literal non-ASCII characters, `Object.assign` instead of spreading `Config`-typed values, extracted strings instead of `expect.stringContaining` inside object matchers.
 
-Not run: anything on native Windows (Windows branches are covered only by tests that stub the platform); the manual Web UI checks of Task 9 Step 9, which need a browser and a running local model.
+Not run at the time: anything on native Windows (Windows branches are covered only by tests that stub the platform), and the manual Web UI checks of Task 9 Step 9, which need a browser and a running local model. Both were run later on 2026-10-09; see "Live run and Windows CI (2026-10-09)" below.
 
 ## Review and fix round (2026-10-09)
 
@@ -33,7 +33,26 @@ After execution, two read-only reviews (security, code quality) and one re-revie
 - **Lifecycle:** per-Agent released state and in-flight mount records close the races between Agent disposal, approve, revoke, and mounting, in the MCP and command plugins. With `reviewTools: true` and no reviewer the mount fails at once; a test pins the fiber-state constant to upstream.
 - **Tooling:** `air/scripts` is linted and typechecked; the smoke script matches the launcher's exact failure phrases and picks a free port; the CI job runs on Linux and Windows.
 - **Result:** 298 tests pass (289 in packages at 100% coverage, 9 workspace-level); build, typecheck, lint, composition check, and smoke pass on Fedora.
-- **Open:** the Windows CI leg has not run yet; lifecycle tests force orderings with mocked scope, MCP client, and file reader, not real processes; upstream's MCP client still logs an expanded command when a spawn fails; residual risks are listed in `air/packages/convention-core/README.md`.
+- **Open:** hand testing on native Windows; link confinement and POSIX file modes on Windows, which the Linux-only tests skip (see "Live run and Windows CI (2026-10-09)"); lifecycle tests force orderings with mocked scope, MCP client, and file reader, not real processes; upstream's MCP client still logs an expanded command when a spawn fails; residual risks are listed in `air/packages/convention-core/README.md`. The Windows CI leg has run and passes.
+
+## Live run and Windows CI (2026-10-09)
+
+Windows CI:
+
+- The `air` workflow now runs on `ubuntu-latest` and `windows-latest`. After four runs on pull request 2, both legs pass: fork install and build, AIR install, build, typecheck, lint, all package tests, and the profile smoke.
+- Three tests had assumed Linux and were corrected; no product code changed. Two expected letter case to matter in paths, which is false on Windows. One used a byte budget so small that a long Windows temp path no longer fit in it.
+- Tests marked Linux-only (symbolic links, POSIX file modes) are skipped on Windows, so link confinement and the `0600` and `0700` modes have no Windows evidence.
+- The package test script now runs every package even when one fails (`--no-bail`).
+
+Live run on the owner's Fedora laptop:
+
+- Hardware and model: Ryzen AI 9 HX 370, RTX 4060 Laptop 8 GiB, Ollama, model `qwen3-8b-16k` (`qwen3:8b` with `num_ctx 16384`).
+- Web UI started with `pnpm dsh --profile air`, AIR preset, Workspace Write mode, in the demo project made by `pnpm -C air run demo`.
+- Plain session, no project files: the model answered a question about its skills coherently in 43 s with a 7.5K-token request (46% of the 16k context), about 25 tokens per second. It was not sidetracked by user-level skills, because user roots are off by default.
+- Instructions: asked what the project is called, the model answered "The project is called Demo, as stated in the imported note from notes.md" in 22 s. This shows `.claude/CLAUDE.md` and its `@notes.md` import reach the model.
+- MCP: `/mcp` listed the `demo` server as not approved, showing its unexpanded command and working directory. `/mcp approve demo` reported it approved and started, and `/mcp` then showed it running. Asked to call `mcp__demo__echo` with the text pineapple, the model made a real tool call (visible in the Trajectory view: arguments `{"text":"pineapple"}`, result `echo: pineapple`) and reported the result, in 22 s.
+- Commands: `/issue 42` sent "Summarise issue 42 in one sentence." to the model, which replied that it had no details for issue 42.
+- Not checked in this run: the `hello` skill, the path-scoped rule, the British-English instruction (the one reply that could show it used American spelling, so it may not be followed), revoke, and anything on Windows by hand.
 
 ## Revision log
 
