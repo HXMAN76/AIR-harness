@@ -64,7 +64,7 @@ pnpm install && pnpm run build        # repository root
 pnpm -C air install                   # AIR workspace (pnpm 11.7.0, lockfile committed)
 pnpm -C air run build                 # every AIR package
 pnpm -C air run typecheck
-pnpm -C air run lint                  # fails if air/.oxlintrc.json is stale; regenerate with lint:gen
+pnpm -C air run lint                  # fails if air/oxlint.air.json is stale; regenerate with lint:gen
 pnpm -C air run test
 pnpm -C air run smoke                 # isolated DSH_HOME: compose and boot the AIR bundle
 ```
