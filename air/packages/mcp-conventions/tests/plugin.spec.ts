@@ -12,7 +12,7 @@ import SessionStore from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import * as mcpConventions from '../src/index.ts'
-import { ApprovalStore, approvalKey } from '../src/approvals.ts'
+import { ApprovalStore, approvalKey, defaultApprovalIo } from '../src/approvals.ts'
 import { parseMcpJson } from '../src/config.ts'
 import { stubAgent } from './harness.ts'
 
@@ -468,6 +468,28 @@ describe('Agent lifecycle races', () => {
     expect(toolNames(ctx, agent)).toEqual([])
     await vi.waitFor(async () => { expect((await pidsIn(dirname(root))).some(isAlive)).toBe(false) }, { timeout: 5000 })
     expect((await command(ctx, agent, '/mcp')).text).toContain('): not approved')
+  })
+
+  it('lets a revoke issued while an approval is still being written win', async () => {
+    const { root, approvalsFile } = await world(demo)
+    const { ctx } = await mount(approvalsFile)
+    const agent = await live(ctx, root)
+    const writing = deferred()
+    const realRename = defaultApprovalIo.rename
+    const rename = vi.spyOn(defaultApprovalIo, 'rename').mockImplementationOnce(async (from, to) => {
+      await writing.promise
+      await realRename(from, to)
+    })
+    const approving = command(ctx, agent, '/mcp approve demo')
+    await vi.waitFor(() => { expect(rename).toHaveBeenCalledTimes(1) })
+    const revoking = command(ctx, agent, '/mcp revoke demo')
+    writing.resolve()
+    expect((await revoking).kind).toBe('success')
+    await approving
+    expect(toolNames(ctx, agent)).toEqual([])
+    expect((await command(ctx, agent, '/mcp')).text).toContain('): not approved')
+    const stored = JSON.parse(await readFile(approvalsFile, 'utf8')) as { approved: unknown }
+    expect(stored.approved).toEqual({})
   })
 
   it('disposes a server that finished starting after it was stopped', async () => {

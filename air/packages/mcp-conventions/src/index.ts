@@ -15,8 +15,8 @@ import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
 import * as McpClient from '@deepseek-ai/dsh-mcp-client'
 import { createScope, type Scope } from '@deepseek-ai/dsh-scope'
 import type {} from '@deepseek-ai/dsh-tools'
-import { describeSkip, findProjectRoot, readContained } from '@air/dsh-convention-core'
-import { ApprovalStore, approvalKey } from './approvals.ts'
+import { describeSkip, errorMessage, findProjectRoot, readContained } from '@air/dsh-convention-core'
+import { ApprovalStore, approvalKey, type McpApprovalKey } from './approvals.ts'
 import { parseMcpJson, redact, type ServerSpec } from './config.ts'
 
 export const name = 'air-mcp-conventions'
@@ -141,7 +141,7 @@ export function apply(ctx: Context, config: Config = {}): void {
     try {
       return await approvals.has(approvalKey(state.projectRoot, spec))
     } catch (error: unknown) {
-      const problem = `the approvals file could not be read: ${(error as Error).message}`
+      const problem = `the approvals file could not be read: ${errorMessage(error)}`
       if (!state.problems.includes(problem)) state.problems.push(problem)
       return false
     }
@@ -188,7 +188,7 @@ export function apply(ctx: Context, config: Config = {}): void {
         return undefined
       } catch (error: unknown) {
         // Upstream messages can quote the spawned command line, so expanded values are scrubbed.
-        const text = redact((error as Error).message, spec.secrets)
+        const text = redact(errorMessage(error), spec.secrets)
         await scope.dispose()
         return text
       } finally {
@@ -220,7 +220,7 @@ export function apply(ctx: Context, config: Config = {}): void {
 
   /** Release an Agent from a listener, where a rejection would be unhandled. */
   const releaseLogged = (agent: Agent): Promise<void> => release(agent).catch((error: unknown) => {
-    ctx.logger.warn(`air-mcp-conventions: stopping servers failed: ${(error as Error).message}`)
+    ctx.logger.warn(`air-mcp-conventions: stopping servers failed: ${errorMessage(error)}`)
   })
 
   const describeServers = async (state: AgentState): Promise<string> => {
@@ -243,6 +243,16 @@ export function apply(ctx: Context, config: Config = {}): void {
     return lines.join('\n')
   }
 
+  // Approve and revoke for one server run in the order they were issued, so the later command wins.
+  const chains = new Map<McpApprovalKey, Promise<unknown>>()
+  const ordered = <T>(key: McpApprovalKey, task: () => Promise<T>): Promise<T> => {
+    const run = (chains.get(key) ?? Promise.resolve()).then(task)
+    const tail = Promise.allSettled([run])
+    chains.set(key, tail)
+    void tail.then(() => { if (chains.get(key) === tail) chains.delete(key) })
+    return run
+  }
+
   const runCommand = async (invocation: CommandInvocation): Promise<CommandResult> => {
     const state = states.get(invocation.agent)
     if (state === undefined) {
@@ -258,19 +268,27 @@ export function apply(ctx: Context, config: Config = {}): void {
     }
     const key = approvalKey(state.projectRoot, spec)
     if (action === 'revoke') {
-      // Stop the server first so an unwritable approvals file cannot leave a revoked server running.
-      await stop(state, spec.serverName)
-      try {
-        await approvals.remove(key)
-      } catch (error: unknown) {
-        return { kind: 'error', text: `Stopped "${spec.serverName}", but the approval could not be removed: ${(error as Error).message}` }
-      }
-      return { kind: 'success', text: `Revoked "${spec.serverName}"; its tools are removed from this session.` }
+      return ordered(key, async (): Promise<CommandResult> => {
+        // Stop the server first so an unwritable approvals file cannot leave a revoked server running.
+        await stop(state, spec.serverName)
+        try {
+          await approvals.remove(key)
+        } catch (error: unknown) {
+          return { kind: 'error', text: `Stopped "${spec.serverName}", but the approval could not be removed: ${errorMessage(error)}` }
+        }
+        return { kind: 'success', text: `Revoked "${spec.serverName}"; its tools are removed from this session.` }
+      })
     }
     const record = { projectRoot: state.projectRoot, server: spec.serverName, approvedAt: new Date().toISOString() }
-    await approvals.add(key, spec.transport === 'stdio' ? Object.assign({ cwd: spec.cwd }, record) : record)
-    if (state.mounted.get(spec.serverName)?.status === 'running') return { kind: 'success', text: `"${spec.serverName}" is already running.` }
-    const failure = await mount(invocation.agent, state, spec)
+    // Only the approval write and the mount registration are ordered; waiting for the server to start is not,
+    // so a later revoke does not queue behind a slow start and cancels it instead.
+    const started = await ordered(key, async () => {
+      await approvals.add(key, spec.transport === 'stdio' ? Object.assign({ cwd: spec.cwd }, record) : record)
+      if (state.mounted.get(spec.serverName)?.status === 'running') return { running: true as const }
+      return { running: false as const, failure: mount(invocation.agent, state, spec) }
+    })
+    if (started.running) return { kind: 'success', text: `"${spec.serverName}" is already running.` }
+    const failure = await started.failure
     return failure === undefined
       ? { kind: 'success', text: `Approved and started "${spec.serverName}".` }
       : { kind: 'error', text: `Approved "${spec.serverName}", but it did not start: ${failure}` }
@@ -308,7 +326,7 @@ export function apply(ctx: Context, config: Config = {}): void {
     try {
       await attach(agent, cwd)
     } catch (error: unknown) {
-      ctx.logger.warn(`air-mcp-conventions: ${(error as Error).message}`)
+      ctx.logger.warn(`air-mcp-conventions: ${errorMessage(error)}`)
     }
   })
 
