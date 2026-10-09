@@ -1,3 +1,12 @@
 packages:
   - bundles/*
   - packages/*
+
+# Peers such as @deepseek-ai/cordis come from the fork through link: dev
+# dependencies; auto-installing them would fetch a second copy from npm.
+autoInstallPeers: false
+
+# pnpm blocks dependency build scripts until each is reviewed here; esbuild
+# needs its script to install the native binary (same choice as the root workspace).
+allowBuilds:
+  esbuild: true

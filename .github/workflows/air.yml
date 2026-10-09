@@ -1,0 +1,52 @@
+name: air
+on:
+  push:
+    branches: [air/main]
+  pull_request:
+    branches: [air/main]
+
+jobs:
+  air:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: pnpm
+          cache-dependency-path: |
+            pnpm-lock.yaml
+            air/pnpm-lock.yaml
+
+      - name: Install fork
+        run: pnpm install --frozen-lockfile
+      - name: Build fork
+        run: pnpm run build
+
+      - name: Install AIR workspace
+        run: pnpm -C air install --frozen-lockfile
+      - name: Build AIR packages
+        working-directory: air
+        run: pnpm --filter "./packages/*" --filter "./bundles/*" run --if-present build
+      - name: Typecheck AIR packages
+        working-directory: air
+        run: pnpm --filter "./packages/*" --filter "./bundles/*" run --if-present typecheck
+      - name: Lint AIR packages
+        run: pnpm -C air run lint
+      - name: Test AIR workspace
+        working-directory: air
+        run: pnpm exec vitest run && pnpm --filter "./packages/*" --filter "./bundles/*" run --if-present test
+
+      - name: Root gates that scan air/
+        run: |
+          pnpm run verify-no-unknown-casts
+          pnpm run verify-concrete-terms
+          pnpm run verify-repository-references
+          pnpm run verify-translation-pairing
+
+      - name: Compose and boot the AIR profile
+        env:
+          DSH_HOME: ${{ runner.temp }}/dsh-home
+        run: pnpm -C air run smoke
