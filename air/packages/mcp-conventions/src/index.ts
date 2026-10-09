@@ -17,7 +17,7 @@ import { createScope, type Scope } from '@deepseek-ai/dsh-scope'
 import type {} from '@deepseek-ai/dsh-tools'
 import { describeSkip, findProjectRoot, readContained } from '@air/dsh-convention-core'
 import { ApprovalStore, approvalKey } from './approvals.ts'
-import { parseMcpJson, type ServerSpec } from './config.ts'
+import { parseMcpJson, redact, type ServerSpec } from './config.ts'
 
 export const name = 'air-mcp-conventions'
 export const inject = ['agents', 'tools', 'commands']
@@ -160,7 +160,8 @@ export function apply(ctx: Context, config: Config = {}): void {
       return undefined
     } catch (error: unknown) {
       await scope.dispose()
-      return (error as Error).message
+      // Upstream messages can quote the spawned command line, so expanded values are scrubbed.
+      return redact((error as Error).message, spec.secrets)
     } finally {
       clearTimeout(timer)
     }
@@ -176,11 +177,16 @@ export function apply(ctx: Context, config: Config = {}): void {
   const describeServers = async (state: AgentState): Promise<string> => {
     const lines: string[] = []
     for (const spec of state.servers) {
-      const target = spec.transport === 'stdio' ? [spec.command, ...spec.args].join(' ') : spec.url
+      // Only unexpanded text and variable names are shown; expanded values may be secrets.
+      const names = spec.transport === 'stdio' ? Object.keys(spec.env) : Object.keys(spec.headers)
+      const label = spec.transport === 'stdio' ? 'env' : 'headers'
+      const details = [spec.display]
+      if (names.length > 0) details.push(`${label}: ${names.join(', ')}`)
+      if (spec.transport === 'stdio') details.push(`cwd: ${spec.cwd}`)
       let status = 'not approved'
       if (state.mounted.has(spec.serverName)) status = 'running'
       else if (await isApproved(state, spec)) status = 'approved, not running'
-      lines.push(`${spec.serverName} (${spec.transport}: ${target}): ${status}`)
+      lines.push(`${spec.serverName} (${spec.transport}: ${details.join('; ')}): ${status}`)
     }
     if (lines.length === 0) lines.push(`No servers are declared in ${join(state.projectRoot, '.mcp.json')}.`)
     for (const problem of state.problems) lines.push(`Problem: ${problem}`)
@@ -203,13 +209,19 @@ export function apply(ctx: Context, config: Config = {}): void {
     }
     const key = approvalKey(state.projectRoot, spec)
     if (action === 'revoke') {
-      await approvals.remove(key)
+      // Stop the server first so an unwritable approvals file cannot leave a revoked server running.
       const scope = state.mounted.get(spec.serverName)
       state.mounted.delete(spec.serverName)
       await scope?.dispose()
+      try {
+        await approvals.remove(key)
+      } catch (error: unknown) {
+        return { kind: 'error', text: `Stopped "${spec.serverName}", but the approval could not be removed: ${(error as Error).message}` }
+      }
       return { kind: 'success', text: `Revoked "${spec.serverName}"; its tools are removed from this session.` }
     }
-    await approvals.add(key, { projectRoot: state.projectRoot, server: spec.serverName, approvedAt: new Date().toISOString() })
+    const record = { projectRoot: state.projectRoot, server: spec.serverName, approvedAt: new Date().toISOString() }
+    await approvals.add(key, spec.transport === 'stdio' ? Object.assign({ cwd: spec.cwd }, record) : record)
     if (state.mounted.has(spec.serverName)) return { kind: 'success', text: `"${spec.serverName}" is already running.` }
     const failure = await mount(invocation.agent, state, spec)
     return failure === undefined
@@ -223,7 +235,7 @@ export function apply(ctx: Context, config: Config = {}): void {
     const file = join(projectRoot, '.mcp.json')
     const read = await readContained(file, { roots: [projectRoot], maxBytes: resolved.maxFileBytes })
     let parsed: ReturnType<typeof parseMcpJson> = { servers: [], problems: [] }
-    if (read.kind === 'ok') parsed = parseMcpJson(read.text, { cwd, env: process.env })
+    if (read.kind === 'ok') parsed = parseMcpJson(read.text, { file, cwd, env: process.env })
     else if (read.kind !== 'absent') parsed = { servers: [], problems: [describeSkip(file, read.kind, resolved.maxFileBytes)] }
     const state: AgentState = { projectRoot, servers: parsed.servers, problems: parsed.problems, mounted: new Map() }
     states.set(agent, state)

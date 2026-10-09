@@ -34,7 +34,7 @@ it('loads the built package through native Loader resolution', async () => {
   await mkdir(join(project, '.git'), { recursive: true })
   const mcpJson = JSON.stringify({ mcpServers: { demo: { command: process.execPath, args: [echoServer] } } })
   await writeFile(join(project, '.mcp.json'), mcpJson)
-  const [spec] = parseMcpJson(mcpJson, { cwd: project, env: process.env }).servers
+  const [spec] = parseMcpJson(mcpJson, { file: join(project, '.mcp.json'), cwd: project, env: process.env }).servers
   if (spec === undefined) throw new Error('expected one server')
   await new ApprovalStore(approvalsFile).add(approvalKey(project, spec), {
     projectRoot: project,

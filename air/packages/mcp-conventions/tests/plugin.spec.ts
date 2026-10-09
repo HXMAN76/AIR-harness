@@ -1,4 +1,5 @@
-import { mkdir, mkdtemp, readdir, rm, symlink, writeFile } from 'node:fs/promises'
+import { createHash } from 'node:crypto'
+import { mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -74,7 +75,7 @@ function toolNames(ctx: Context, agent: Agent): string[] {
 }
 
 async function approveInFile(approvalsFile: string, root: string, mcpJson: unknown): Promise<void> {
-  const { servers } = parseMcpJson(JSON.stringify(mcpJson), { cwd: root, env: process.env })
+  const { servers } = parseMcpJson(JSON.stringify(mcpJson), { file: join(root, '.mcp.json'), cwd: root, env: process.env })
   for (const spec of servers) {
     await new ApprovalStore(approvalsFile).add(approvalKey(root, spec), {
       projectRoot: root,
@@ -102,7 +103,7 @@ describe('air-mcp-conventions', () => {
     expect(toolNames(ctx, agent)).toEqual([])
     const listed = await command(ctx, agent, '/mcp')
     expect(listed.kind).toBe('success')
-    expect(listed.text).toContain(`demo (stdio: ${process.execPath} ${echoServer}): not approved`)
+    expect(listed.text).toContain(`demo (stdio: ${process.execPath} ${echoServer}; cwd: ${root}): not approved`)
     expect(listed.text).toContain('/mcp approve <server>')
   })
 
@@ -227,7 +228,7 @@ describe('air-mcp-conventions', () => {
     const broken = await world('{ not json')
     const first = await mount(broken.approvalsFile)
     const agent = await live(first.ctx, broken.root)
-    expect((await command(first.ctx, agent, '/mcp')).text).toMatch(/Problem: \.mcp\.json is not valid JSON/u)
+    expect((await command(first.ctx, agent, '/mcp')).text).toContain(`Problem: ${join(broken.root, '.mcp.json')} is not valid JSON`)
 
     const empty = await world()
     const second = await mount(empty.approvalsFile)
@@ -252,6 +253,107 @@ describe('air-mcp-conventions', () => {
       kind: 'error',
       text: 'This session has no working directory, so no .mcp.json was read.',
     })
+  })
+})
+
+describe('secrets and consent scope', () => {
+  const canary = 'SECRET-CANARY-7c41'
+  const secretServers = {
+    mcpServers: {
+      local: { command: process.execPath, args: [echoServer, '--token=${AIR_CANARY}'], env: { TOK: '${AIR_CANARY}', PLAIN: 'LIT-CANARY-1' } },
+      remote: { type: 'http', url: 'http://127.0.0.1:1/${AIR_CANARY}', headers: { Authorization: 'Bearer ${AIR_CANARY}' } },
+    },
+  }
+
+  function capture(ctx: Context): string[] {
+    const lines: string[] = []
+    for (const level of ['warn', 'info', 'error', 'debug'] as const) {
+      vi.spyOn(ctx.logger, level).mockImplementation((...args: unknown[]) => { lines.push(args.map(String).join(' ')) })
+    }
+    return lines
+  }
+
+  it('keeps expanded values out of /mcp output and logs, approved or not', async () => {
+    vi.stubEnv('AIR_CANARY', canary)
+    const { root, approvalsFile } = await world(secretServers)
+    const { ctx } = await mount(approvalsFile, 500)
+    const lines = capture(ctx)
+    const agent = await live(ctx, root)
+    const before = (await command(ctx, agent, '/mcp')).text ?? ''
+    expect(before).toContain('--token=${AIR_CANARY}')
+    expect(before).toContain('env: TOK, PLAIN')
+    expect(before).toContain('headers: Authorization')
+    expect(before).toContain('http://127.0.0.1:1/${AIR_CANARY}')
+    const approve = await command(ctx, agent, '/mcp approve remote')
+    const approveLocal = await command(ctx, agent, '/mcp approve local')
+    const after = (await command(ctx, agent, '/mcp')).text ?? ''
+    const second = await live(ctx, root)
+    const output = [before, approve.text, approveLocal.text, after, ...lines].join('\n')
+    expect(second).toBeDefined()
+    expect(output).not.toContain(canary)
+    expect(output).not.toContain('LIT-CANARY-1')
+  })
+
+  it('scrubs expanded values from startup failure messages shown by /mcp', async () => {
+    vi.stubEnv('AIR_CANARY', '/no/such/SECRET-CANARY-bin')
+    const { root, approvalsFile } = await world({ mcpServers: { bad: { command: '${AIR_CANARY}' } } })
+    const { ctx } = await mount(approvalsFile, 5000)
+    const agent = await live(ctx, root)
+    const result = await command(ctx, agent, '/mcp approve bad')
+    expect(result.kind).toBe('error')
+    expect(result.text).not.toContain('SECRET-CANARY')
+  })
+
+  it('does not echo malformed .mcp.json content in /mcp or logs', async () => {
+    const { root, approvalsFile } = await world('{ "mcpServers": { "a": { "command": "FILE-CANARY-55", } } }')
+    const { ctx } = await mount(approvalsFile)
+    const lines = capture(ctx)
+    const agent = await live(ctx, root)
+    const text = (await command(ctx, agent, '/mcp')).text ?? ''
+    expect(text).toContain(`${join(root, '.mcp.json')} is not valid JSON`)
+    expect([text, ...lines].join('\n')).not.toContain('FILE-CANARY-55')
+  })
+
+  it('does not treat an approval from another working directory as approval', async () => {
+    const { root, approvalsFile } = await world(demo)
+    const sub = join(root, 'sub')
+    await mkdir(sub)
+    const { ctx } = await mount(approvalsFile)
+    const inRoot = await live(ctx, root)
+    expect((await command(ctx, inRoot, '/mcp approve demo')).kind).toBe('success')
+    const store = JSON.parse(await readFile(approvalsFile, 'utf8')) as { approved: Record<string, { cwd?: string }> }
+    expect(Object.values(store.approved).map(record => record.cwd)).toEqual([root])
+    const inSub = await live(ctx, sub)
+    expect(toolNames(ctx, inSub)).toEqual([])
+    expect((await command(ctx, inSub, '/mcp')).text).toContain('): not approved')
+    const again = await live(ctx, root)
+    expect(toolNames(ctx, again)).toEqual(['mcp__demo__echo'])
+  })
+
+  it('ignores an approval recorded before the working directory joined the key', async () => {
+    const { root, approvalsFile } = await world(demo)
+    const spec = parseMcpJson(JSON.stringify(demo), { file: join(root, '.mcp.json'), cwd: root, env: process.env }).servers[0]
+    if (spec === undefined) throw new Error('no spec')
+    const old = createHash('sha256').update(JSON.stringify([root, spec.serverName, spec.definition])).digest('hex')
+    await mkdir(dirname(approvalsFile), { recursive: true })
+    await writeFile(approvalsFile, JSON.stringify({ version: 1, approved: { [old]: { projectRoot: root, server: 'demo', approvedAt: 'x' } } }))
+    const { ctx } = await mount(approvalsFile)
+    const agent = await live(ctx, root)
+    expect(toolNames(ctx, agent)).toEqual([])
+    expect((await command(ctx, agent, '/mcp')).text).toContain('): not approved')
+  })
+
+  it('stops a revoked server even when the approvals file cannot be rewritten', async () => {
+    const { root, approvalsFile } = await world(demo)
+    const { ctx } = await mount(approvalsFile)
+    const agent = await live(ctx, root)
+    await command(ctx, agent, '/mcp approve demo')
+    expect(toolNames(ctx, agent)).toEqual(['mcp__demo__echo'])
+    await writeFile(approvalsFile, '{ corrupt')
+    const result = await command(ctx, agent, '/mcp revoke demo')
+    expect(result.kind).toBe('error')
+    expect(result.text).toContain('Stopped "demo"')
+    expect(toolNames(ctx, agent)).toEqual([])
   })
 })
 

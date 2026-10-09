@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { canonicalJson, expandEnv, parseMcpJson } from '../src/config.ts'
+import { canonicalJson, expandEnv, parseMcpJson, redact } from '../src/config.ts'
 
-const options = { cwd: '/work/project', env: { TOKEN: 'secret', HOST: 'example.test' } }
+const options = { file: '/work/project/.mcp.json', cwd: '/work/project', env: { TOKEN: 'secret', HOST: 'example.test' } }
 
 describe('canonicalJson', () => {
   it('sorts object keys at every depth and keeps array order', () => {
@@ -20,6 +20,18 @@ describe('expandEnv', () => {
 
   it('throws for an unset variable without a default', () => {
     expect(() => expandEnv('${MISSING}', options.env)).toThrow('environment variable MISSING is not set')
+  })
+
+  it('reports each substituted value to the caller', () => {
+    const seen: string[] = []
+    expandEnv('${TOKEN}-${MISSING:-fallback}', options.env, (value) => { seen.push(value) })
+    expect(seen).toEqual(['secret', 'fallback'])
+  })
+})
+
+describe('redact', () => {
+  it('replaces every secret, longest first, and ignores empty ones', () => {
+    expect(redact('a abc b ab c abc', ['ab', '', 'abc'])).toBe('a [redacted] b [redacted] c [redacted]')
   })
 })
 
@@ -43,6 +55,8 @@ describe('parseMcpJson', () => {
           env: { API_TOKEN: 'secret' },
           cwd,
           definition: canonicalJson(entries.files),
+          display: 'npx -y server-files ${HOST}',
+          secrets: ['example.test', 'secret', 'secret'],
         },
         {
           transport: 'stdio',
@@ -52,6 +66,8 @@ describe('parseMcpJson', () => {
           env: {},
           cwd,
           definition: canonicalJson(entries.bare),
+          display: 'my-server',
+          secrets: [],
         },
         {
           transport: 'streamable-http',
@@ -59,6 +75,8 @@ describe('parseMcpJson', () => {
           url: 'https://example.test/mcp',
           headers: { Authorization: 'Bearer secret' },
           definition: canonicalJson(entries.remote),
+          display: 'https://${HOST}/mcp',
+          secrets: ['example.test', 'secret', 'Bearer secret'],
         },
         {
           transport: 'streamable-http',
@@ -66,6 +84,8 @@ describe('parseMcpJson', () => {
           url: 'https://example.test/other',
           headers: {},
           definition: canonicalJson(entries.inferred),
+          display: 'https://example.test/other',
+          secrets: [],
         },
         {
           transport: 'streamable-http',
@@ -73,6 +93,8 @@ describe('parseMcpJson', () => {
           url: 'https://example.test/third',
           headers: {},
           definition: canonicalJson(entries.named),
+          display: 'https://example.test/third',
+          secrets: [],
         },
       ],
       problems: [],
@@ -106,7 +128,7 @@ describe('parseMcpJson', () => {
     expect(servers.map(server => server.serverName)).toEqual(['ok'])
     expect(problems).toEqual([
       'bad name!: server name must match [A-Za-z0-9_-]{1,32}',
-      'legacy: transport type "sse" is not supported; use stdio or http',
+      'legacy: "type" is not supported; use stdio or http',
       'scalar: server entry must be an object',
       'nocommand: a stdio server requires a "command" string',
       'nourl: an http server requires a "url" string',
@@ -117,11 +139,27 @@ describe('parseMcpJson', () => {
     ])
   })
 
-  it('reports an unreadable document', () => {
-    expect(parseMcpJson('{ not json', options).problems[0]).toMatch(/^\.mcp\.json is not valid JSON: /u)
-    const missing = { servers: [], problems: ['.mcp.json must contain an "mcpServers" object'] }
+  it('reports an unreadable document by file path without echoing its content', () => {
+    const leaky = '{ "mcpServers": { "a": { "command": "LEAK-CANARY-9f3", } } }'
+    const { problems } = parseMcpJson(leaky, options)
+    expect(problems).toEqual([`${options.file} is not valid JSON; fix its syntax and start a new session`])
+    expect(problems.join('\n')).not.toContain('LEAK-CANARY-9f3')
+    const missing = { servers: [], problems: [`${options.file} must contain an "mcpServers" object`] }
     expect(parseMcpJson('[]', options)).toEqual(missing)
     expect(parseMcpJson('{"mcpServers": []}', options)).toEqual(missing)
+  })
+
+  it('never echoes a value in a validation or missing-variable problem', () => {
+    const text = JSON.stringify({
+      mcpServers: {
+        a: { type: 'LEAK-CANARY-type', command: 'x' },
+        b: { command: 'x', env: { KEY: 5 }, args: 'LEAK-CANARY-args' },
+        c: { command: '${NOT_SET_VAR}', args: ['LEAK-CANARY-arg'] },
+      },
+    })
+    const joined = parseMcpJson(text, options).problems.join('\n')
+    expect(joined).not.toContain('LEAK-CANARY')
+    expect(joined).toContain('NOT_SET_VAR')
   })
 
   it('accepts a byte-order mark and CRLF line endings', () => {
