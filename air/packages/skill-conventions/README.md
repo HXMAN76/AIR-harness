@@ -18,7 +18,7 @@ A skill provider (`air-conventions`) for the directories other agents already us
 
 Differences from upstream `skill-filesystem` parsing: `name` defaults to the directory or file name; `description` defaults to the first body paragraph for a `SKILL.md`; `when_to_use` is accepted; a `SKILL.md` without frontmatter is valid. The Claude Code fields `allowed-tools`, `disallowed-tools`, `arguments`, `paths`, `model`, `context`, `agent`, and `argument-hint` are recorded under `metadata.claudeCode` for other AIR plugins and have no effect here.
 
-Config: `providerName`, `airHome`, `claudeHome`, `agentsHome`, `includeUserRoots` (default `false`), `extraProjectRoots` (default `[]`; relative, no `..`), `maxFileBytes` (default 262144), `maxWalkEntries` (default 2000), `descriptionMaxChars` (default 1500), `watchIntervalMs` (default 3000; 0 disables), `watchMaxProjects` (default 32).
+Config: `providerName`, `airHome`, `claudeHome`, `agentsHome`, `includeUserRoots` (default `false`), `extraProjectRoots` (default `[]`; relative, no `..`), `projectRootMarkers` (default `['.git']`; entry names that identify the project root), `maxFileBytes` (default 262144), `maxWalkEntries` (default 2000), `descriptionMaxChars` (default 1500), `watchIntervalMs` (default 3000; 0 disables), `watchMaxProjects` (default 32).
 
 ## Model Experience
 

@@ -16,6 +16,7 @@ import { createScope, type Scope } from '@deepseek-ai/dsh-scope'
 import {
   describeSkip,
   describeTruncation,
+  errorMessage,
   findProjectRoot,
   listMarkdownTree,
   parseFrontmatter,
@@ -173,7 +174,7 @@ export function apply(ctx: Context, config: Config = {}): void {
         body: text,
       }
     } catch (error: unknown) {
-      ctx.logger.warn(`air-command-conventions: ${path} ignored: ${(error as Error).message}`)
+      ctx.logger.warn(`air-command-conventions: ${path} ignored: ${errorMessage(error)}`)
       return undefined
     }
   }
@@ -229,7 +230,7 @@ export function apply(ctx: Context, config: Config = {}): void {
 
   /** Release an Agent from a listener, where a rejection would be unhandled. */
   const releaseLogged = (agent: Agent): Promise<void> => release(agent).catch((error: unknown) => {
-    ctx.logger.warn(`air-command-conventions: removing commands failed: ${(error as Error).message}`)
+    ctx.logger.warn(`air-command-conventions: removing commands failed: ${errorMessage(error)}`)
   })
 
   ctx.on('agent/created', async ({ agent }) => {
@@ -243,7 +244,7 @@ export function apply(ctx: Context, config: Config = {}): void {
       files = await discover(agent, cwd)
     } catch (error: unknown) {
       // A command folder that cannot be read costs the Agent its commands, never its creation.
-      ctx.logger.warn(`air-command-conventions: command files could not be read: ${(error as Error).message}`)
+      ctx.logger.warn(`air-command-conventions: command files could not be read: ${errorMessage(error)}`)
       if (scopes.get(agent) === entry) scopes.delete(agent)
       return
     }

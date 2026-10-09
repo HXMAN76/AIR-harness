@@ -15,7 +15,7 @@ import Schema from '@deepseek-ai/schemastery'
 import type { Agent, PreStepDecision } from '@deepseek-ai/dsh-agent'
 import { createUserMessage, type Message } from '@deepseek-ai/dsh-llm'
 import type { PostToolDecision, ToolExecution } from '@deepseek-ai/dsh-tools'
-import { expandHome, findProjectRoot, isInside, resolveUserHomes, toPosixRelative } from '@air/dsh-convention-core'
+import { errorMessage, expandHome, findProjectRoot, isInside, resolveUserHomes, toPosixRelative } from '@air/dsh-convention-core'
 import { composeBaseline } from './baseline.ts'
 import { loadClaudeRules, matchingRules, type Rule, type RuleCache } from './rules.ts'
 
@@ -206,7 +206,7 @@ export function apply(ctx: Context, config: Config): void {
         ruleCache,
       })
     } catch (error: unknown) {
-      report([`convention files could not be read: ${(error as Error).message}`])
+      report([`convention files could not be read: ${errorMessage(error)}`])
       return undefined
     }
   }

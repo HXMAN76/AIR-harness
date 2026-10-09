@@ -20,6 +20,7 @@ import {
   PollWatcher,
   describeSkip,
   describeTruncation,
+  errorMessage,
   findProjectRoot,
   isRecord,
   listDirectory,
@@ -47,6 +48,8 @@ export interface Config {
   includeUserRoots?: boolean
   /** Extra skill directories relative to the project root, for example `.opencode/skills`. */
   extraProjectRoots?: string[]
+  /** Entry names that identify the project root; the nearest ancestor holding one wins. Defaults to `['.git']`. */
+  projectRootMarkers?: string[]
   /** Largest skill file in bytes. Defaults to 262144. */
   maxFileBytes?: number
   /** Most directory entries examined per skill root. Defaults to 2000. */
@@ -66,6 +69,7 @@ export const Config: Schema<Config> = Schema.object({
   agentsHome: Schema.string().description('Shared agents home; defaults to $DSH_AGENTS_HOME, then ~/.agents.'),
   includeUserRoots: Schema.boolean().default(false).description('Scan ~/.agents/skills and ~/.claude/skills.'),
   extraProjectRoots: Schema.array(Schema.string()).default([]).description('Extra skill directories relative to the project root.'),
+  projectRootMarkers: Schema.array(Schema.string()).default(['.git']).description('Entry names that identify the project root.'),
   maxFileBytes: Schema.number().default(262144).description('Largest skill file, in bytes.'),
   maxWalkEntries: Schema.number().default(2000).description('Most directory entries examined per skill root.'),
   descriptionMaxChars: Schema.number().default(1500).description('Longest skill description kept in the catalog.'),
@@ -79,6 +83,7 @@ export interface ResolvedConfig {
   readonly homes: UserHomes
   readonly includeUserRoots: boolean
   readonly extraProjectRoots: readonly string[]
+  readonly projectRootMarkers: readonly string[]
   readonly maxFileBytes: number
   readonly maxWalkEntries: number
   readonly descriptionMaxChars: number
@@ -98,11 +103,15 @@ export function resolveConfig(config: Config): ResolvedConfig {
     homes: resolveUserHomes(config),
     includeUserRoots: config.includeUserRoots ?? false,
     extraProjectRoots: config.extraProjectRoots ?? [],
+    projectRootMarkers: config.projectRootMarkers ?? ['.git'],
     maxFileBytes: config.maxFileBytes ?? 262144,
     maxWalkEntries: config.maxWalkEntries ?? 2000,
     descriptionMaxChars: config.descriptionMaxChars ?? 1500,
     watchIntervalMs: config.watchIntervalMs ?? 3000,
     watchMaxProjects: config.watchMaxProjects ?? 32,
+  }
+  if (resolved.projectRootMarkers.length === 0) {
+    throw new TypeError('air-skill-conventions: projectRootMarkers must not be empty')
   }
   if (!Number.isInteger(resolved.descriptionMaxChars) || resolved.descriptionMaxChars < 1) {
     throw new TypeError('air-skill-conventions: descriptionMaxChars must be a positive integer')
@@ -184,7 +193,7 @@ export class ConventionSkillProvider implements SkillProvider {
    */
   async list(options: SkillLookupOptions): Promise<SkillCandidate[]> {
     const listedAt = Date.now()
-    const projectRoot = options.cwd === undefined ? undefined : await findProjectRoot(options.cwd)
+    const projectRoot = options.cwd === undefined ? undefined : await findProjectRoot(options.cwd, this.config.projectRootMarkers)
     const roots = skillRoots({
       projectRoot,
       homes: this.config.homes,
@@ -284,7 +293,7 @@ export class ConventionSkillProvider implements SkillProvider {
         descriptionMaxChars: this.config.descriptionMaxChars,
       })
     } catch (error: unknown) {
-      this.logger.warn(`air-skill-conventions: ${file.path} ignored: ${(error as Error).message}`)
+      this.logger.warn(`air-skill-conventions: ${file.path} ignored: ${errorMessage(error)}`)
       return undefined
     }
   }

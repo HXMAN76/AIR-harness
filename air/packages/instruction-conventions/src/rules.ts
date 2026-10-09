@@ -5,6 +5,7 @@ import picomatch from 'picomatch'
 import {
   describeSkip,
   describeTruncation,
+  errorMessage,
   fileSignature,
   listMarkdownTree,
   parseFrontmatter,
@@ -102,7 +103,7 @@ function parseRule(entry: { path: string; segments: readonly string[] }, raw: st
     const digest = createHash('sha256').update(content).digest('hex').slice(0, 16)
     return { rule: { path: entry.path, relativePath: `.claude/rules/${entry.segments.join('/')}.md`, content, globs, digest } }
   } catch (error: unknown) {
-    return { problem: `${entry.path}: ${(error as Error).message}` }
+    return { problem: `${entry.path}: ${errorMessage(error)}` }
   }
 }
 

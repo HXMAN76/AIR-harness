@@ -187,6 +187,24 @@ describe('air-skill-conventions provider', () => {
   })
 })
 
+describe('projectRootMarkers', () => {
+  it('finds the project root by a configured marker instead of .git', async () => {
+    const { project, config } = await world()
+    await write(join(project, 'package.json'), '{}')
+    await write(join(project, '.claude/skills/rooted/SKILL.md'), skillText('Rooted'))
+    await mkdir(join(project, 'src/deep'), { recursive: true })
+    const control = { signal: new AbortController().signal, invalidate: () => {} }
+    const make = (extra: skillConventions.Config) =>
+      new skillConventions.ConventionSkillProvider({ warn: () => {} }, control, skillConventions.resolveConfig(configWith(config, extra)))
+    const marked = make({ projectRootMarkers: ['package.json'] })
+    expect((await marked.list({ cwd: join(project, 'src/deep') })).map(skill => skill.name)).toEqual(['rooted'])
+    marked.dispose()
+    const missing = make({ projectRootMarkers: ['no-such-marker'] })
+    expect(await missing.list({ cwd: join(project, 'src/deep') })).toEqual([])
+    missing.dispose()
+  })
+})
+
 describe('containment', () => {
   const control = { signal: new AbortController().signal, invalidate: () => {} }
 
@@ -311,6 +329,7 @@ describe('resolveConfig', () => {
       homes,
       includeUserRoots: false,
       extraProjectRoots: [],
+      projectRootMarkers: ['.git'],
       maxFileBytes: 262144,
       maxWalkEntries: 2000,
       descriptionMaxChars: 1500,
@@ -320,6 +339,7 @@ describe('resolveConfig', () => {
   })
 
   it('rejects invalid values', () => {
+    expect(() => skillConventions.resolveConfig({ projectRootMarkers: [] })).toThrow('projectRootMarkers must not be empty')
     expect(() => skillConventions.resolveConfig({ descriptionMaxChars: 0 })).toThrow('descriptionMaxChars must be a positive integer')
     expect(() => skillConventions.resolveConfig({ maxFileBytes: 0 })).toThrow('maxFileBytes must be a positive integer')
     expect(() => skillConventions.resolveConfig({ maxWalkEntries: 0.5 })).toThrow('maxWalkEntries must be a positive integer')

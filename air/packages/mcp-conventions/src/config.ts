@@ -1,5 +1,5 @@
 /** Parses Claude Code project `.mcp.json` files into MCP client specifications. */
-import { isRecord } from '@air/dsh-convention-core'
+import { errorMessage, isRecord } from '@air/dsh-convention-core'
 
 /** One server to connect, with every `${VAR}` already expanded. */
 export type ServerSpec =
@@ -186,7 +186,7 @@ export function parseMcpJson(text: string, options: ParseOptions): { servers: Se
     try {
       servers.push(parseServer(serverName, raw, options))
     } catch (error: unknown) {
-      problems.push(`${serverName}: ${(error as Error).message}`)
+      problems.push(`${serverName}: ${errorMessage(error)}`)
     }
   }
   return { servers, problems }
