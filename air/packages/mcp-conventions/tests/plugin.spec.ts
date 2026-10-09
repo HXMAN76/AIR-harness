@@ -790,7 +790,10 @@ describe('reviewTools', () => {
   it('starts the server once the MCP tool reviewer exists', async () => {
     const { root, approvalsFile } = await world(demo)
     const { ctx } = await mount(approvalsFile, 15_000, { reviewTools: true })
-    ctx.provide(REVIEW_SERVICE, {})
+    ctx.provide(REVIEW_SERVICE, {
+      review: (request: { tools: readonly { definition: unknown }[]; instructions: string }) =>
+        Promise.resolve({ tools: request.tools.map(entry => entry.definition), instructions: request.instructions }),
+    })
     const agent = await live(ctx, root)
     expect(await command(ctx, agent, '/mcp approve demo')).toEqual({ kind: 'success', text: 'Approved and started "demo".' })
     expect(toolNames(ctx, agent)).toEqual(['mcp__demo__echo'])

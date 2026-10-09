@@ -116,6 +116,7 @@ kind: "package-reference"
 |---|---|
 | [`src/index.ts`](src/index.ts) | 插件入口：`Config` schema、`serverName` 预留、激活等待 |
 | [`src/connection.ts`](src/connection.ts) | 连接监督器：客户端世代、重连策略、尝试预算、dispose（资源释放） |
+| [`src/review.ts`](src/review.ts) | 可选工具审查器的 Service Definition，在获取与交换之间被调用 |
 | [`src/server-context.ts`](src/server-context.ts) | 资源提供方注册与字面服务器指令 |
 | [`src/tools.ts`](src/tools.ts) | 工具桥接：发现、命名、注册交换、执行、图片投影 |
 | [`src/transport.ts`](src/transport.ts) | 传输工厂：带清洗环境的 stdio spawn、Streamable HTTP |
@@ -127,6 +128,8 @@ kind: "package-reference"
 `apply` 解析重连策略、在当前注册作用域内预留 `serverName`、启动监督器，并等待初始连接加发现完成。独立 agent（智能体）作用域可以复用相同 namespace，因为其工具与传输彼此隔离；同一作用域内重复会在加载时失败。监督器把所有同步——初始、通知与重连——串行到同一条队列，因此两次同步绝不会交错执行各自的先 dispose 后注册交换。dispose 会取消待执行的重连、关闭协商中的传输或已绑定的客户端、等待进行中的尝试与排队同步完全停稳，然后注销当前世代。
 
 SDK 通过旧版通知或现代协议订阅接收工具列表变化。监督器将每次重新同步排队；获取失败时保留之前的注册代，注册冲突则回滚本次尝试。每次故障共享一个尝试预算：连续失败达到 `maxAttempts` 后注销工具并停止重连；连接持续超过 `maxDelayMs` 则重置预算。
+
+存在 `mcpToolReview` 服务时，每个已获取的世代会在交换之前连同该世代的原始服务器指令一起交给它审查。审查器返回要注册的工具和指令；审查器失败时不注册任何工具，并撤回指令。重复的原始名称仍会使获取失败，并保留上一世代。要求审查的组合在其 mcp-client 行上添加 `inject: [mcpToolReview]`，使每一行在审查器出现之前保持等待。本包定义并消费该服务，但不提供实现。
 
 ### 工具执行内部细节
 

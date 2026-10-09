@@ -116,6 +116,7 @@ This section explains the design decisions behind the bridge and points at the c
 |---|---|
 | [`src/index.ts`](src/index.ts) | Plugin entry: `Config` schema, `serverName` reservation, activation await |
 | [`src/connection.ts`](src/connection.ts) | Connection supervisor: client generations, reconnect policy, attempt budget, disposal |
+| [`src/review.ts`](src/review.ts) | Optional tool reviewer Service Definition consulted between fetch and swap |
 | [`src/server-context.ts`](src/server-context.ts) | Resource-provider registration and literal server instructions |
 | [`src/tools.ts`](src/tools.ts) | Tool bridge: discovery, naming, registration swap, execution, image projection |
 | [`src/transport.ts`](src/transport.ts) | Transport factory: stdio spawn with scrubbed env, Streamable HTTP |
@@ -127,6 +128,8 @@ The exported `createMcpToolDefinition(ctx, options)` adapts an upstream tool sch
 `apply` resolves the reconnect policy, reserves the `serverName` inside the current registration scope, starts the supervisor, and awaits the initial connection plus discovery. Independent Agent scopes may reuse the same namespace because their tools and transports are isolated; a duplicate inside one scope fails at load. The supervisor serializes every sync — initial, notification, and reconnect — through one queue so two syncs can never interleave their dispose-previous/register-next swap. Disposal cancels pending reconnects, closes the negotiating transport or attached client, waits for the in-flight attempt and queued syncs to quiesce, and unregisters the current generation.
 
 The SDK receives tool-list changes through legacy notifications or a modern subscription. The supervisor queues each re-sync; a fetch failure keeps the previous generation registered, while a registration conflict rolls back the attempted generation. Each outage shares one attempt budget: after `maxAttempts` consecutive failures the tools are unregistered and reconnection stops, and a connection that stays up past `maxDelayMs` resets the budget.
+
+When a `mcpToolReview` service exists, each fetched generation is offered to it before the swap together with the generation's raw server instructions. The reviewer returns the tools and instructions to register; a reviewer failure registers no tools and withdraws the instructions. A duplicate raw name still fails the fetch and keeps the previous generation. A composition that requires review adds `inject: [mcpToolReview]` to its mcp-client rows, which keeps each row pending until a reviewer exists. This package defines and consumes the service but ships no provider.
 
 ### Tool execution internals
 
