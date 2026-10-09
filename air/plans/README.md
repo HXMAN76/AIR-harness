@@ -118,7 +118,7 @@ Apply these when the build starts; the plan files are unchanged for now.
 
 | Plan | Revised for `0.2.1-alpha.1`, Windows teammates, and owner decisions |
 |---|---|
-| 00 | Done: Node smoke script (run on Fedora), cross-platform steps, lint and CI scope |
+| 00 | Done, and **executed on 2026-10-09** on branch `air/feat/00-workspace-foundation` (Fedora only; the plan file's execution record lists four deviations; native Windows and the GitHub workflow not yet run) |
 | 01 | Done (code still uncompiled): preset regenerated and keeps clock and reminder tools; one polling watcher; command files no longer read as skills; safer `@path` imports; `.mcp.json` approval keyed on the unexpanded definition; `reviewTools` Config field for plan 02; Windows path handling and cross-platform steps |
 | 02 | Done (lockfile module run in a scratch copy with five concurrent writers; the rest read, not compiled; Windows untested): upstream lines re-verified, first-use prompt saves the pin, every denial names the server, changed fields, and the exact command, an unreadable lockfile quarantines instead of only logging, Windows-safe steps |
 | 03 | Done (222 tests run in a scratch copy on Linux, including the real Auto review plugin in both load orders; Windows paths untested): built-in tools allow by default, only MCP tools ask; every ask and denial explains itself; Windows elevation blocked; escalation answering opt-in |
