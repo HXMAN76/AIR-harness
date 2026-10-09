@@ -38,6 +38,7 @@ function trustConfig(paths: BootPaths, policy: Record<string, unknown> = {}): tr
   return {
     lockfile: paths.lockPath,
     auditDir: paths.auditDir,
+    auditMaxBytes: 1_000_000,
     defaults: { ...DEFAULTS, ...policy },
     servers: {},
     denyUnreviewedMcpTools: true,
@@ -136,6 +137,12 @@ describe('reviewed mcp-client row', () => {
         "mcp__mutable__echo: Echo the input.",
       ]
     `)
+    await vi.waitFor(async () => {
+      const text = await readFile(join(booted!.auditDir, 'process.jsonl'), 'utf8')
+      expect(JSON.parse(text.trimEnd().split('\n').at(-1)!)).toMatchObject({
+        type: 'mcp/drift', data: { serverName: 'mutable', added: ['browser_evaluate'], action: 'withhold' },
+      })
+    }, { timeout: 5000 })
   })
 
   it('registers only allowed tools and never a denied one (scenarios 8 and 9)', async () => {
@@ -296,6 +303,7 @@ describe('resolveConfig', () => {
   it.each([
     ['a relative lockfile', { lockfile: 'mcp-lock.json' }, 'lockfile must be an absolute path'],
     ['a relative audit directory', { auditDir: 'audit' }, 'auditDir must be an absolute path'],
+    ['a zero audit size limit', { auditMaxBytes: 0 }, 'auditMaxBytes must be a positive integer'],
     ['a negative prompt cap', { maxPromptsPerServer: -1 }, 'maxPromptsPerServer must be a non-negative integer'],
     ['a fractional prompt cap', { maxPromptsPerServer: 1.5 }, 'maxPromptsPerServer must be a non-negative integer'],
     ['a zero minimum delay', { minReverifyMs: 0 }, 'minReverifyMs must be a positive number'],

@@ -15,6 +15,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import type {} from '@deepseek-ai/dsh-mcp-client'
 import type {} from '@deepseek-ai/dsh-tools'
+import { Audit } from './audit.ts'
 import { TrustEngine, type EngineConfig } from './engine.ts'
 import { watchLockfile } from './lockfile.ts'
 import type { McpTrust } from './types.ts'
@@ -43,6 +44,8 @@ export interface Config {
   lockfile: string
   /** Absolute directory for the JSONL audit files. */
   auditDir: string
+  /** Size in bytes a JSONL audit file may reach before it rotates to one previous file. */
+  auditMaxBytes: number
   /** Policy for every server: `mode`, `onAdded`, `onChanged`, `onRemoved`, `instructions`, and optional `allow`, `deny`, `override`. */
   defaults: Record<string, unknown>
   /** Per-server policy overrides keyed by the local `serverName`. */
@@ -68,6 +71,7 @@ export interface Config {
 export const Config: z<Config> = z.object({
   lockfile: z.string().required().description('Absolute path of the MCP trust lockfile.'),
   auditDir: z.string().required().description('Absolute directory for JSONL audit files.'),
+  auditMaxBytes: z.number().required().description('Size a JSONL audit file may reach before it rotates to one previous file.'),
   defaults: z.any().required().description('Trust policy applied to every server.'),
   servers: z.dict(z.any()).default({}).description('Per-server trust policy overrides by serverName.'),
   denyUnreviewedMcpTools: z.boolean().required().description('Deny calls to mcp__ tools that no review registered.'),
@@ -83,6 +87,7 @@ export const Config: z<Config> = z.object({
 /** Validated configuration with every server policy resolved. */
 export interface ResolvedConfig extends EngineConfig {
   auditDir: string
+  auditMaxBytes: number
   watchDebounceMs: number
 }
 
@@ -96,6 +101,9 @@ export interface ResolvedConfig extends EngineConfig {
 export function resolveConfig(config: Config): ResolvedConfig {
   if (!isAbsolute(config.lockfile)) throw new Error('mcp-trust: lockfile must be an absolute path')
   if (!isAbsolute(config.auditDir)) throw new Error('mcp-trust: auditDir must be an absolute path')
+  if (!Number.isInteger(config.auditMaxBytes) || config.auditMaxBytes <= 0) {
+    throw new Error('mcp-trust: auditMaxBytes must be a positive integer')
+  }
   if (!Number.isInteger(config.maxPromptsPerServer) || config.maxPromptsPerServer < 0) {
     throw new Error('mcp-trust: maxPromptsPerServer must be a non-negative integer')
   }
@@ -110,6 +118,7 @@ export function resolveConfig(config: Config): ResolvedConfig {
   return {
     lockfile: config.lockfile,
     auditDir: config.auditDir,
+    auditMaxBytes: config.auditMaxBytes,
     denyUnreviewedMcpTools: config.denyUnreviewedMcpTools,
     maxPromptsPerServer: config.maxPromptsPerServer,
     minReverifyMs: config.minReverifyMs,
@@ -131,14 +140,16 @@ export function apply(ctx: Context, config: Config): void {
   const resolved = resolveConfig(config)
   // The directory watch and the writer lock both need the lockfile's directory.
   mkdirSync(dirname(resolved.lockfile), { recursive: true, mode: 0o700 })
-  const engine = new TrustEngine({
+  const logger = {
+    warn: (message: string): void => { ctx.logger.warn(message) },
+    error: (message: string): void => { ctx.logger.error(message) },
+  }
+  const audit = new Audit(resolved.auditDir, logger, () => new Date(), resolved.auditMaxBytes)
+  const engine: TrustEngine = new TrustEngine({
     config: resolved,
-    logger: {
-      warn: (message) => { ctx.logger.warn(message) },
-      error: (message) => { ctx.logger.error(message) },
-    },
+    logger,
     now: () => new Date(),
-    drift: () => {},
+    drift: (record) => { void audit.drift(record, engine.observed(record)) },
   })
   ctx.effect(() => () => { engine.dispose() }, 'air-mcp-trust.state')
   ctx.effect(() => watchLockfile(
