@@ -10,7 +10,7 @@ Consent: a repository file can name any command, so nothing in `.mcp.json` runs 
 
 | Command | Effect |
 |---|---|
-| `/mcp` | list each declared server with its command line or URL as written in the file (`${VAR}` stays unexpanded), the names (never the values) of its env variables or headers, its working directory, and its state: `running`, `approved, not running`, `not approved`; list file problems |
+| `/mcp` | list each declared server with its command line or URL as written in the file (`${VAR}` stays unexpanded), each env variable or header as `NAME=<text as written in the file>` (`${VAR}` stays unexpanded, so a user approving sees that `Authorization` is `Bearer ${GITHUB_TOKEN}` or that env sets `NODE_OPTIONS`; expanded values are never shown), its working directory, and its state: `running`, `approved, not running`, `not approved`; list file problems |
 | `/mcp approve <server>` | record approval and start the server for this session |
 | `/mcp revoke <server>` | remove approval and stop the server in this session |
 
@@ -25,9 +25,9 @@ The model sees each approved server's tools as `mcp__<server>__<tool>`, plus the
 - Only the project `.mcp.json` is read, as UTF-8 (a UTF-8 byte-order mark is accepted; a UTF-16 file saved by Windows PowerShell 5 is not). `~/.claude.json`, Claude Desktop configuration, and `.mcpb` bundles are not imported.
 - On Windows a bare `npx` or `uvx` command works because the upstream client launches servers through `cross-spawn`; a server inherits only a small set of environment variables plus the `env` it declares.
 - `type: "sse"` servers and OAuth are not supported (upstream `mcp-client` has neither).
-- `/mcp`, log lines, and error messages show unexpanded text and variable names only, and a malformed `.mcp.json` is reported by path without quoting its content. Messages from upstream `mcp-client` itself (for example a spawn error that quotes the expanded command) are outside this package: they are scrubbed in `/mcp` output but not in the upstream client's own log lines.
+- `/mcp`, log lines, and error messages show unexpanded text only (a literal value in `.mcp.json` appears as written, because that is the text an approval covers), print an invalid server name as a quoted string cut to 64 characters, and a malformed `.mcp.json` is reported by path without quoting its content. Messages from upstream `mcp-client` itself (for example a spawn error that quotes the expanded command) are outside this package: they are scrubbed in `/mcp` output but not in the upstream client's own log lines.
 - Replacing the approvals file is retried a few times when another process holds it open on Windows (`EPERM`/`EBUSY`); after that the write fails with a message saying so.
 - Every Agent starts its own server processes, including delegated child Agents working in the same project.
-- `.mcp.json` is read once, when the Agent is created; edit the file and start a new session to pick up changes. Revoking in one session does not stop the server in other running sessions.
+- `.mcp.json` is read once, when the Agent is created; edit the file and start a new session to pick up changes. Revoking stops the server in every session of this process that mounted it; sessions in other processes keep theirs until they end.
 - A corrupt approvals file approves nothing: `/mcp` shows a problem line that names the file, and servers do not start until the file is repaired or deleted. Two processes writing the file at the same instant can lose one approval.
 - Tool definitions are not pinned or reviewed here; that is the MCP trust plan.

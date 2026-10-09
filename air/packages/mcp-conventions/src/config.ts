@@ -9,6 +9,8 @@ export type ServerSpec =
     readonly command: string
     readonly args: string[]
     readonly env: Record<string, string>
+    /** `env` exactly as written in the file (`${VAR}` unexpanded); shown to a person so the approval is informed. */
+    readonly declared: Record<string, string>
     /** Working directory of the server process: the session cwd. */
     readonly cwd: string
     /** The entry as written in the file (`${VAR}` unexpanded) in canonical JSON; the approval identity. */
@@ -23,6 +25,8 @@ export type ServerSpec =
     readonly serverName: string
     readonly url: string
     readonly headers: Record<string, string>
+    /** `headers` exactly as written in the file (`${VAR}` unexpanded); shown to a person so the approval is informed. */
+    readonly declared: Record<string, string>
     /** The entry as written in the file (`${VAR}` unexpanded) in canonical JSON; the approval identity. */
     readonly definition: string
     /** URL exactly as written in the file (`${VAR}` unexpanded); the only form shown to a person. */
@@ -44,6 +48,15 @@ export interface ParseOptions {
 /** Same grammar upstream `mcp-client` accepts for `serverName`. */
 const SERVER_NAME = /^[A-Za-z0-9_-]{1,32}$/u
 const VARIABLE = /\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}/gu
+
+/**
+ * Render a server name that may not have been validated yet, so control and escape characters cannot reach a terminal.
+ * @param name - key from the `mcpServers` object, or text a person typed.
+ * @returns the name cut to 64 characters and written as a JSON string literal.
+ */
+export function quoteName(name: string): string {
+  return JSON.stringify(name.length > 64 ? `${name.slice(0, 64)}...` : name)
+}
 
 /**
  * Serialize parsed JSON with object keys sorted at every depth, so two files that differ only in key
@@ -142,6 +155,7 @@ function parseServer(serverName: string, raw: unknown, options: ParseOptions): S
       command: expand(command),
       args: args.map(expand),
       env: expandMap(env, options, secrets),
+      declared: env,
       cwd: options.cwd,
       definition,
       display: [command, ...args].join(' '),
@@ -156,6 +170,7 @@ function parseServer(serverName: string, raw: unknown, options: ParseOptions): S
       serverName,
       url: expand(url),
       headers: expandMap(headers, options, secrets),
+      declared: headers,
       definition,
       display: url,
       secrets,
@@ -186,7 +201,7 @@ export function parseMcpJson(text: string, options: ParseOptions): { servers: Se
     try {
       servers.push(parseServer(serverName, raw, options))
     } catch (error: unknown) {
-      problems.push(`${serverName}: ${errorMessage(error)}`)
+      problems.push(`${quoteName(serverName)}: ${errorMessage(error)}`)
     }
   }
   return { servers, problems }

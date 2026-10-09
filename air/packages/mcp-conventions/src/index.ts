@@ -17,7 +17,7 @@ import { createScope, type Scope } from '@deepseek-ai/dsh-scope'
 import type {} from '@deepseek-ai/dsh-tools'
 import { describeSkip, errorMessage, findProjectRoot, readContained } from '@air/dsh-convention-core'
 import { ApprovalStore, approvalKey, type McpApprovalKey } from './approvals.ts'
-import { parseMcpJson, redact, type ServerSpec } from './config.ts'
+import { parseMcpJson, quoteName, redact, type ServerSpec } from './config.ts'
 
 export const name = 'air-mcp-conventions'
 export const inject = ['agents', 'tools', 'commands']
@@ -226,11 +226,12 @@ export function apply(ctx: Context, config: Config = {}): void {
   const describeServers = async (state: AgentState): Promise<string> => {
     const lines: string[] = []
     for (const spec of state.servers) {
-      // Only unexpanded text and variable names are shown; expanded values may be secrets.
-      const names = spec.transport === 'stdio' ? Object.keys(spec.env) : Object.keys(spec.headers)
+      // The text as written in the file is shown, because that is what an approval covers; `${VAR}` stays
+      // unexpanded, since expanded values may be secrets.
+      const entries = Object.entries(spec.declared).map(([header, value]) => `${header}=${value}`)
       const label = spec.transport === 'stdio' ? 'env' : 'headers'
       const details = [spec.display]
-      if (names.length > 0) details.push(`${label}: ${names.join(', ')}`)
+      if (entries.length > 0) details.push(`${label}: ${entries.join(', ')}`)
       if (spec.transport === 'stdio') details.push(`cwd: ${spec.cwd}`)
       let status = 'not approved'
       if (state.mounted.get(spec.serverName)?.status === 'running') status = 'running'
@@ -253,6 +254,17 @@ export function apply(ctx: Context, config: Config = {}): void {
     return run
   }
 
+  /** Stop every mount, in any Agent, whose approval key is `key`, and wait until each scope is gone. */
+  const stopApproved = async (key: McpApprovalKey): Promise<void> => {
+    const stops: Promise<void>[] = []
+    for (const other of states.values()) {
+      for (const candidate of other.servers) {
+        if (approvalKey(other.projectRoot, candidate) === key) stops.push(stop(other, candidate.serverName))
+      }
+    }
+    await Promise.all(stops)
+  }
+
   const runCommand = async (invocation: CommandInvocation): Promise<CommandResult> => {
     const state = states.get(invocation.agent)
     if (state === undefined) {
@@ -264,13 +276,13 @@ export function apply(ctx: Context, config: Config = {}): void {
     if ((action !== 'approve' && action !== 'revoke') || parts.length !== 2) return { kind: 'error', text: USAGE }
     const spec = state.servers.find(server => server.serverName === parts[1])
     if (spec === undefined) {
-      return { kind: 'error', text: `No server named "${String(parts[1])}" is declared in ${join(state.projectRoot, '.mcp.json')}. ${USAGE}` }
+      return { kind: 'error', text: `No server named ${quoteName(String(parts[1]))} is declared in ${join(state.projectRoot, '.mcp.json')}. ${USAGE}` }
     }
     const key = approvalKey(state.projectRoot, spec)
     if (action === 'revoke') {
       return ordered(key, async (): Promise<CommandResult> => {
         // Stop the server first so an unwritable approvals file cannot leave a revoked server running.
-        await stop(state, spec.serverName)
+        await stopApproved(key)
         try {
           await approvals.remove(key)
         } catch (error: unknown) {
@@ -283,10 +295,16 @@ export function apply(ctx: Context, config: Config = {}): void {
     // Only the approval write and the mount registration are ordered; waiting for the server to start is not,
     // so a later revoke does not queue behind a slow start and cancels it instead.
     const started = await ordered(key, async () => {
-      await approvals.add(key, spec.transport === 'stdio' ? Object.assign({ cwd: spec.cwd }, record) : record)
+      try {
+        await approvals.add(key, spec.transport === 'stdio' ? Object.assign({ cwd: spec.cwd }, record) : record)
+      } catch (error: unknown) {
+        const text = `Could not approve "${spec.serverName}": ${errorMessage(error)}. The approvals file is ${resolved.approvalsFile}; repair or delete it and approve again.`
+        return { error: text }
+      }
       if (state.mounted.get(spec.serverName)?.status === 'running') return { running: true as const }
       return { running: false as const, failure: mount(invocation.agent, state, spec) }
     })
+    if ('error' in started) return { kind: 'error', text: started.error }
     if (started.running) return { kind: 'success', text: `"${spec.serverName}" is already running.` }
     const failure = await started.failure
     return failure === undefined
@@ -308,13 +326,18 @@ export function apply(ctx: Context, config: Config = {}): void {
     states.set(agent, state)
     for (const problem of state.problems) ctx.logger.warn(`air-mcp-conventions: ${problem}`)
     let pending = 0
-    // Servers start in parallel.
+    // Servers start in parallel. The approval check and the mount registration run in the server's ordered
+    // chain, so a revoke runs before or after them, never between; waiting for the start is outside the chain.
     await Promise.all(state.servers.map(async (spec) => {
-      if (!await isApproved(state, spec)) {
+      const started = await ordered(approvalKey(projectRoot, spec), async () => {
+        if (!await isApproved(state, spec)) return undefined
+        return { failure: mount(agent, state, spec) }
+      })
+      if (started === undefined) {
         pending += 1
         return
       }
-      const failure = await mount(agent, state, spec)
+      const failure = await started.failure
       if (failure !== undefined && !isGone(agent)) ctx.logger.warn(`air-mcp-conventions: server "${spec.serverName}" did not start: ${failure}`)
     }))
     if (pending > 0) ctx.logger.info(`air-mcp-conventions: ${pending} server(s) in ${join(projectRoot, '.mcp.json')} await approval; run /mcp in the session`)

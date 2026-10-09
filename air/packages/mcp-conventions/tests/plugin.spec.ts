@@ -223,7 +223,7 @@ describe('air-mcp-conventions', () => {
       text: 'Revoked "demo"; its tools are removed from this session.',
     })
     expect(toolNames(ctx, agent)).toEqual([])
-    expect(toolNames(ctx, second)).toEqual(['mcp__demo__echo'])
+    expect(toolNames(ctx, second)).toEqual([])
     expect((await command(ctx, agent, '/mcp')).text).toContain('): not approved')
     expect((await command(ctx, agent, '/mcp revoke demo')).kind).toBe('success')
   })
@@ -579,8 +579,8 @@ describe('secrets and consent scope', () => {
     const agent = await live(ctx, root)
     const before = (await command(ctx, agent, '/mcp')).text ?? ''
     expect(before).toContain('--token=${AIR_CANARY}')
-    expect(before).toContain('env: TOK, PLAIN')
-    expect(before).toContain('headers: Authorization')
+    expect(before).toContain('env: TOK=${AIR_CANARY}, PLAIN=LIT-CANARY-1')
+    expect(before).toContain('headers: Authorization=Bearer ${AIR_CANARY}')
     expect(before).toContain('http://127.0.0.1:1/${AIR_CANARY}')
     const approve = await command(ctx, agent, '/mcp approve remote')
     const approveLocal = await command(ctx, agent, '/mcp approve local')
@@ -589,7 +589,6 @@ describe('secrets and consent scope', () => {
     const output = [before, approve.text, approveLocal.text, after, ...lines].join('\n')
     expect(second).toBeDefined()
     expect(output).not.toContain(canary)
-    expect(output).not.toContain('LIT-CANARY-1')
   })
 
   it('scrubs expanded values from startup failure messages shown by /mcp', async () => {
@@ -651,6 +650,84 @@ describe('secrets and consent scope', () => {
     const result = await command(ctx, agent, '/mcp revoke demo')
     expect(result.kind).toBe('error')
     expect(result.text).toContain('Stopped "demo"')
+    expect(toolNames(ctx, agent)).toEqual([])
+  })
+})
+
+describe('revoke and start-up ordering', () => {
+  it('leaves no server running when a revoke lands between the startup approval check and the mount', async () => {
+    const { root, approvalsFile } = await world()
+    const spec = withPid(dirname(root))
+    await writeFile(join(root, '.mcp.json'), JSON.stringify(spec))
+    await approveInFile(approvalsFile, root, spec)
+    const { ctx } = await mount(approvalsFile)
+    const checking = deferred()
+    const has = vi.spyOn(ApprovalStore.prototype, 'has').mockImplementationOnce(async () => {
+      await checking.promise
+      return true
+    })
+    const { agent } = stubAgent(ctx, root)
+    const registered = ctx.agents.register(agent)
+    await vi.waitFor(() => { expect(has).toHaveBeenCalledTimes(1) })
+    const revoking = command(ctx, agent, '/mcp revoke demo')
+    checking.resolve()
+    expect((await revoking).kind).toBe('success')
+    await registered
+    expect(toolNames(ctx, agent)).toEqual([])
+    await vi.waitFor(async () => { expect((await pidsIn(dirname(root))).some(isAlive)).toBe(false) }, { timeout: 5000 })
+    expect((await command(ctx, agent, '/mcp')).text).toContain('): not approved')
+  })
+
+  it('leaves nothing mounted or running when a server finishes starting after the startup timeout', async () => {
+    const { root, approvalsFile } = await world()
+    const spec = withPid(dirname(root))
+    await writeFile(join(root, '.mcp.json'), JSON.stringify(spec))
+    const { ctx } = await mount(approvalsFile, 50)
+    const agent = await live(ctx, root)
+    const starting = deferred()
+    gate.hold = starting.promise
+    const approving = command(ctx, agent, '/mcp approve demo')
+    await vi.waitFor(() => { expect(gate.started).toBe(1) })
+    // The timeout (50 ms) fires while the client plugin is still held; it is released only afterwards.
+    await new Promise<void>((resolve) => { setTimeout(resolve, 150) })
+    starting.resolve()
+    expect(await approving).toEqual({ kind: 'error', text: 'Approved "demo", but it did not start: did not start within 50 ms' })
+    await new Promise<void>((resolve) => { setTimeout(resolve, 300) })
+    expect(toolNames(ctx, agent)).toEqual([])
+    await vi.waitFor(async () => { expect((await pidsIn(dirname(root))).some(isAlive)).toBe(false) }, { timeout: 5000 })
+  })
+
+  it('stops a revoked server in every Agent of the project', async () => {
+    const { root, approvalsFile } = await world(demo)
+    const { ctx } = await mount(approvalsFile)
+    const first = await live(ctx, root)
+    const second = await live(ctx, root)
+    const sub = join(root, 'sub')
+    await mkdir(sub)
+    const elsewhere = await live(ctx, sub)
+    expect((await command(ctx, elsewhere, '/mcp approve demo')).kind).toBe('success')
+    expect((await command(ctx, first, '/mcp approve demo')).kind).toBe('success')
+    expect((await command(ctx, second, '/mcp approve demo')).kind).toBe('success')
+    expect(toolNames(ctx, first)).toEqual(['mcp__demo__echo'])
+    expect(toolNames(ctx, second)).toEqual(['mcp__demo__echo'])
+    expect((await command(ctx, first, '/mcp revoke demo')).kind).toBe('success')
+    expect(toolNames(ctx, first)).toEqual([])
+    expect(toolNames(ctx, second)).toEqual([])
+    expect((await command(ctx, second, '/mcp')).text).toContain('): not approved')
+    // A different working directory is a different approval, so that Agent keeps its server.
+    expect(toolNames(ctx, elsewhere)).toEqual(['mcp__demo__echo'])
+  })
+
+  it('names the approvals file when approving fails because it is unreadable', async () => {
+    const { root, approvalsFile } = await world(demo)
+    await mkdir(dirname(approvalsFile), { recursive: true })
+    await writeFile(approvalsFile, '{ corrupt')
+    const { ctx } = await mount(approvalsFile)
+    const agent = await live(ctx, root)
+    const result = await command(ctx, agent, '/mcp approve demo')
+    expect(result.kind).toBe('error')
+    expect(result.text).toContain('Could not approve "demo"')
+    expect(result.text).toContain(approvalsFile)
     expect(toolNames(ctx, agent)).toEqual([])
   })
 })

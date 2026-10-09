@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { canonicalJson, expandEnv, parseMcpJson, redact } from '../src/config.ts'
+import { canonicalJson, expandEnv, parseMcpJson, quoteName, redact } from '../src/config.ts'
 
 const options = { file: '/work/project/.mcp.json', cwd: '/work/project', env: { TOKEN: 'secret', HOST: 'example.test' } }
 
@@ -53,6 +53,7 @@ describe('parseMcpJson', () => {
           command: 'npx',
           args: ['-y', 'server-files', 'example.test'],
           env: { API_TOKEN: 'secret' },
+          declared: { API_TOKEN: '${TOKEN}' },
           cwd,
           definition: canonicalJson(entries.files),
           display: 'npx -y server-files ${HOST}',
@@ -64,6 +65,7 @@ describe('parseMcpJson', () => {
           command: 'my-server',
           args: [],
           env: {},
+          declared: {},
           cwd,
           definition: canonicalJson(entries.bare),
           display: 'my-server',
@@ -74,6 +76,7 @@ describe('parseMcpJson', () => {
           serverName: 'remote',
           url: 'https://example.test/mcp',
           headers: { Authorization: 'Bearer secret' },
+          declared: { Authorization: 'Bearer ${TOKEN}' },
           definition: canonicalJson(entries.remote),
           display: 'https://${HOST}/mcp',
           secrets: ['example.test', 'secret', 'Bearer secret'],
@@ -83,6 +86,7 @@ describe('parseMcpJson', () => {
           serverName: 'inferred',
           url: 'https://example.test/other',
           headers: {},
+          declared: {},
           definition: canonicalJson(entries.inferred),
           display: 'https://example.test/other',
           secrets: [],
@@ -92,6 +96,7 @@ describe('parseMcpJson', () => {
           serverName: 'named',
           url: 'https://example.test/third',
           headers: {},
+          declared: {},
           definition: canonicalJson(entries.named),
           display: 'https://example.test/third',
           secrets: [],
@@ -99,6 +104,14 @@ describe('parseMcpJson', () => {
       ],
       problems: [],
     })
+  })
+
+  it('quotes and truncates an invalid server name so escape characters never reach a terminal', () => {
+    const name = `\u001b[31m${'x'.repeat(100)}`
+    const { problems } = parseMcpJson(JSON.stringify({ mcpServers: { [name]: { command: 'a' } } }), options)
+    expect(problems).toEqual([`"\\u001b[31m${'x'.repeat(59)}...": server name must match [A-Za-z0-9_-]{1,32}`])
+    expect(quoteName('short')).toBe('"short"')
+    expect(problems.join('')).not.toContain('\u001b')
   })
 
   it('keeps ${VAR} text in the definition so a rotated value does not change it', () => {
@@ -127,15 +140,15 @@ describe('parseMcpJson', () => {
     const { servers, problems } = parseMcpJson(text, options)
     expect(servers.map(server => server.serverName)).toEqual(['ok'])
     expect(problems).toEqual([
-      'bad name!: server name must match [A-Za-z0-9_-]{1,32}',
-      'legacy: "type" is not supported; use stdio or http',
-      'scalar: server entry must be an object',
-      'nocommand: a stdio server requires a "command" string',
-      'nourl: an http server requires a "url" string',
-      'badargs: "args" must be a list of strings',
-      'badenv: "env.PORT" must be a string',
-      'badheaders: "headers" must be an object of strings',
-      'unset: environment variable NOT_SET is not set',
+      '"bad name!": server name must match [A-Za-z0-9_-]{1,32}',
+      '"legacy": "type" is not supported; use stdio or http',
+      '"scalar": server entry must be an object',
+      '"nocommand": a stdio server requires a "command" string',
+      '"nourl": an http server requires a "url" string',
+      '"badargs": "args" must be a list of strings',
+      '"badenv": "env.PORT" must be a string',
+      '"badheaders": "headers" must be an object of strings',
+      '"unset": environment variable NOT_SET is not set',
     ])
   })
 
