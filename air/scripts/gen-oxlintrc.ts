@@ -34,6 +34,8 @@ function mapGlob(glob: string): string | undefined {
 /**
  * Map root lint rules onto the AIR layout: `air/packages/<pkg>` instead of `packages/<group>/<pkg>`;
  * `apps/*` and `scripts/*` globs carry over to `air/apps/*` and `air/scripts/*`.
+ * The top-level `options` block is dropped because oxlint accepts it only in the root configuration;
+ * AIR passes `--type-aware` on the command line.
  * @param root - parsed root configuration.
  * @returns the configuration to write to air/.oxlintrc.json.
  */
@@ -43,7 +45,8 @@ export function deriveAirOxlintConfig(root: OxlintConfig): OxlintConfig {
     const files = override.files.map(mapGlob).filter((glob): glob is string => glob !== undefined)
     if (files.length > 0) overrides.push({ ...override, files })
   }
-  const derived: OxlintConfig = { ...root, $schema: AIR_SCHEMA, overrides }
+  const topLevel = Object.fromEntries(Object.entries(root).filter(([key]) => key !== 'options'))
+  const derived: OxlintConfig = { ...topLevel, $schema: AIR_SCHEMA, overrides }
   if (root.ignorePatterns !== undefined) {
     derived.ignorePatterns = root.ignorePatterns.filter(pattern => pattern.startsWith('**/'))
   }
