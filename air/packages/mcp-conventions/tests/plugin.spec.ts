@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readdir, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -109,7 +109,7 @@ interface World {
 }
 
 async function world(mcpJson?: unknown): Promise<World> {
-  const base = await mkdtemp(join(tmpdir(), 'air-mcp-'))
+  const base = await realpath(await mkdtemp(join(tmpdir(), 'air-mcp-')))
   created.push(base)
   const root = join(base, 'project')
   await mkdir(join(root, '.git'), { recursive: true })

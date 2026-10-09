@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { mkdtemp, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
+import { mkdtemp, readdir, readFile, realpath, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve, sep } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -14,7 +14,7 @@ afterEach(async () => {
 })
 
 async function approvalsFile(): Promise<string> {
-  const dir = await mkdtemp(join(tmpdir(), 'air-approvals-'))
+  const dir = await realpath(await mkdtemp(join(tmpdir(), 'air-approvals-')))
   created.push(dir)
   return join(dir, 'nested', 'mcp-approvals.json')
 }
@@ -65,10 +65,13 @@ describe('approvalKey', () => {
       .not.toBe(approvalKey(root, http))
   })
 
-  it('treats a Windows project root without regard to letter case', () => {
+  it.skipIf(process.platform === 'win32')('keeps letter case significant in the project root and working directory off Windows', () => {
     const lower = approvalKey(root, stdio)
     expect(approvalKey(root.toUpperCase(), stdio)).not.toBe(lower)
     expect(approvalKey(root, { ...stdio, cwd: root.toUpperCase() })).not.toBe(lower)
+  })
+
+  it('treats a Windows project root without regard to letter case', () => {
     vi.stubGlobal('process', Object.defineProperty(Object.create(process) as NodeJS.Process, 'platform', { value: 'win32' }))
     expect(approvalKey(root.toUpperCase(), stdio)).toBe(approvalKey(root.toLowerCase(), stdio))
     expect(approvalKey(root, { ...stdio, cwd: root.toUpperCase() })).toBe(approvalKey(root, { ...stdio, cwd: root.toLowerCase() }))
@@ -193,7 +196,7 @@ describe('ApprovalStore', () => {
   })
 
   it('fails loud on a file that is not an approvals file', async () => {
-    const file = join(await mkdtemp(join(tmpdir(), 'air-approvals-')), 'mcp-approvals.json')
+    const file = join(await realpath(await mkdtemp(join(tmpdir(), 'air-approvals-'))), 'mcp-approvals.json')
     created.push(join(file, '..'))
     const store = new ApprovalStore(file)
     await writeFile(file, '{ truncated')

@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises'
 import { homedir, tmpdir } from 'node:os'
 import { dirname, join, resolve, sep } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -21,7 +21,7 @@ afterEach(async () => {
 })
 
 async function project(): Promise<string> {
-  const base = await mkdtemp(join(tmpdir(), 'air-instructions-'))
+  const base = await realpath(await mkdtemp(join(tmpdir(), 'air-instructions-')))
   created.push(base)
   await mkdir(join(base, '.git'))
   return base

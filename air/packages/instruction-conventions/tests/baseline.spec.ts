@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -11,7 +11,7 @@ afterEach(async () => {
 })
 
 async function world(): Promise<BaselineInput> {
-  const base = await mkdtemp(join(tmpdir(), 'air-baseline-'))
+  const base = await realpath(await mkdtemp(join(tmpdir(), 'air-baseline-')))
   created.push(base)
   const projectRoot = join(base, 'project')
   const home = join(base, 'home')

@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, realpath, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import nodePath, { join, resolve, sep } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -21,7 +21,7 @@ function abs(...segments: string[]): string {
 }
 
 async function tempDir(): Promise<string> {
-  const dir = await mkdtemp(join(tmpdir(), 'air-core-paths-'))
+  const dir = await realpath(await mkdtemp(join(tmpdir(), 'air-core-paths-')))
   created.push(dir)
   return dir
 }

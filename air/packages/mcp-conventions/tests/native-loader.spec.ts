@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { afterEach, expect, it } from 'vitest'
@@ -28,7 +28,7 @@ afterEach(async () => {
 // Rows resolve by Node from the directory of the cordis.yml, so the config
 // lives inside this package; `@air/dsh-mcp-conventions` self-resolves to lib/.
 it('loads the built package through native Loader resolution', async () => {
-  root = await mkdtemp(join(packageDir, '.loader-'))
+  root = await realpath(await mkdtemp(join(packageDir, '.loader-')))
   const project = join(root, 'project')
   const approvalsFile = join(root, 'state', 'mcp-approvals.json')
   await mkdir(join(project, '.git'), { recursive: true })

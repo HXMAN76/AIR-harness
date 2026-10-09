@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve, sep } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -22,7 +22,7 @@ interface World {
 }
 
 async function world(): Promise<World> {
-  const base = await mkdtemp(join(tmpdir(), 'air-skill-'))
+  const base = await realpath(await mkdtemp(join(tmpdir(), 'air-skill-')))
   created.push(base)
   const project = join(base, 'project')
   const home = join(base, 'home')

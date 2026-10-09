@@ -9,7 +9,7 @@ import { describeSkip, describeTruncation, fileSignature, fileSize, listDirector
 const created: string[] = []
 
 async function tempDir(): Promise<string> {
-  const dir = await mkdtemp(join(tmpdir(), 'air-core-files-'))
+  const dir = await realpath(await mkdtemp(join(tmpdir(), 'air-core-files-')))
   created.push(dir)
   return dir
 }

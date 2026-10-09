@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -14,7 +14,7 @@ afterEach(async () => {
 })
 
 async function world(): Promise<{ project: string; home: string; outside: string }> {
-  const base = await mkdtemp(join(tmpdir(), 'air-imports-'))
+  const base = await realpath(await mkdtemp(join(tmpdir(), 'air-imports-')))
   created.push(base)
   return { project: join(base, 'project'), home: join(base, 'home'), outside: join(base, 'outside') }
 }
