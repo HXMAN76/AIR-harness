@@ -2,5 +2,29 @@
   "name": "@air/root",
   "private": true,
   "type": "module",
-  "license": "MIT"
+  "license": "MIT",
+  "packageManager": "pnpm@11.7.0",
+  "engines": {
+    "node": "^22.19.0 || >=24.0.0"
+  },
+  "scripts": {
+    "build": "pnpm -r --if-present run build",
+    "typecheck": "pnpm -r --if-present run typecheck",
+    "lint": "tsx scripts/gen-oxlintrc.ts --check && oxlint --config .oxlintrc.json --type-aware packages apps",
+    "lint:gen": "tsx scripts/gen-oxlintrc.ts",
+    "test": "vitest run && pnpm -r --if-present run test",
+    "smoke": "tsx scripts/smoke-profile.ts"
+  },
+  "devDependencies": {
+    "@stylistic/eslint-plugin": "^5.10.0",
+    "@types/node": "^22.20.0",
+    "@vitest/coverage-v8": "^4.1.8",
+    "eslint-plugin-sonarjs": "^4.1.0",
+    "oxlint": "1.76.0",
+    "oxlint-tsgolint": "7.0.2001",
+    "tsdown": "^0.22.2",
+    "tsx": "^4.22.4",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.8"
+  }
 }
