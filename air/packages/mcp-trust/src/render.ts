@@ -8,7 +8,7 @@
 
 import type { ToolDigest } from './canonical.ts'
 import type { LockServer } from './lockfile.ts'
-import type { ObservedSurface, SurfaceDiff } from './types.ts'
+import type { McpTool, ObservedSurface, SurfaceDiff } from './types.ts'
 
 /** Longest tool, field, or server name printed in full. */
 const NAME_LIMIT = 100
@@ -110,11 +110,48 @@ export function renderDiffSummary(serverName: string, diff: SurfaceDiff, reviewK
   }
   if (diff.instructionsChanged) parts.push('instructions changed')
   const summary = parts.length > 0 ? parts.join('; ') : 'no differences'
-  return `MCP server "${clip(serverName, NAME_LIMIT)}"${keyNote(reviewKey)} changed its tool surface: ${summary}. Approve to use this surface until the process exits.`
+  return `MCP server "${clip(serverName, NAME_LIMIT)}"${keyNote(reviewKey)} changed its tool surface: ${summary}. Allow once accepts the changed tools until this process exits, without saving anything. Reject keeps the server blocked.`
 }
 
 function quoted(value: unknown): string {
   return typeof value === 'string' ? `"${clip(value, TEXT_LIMIT).replaceAll('\\', '\\\\').replaceAll('"', '\\"')}"` : '(absent)'
+}
+
+/** Printable type of one input property: its `type`, or `any` when the schema gives none. */
+function propertyType(schema: unknown): string {
+  if (typeof schema !== 'object' || schema === null || !('type' in schema)) return 'any'
+  const { type } = schema
+  if (typeof type === 'string') return clip(type, NAME_LIMIT)
+  return Array.isArray(type) ? type.map(entry => clip(String(entry), NAME_LIMIT)).join('|') : 'any'
+}
+
+/**
+ * Compact one-line rendering of an input schema: each property with its type, `(required)` when the schema lists it as required.
+ * @param schema - untrusted input schema of a tool.
+ * @returns printable text such as `text: string (required), count: number`, or `(no properties)`.
+ */
+function schemaSummary(schema: unknown): string {
+  if (typeof schema !== 'object' || schema === null || !('properties' in schema)) return '(no properties)'
+  const { properties } = schema
+  if (typeof properties !== 'object' || properties === null) return '(no properties)'
+  const required = 'required' in schema && Array.isArray(schema.required) ? schema.required : []
+  const names = Object.keys(properties)
+  if (names.length === 0) return '(no properties)'
+  const shown = names.slice(0, LIST_LIMIT).map((name) => {
+    const entry: unknown = Reflect.get(properties, name)
+    return `${clip(name, NAME_LIMIT)}: ${propertyType(entry)}${required.includes(name) ? ' (required)' : ''}`
+  }).join(', ')
+  return names.length > LIST_LIMIT ? `${shown}, and ${String(names.length - LIST_LIMIT)} more` : shown
+}
+
+/** Lines that show the definition of an added tool, so the person reads what they are about to approve. */
+function definitionLines(tool: McpTool): string[] {
+  const lines = [
+    `      description: ${quoted(tool.description)}`,
+    `      input:       ${schemaSummary(tool.inputSchema)}`,
+  ]
+  if (tool.annotations !== undefined) lines.push(`      annotations: ${quoted(JSON.stringify(tool.annotations))}`)
+  return lines
 }
 
 /**
@@ -139,7 +176,11 @@ export function renderSurfaceDiff(
   const more = (items: readonly unknown[], noun: string): void => {
     if (items.length > LIST_LIMIT) lines.push(`  ... and ${String(items.length - LIST_LIMIT)} more ${noun}`)
   }
-  for (const name of diff.added.slice(0, LIST_LIMIT)) lines.push(`  + added   ${clip(name, NAME_LIMIT)}`)
+  for (const name of diff.added.slice(0, LIST_LIMIT)) {
+    lines.push(`  + added   ${clip(name, NAME_LIMIT)}`)
+    const tool = surface.tools.find(candidate => candidate.name === name)
+    if (tool !== undefined) lines.push(...definitionLines(tool))
+  }
   more(diff.added, 'added')
   for (const name of diff.removed.slice(0, LIST_LIMIT)) lines.push(`  - removed ${clip(name, NAME_LIMIT)}`)
   more(diff.removed, 'removed')
@@ -156,6 +197,12 @@ export function renderSurfaceDiff(
     lines.push(`      pinned:   ${quoted(pinned?.instructions?.text)}`)
     lines.push(`      observed: ${quoted(surface.instructions === '' ? undefined : surface.instructions)}`)
   }
+  if (pinned === undefined && !diff.instructionsChanged && surface.instructions !== '') {
+    lines.push(`  instructions: ${quoted(surface.instructions)}`)
+  }
   if (lines.length === count && surface.surfaceDigest !== '' && pinned !== undefined) lines.push('  no differences')
+  if (lines.some(line => line.includes('<truncated '))) {
+    lines.push('  Some text was cut (descriptions and instructions at 4,000 characters, names at 100); the full text is in the audit directory.')
+  }
   return lines.join('\n')
 }

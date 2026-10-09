@@ -71,8 +71,7 @@ describe('pre-step approval bridge (collaborators faked)', () => {
     expect(requests[0]!.signal).toBe(SIGNAL)
     expect(requests[0]).toMatchObject({
       toolName: 'mcp__browser__*',
-      reason: 'MCP server "browser" changed its tool surface: added browser_evaluate. Approve to use this surface until the process exits. '
-        + 'The lockfile is not changed. '
+      reason: 'MCP server "browser" changed its tool surface: added browser_evaluate. Allow once accepts the changed tools until this process exits, without saving anything. Reject keeps the server blocked. '
         + `The person can run \`${CLI} diff browser\` to see what differs, then \`${CLI} pin browser\` to approve it or \`${CLI} revoke browser\` to keep it blocked. An allow rule never approves a server.`,
     })
     expect(engine.settlePrompt).toHaveBeenCalledWith(pending, true)
@@ -112,20 +111,20 @@ describe('pre-step approval bridge (collaborators faked)', () => {
     const pending: PendingSurface = { serverName: 'browser', surface: unpinned, resync: vi.fn() }
     expect(promptReason(pending, CLI, true)).toBe(
       'MCP server "browser" has not been approved yet. It offers 2 tools: a, b. '
-      + 'Approve to use it and remember the approval in the trust lockfile. '
-      + `To read the definitions first, decline and run \`${CLI} diff browser\`.`,
+      + '"Allow once" saves this exact tool list to the trust lockfile, so you are not asked again. "Reject" keeps the server blocked. '
+      + `To read the definitions first, choose "Reject" and run \`${CLI} diff browser\`.`,
     )
-    expect(promptReason(pending, CLI, false)).toContain(`Approve to use it until the process exits, or run \`${CLI} pin browser\` to save the approval.`)
+    expect(promptReason(pending, CLI, false)).toContain(`"Allow once" uses it until this process exits and saves nothing; run \`${CLI} pin browser\` to save the approval. "Reject" keeps the server blocked.`)
   })
 
   it('shows the server name with the start of its key, and the key in every command', () => {
     const keyed: PendingSurface = { serverName: 'browser', reviewKey: KEY_X, surface: { ...surface, reviewKey: KEY_X, state: 'unpinned' }, resync: vi.fn() }
     expect(promptReason(keyed, CLI, true)).toBe(
       'MCP server "browser" (key aaaaaaaaaaaa) has not been approved yet. It offers 0 tools: . '
-      + 'Approve to use it and remember the approval in the trust lockfile. '
-      + 'To read the definitions first and get the command that saves the approval, decline and run `/mcp-trust diff browser --key aaaaaaaaaaaa`.',
+      + '"Allow once" saves this exact tool list to the trust lockfile, so you are not asked again. "Reject" keeps the server blocked. '
+      + 'To read the definitions first and get the command that saves the approval, choose "Reject" and run `/mcp-trust diff browser --key aaaaaaaaaaaa`.',
     )
-    expect(promptReason(keyed, CLI, false)).toContain('Approve to use it until the process exits. To read the definitions first and get the command that saves the approval')
+    expect(promptReason(keyed, CLI, false)).toContain('"Allow once" uses it until this process exits and saves nothing. "Reject" keeps the server blocked. To read the definitions first and get the command that saves the approval')
     const changed: PendingSurface = { serverName: 'browser', reviewKey: KEY_X, surface: { ...surface, reviewKey: KEY_X }, resync: vi.fn() }
     const text = promptReason(changed, CLI, true)
     expect(text).toContain('MCP server "browser" (key aaaaaaaaaaaa) changed its tool surface: added browser_evaluate.')

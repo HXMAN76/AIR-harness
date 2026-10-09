@@ -60,7 +60,7 @@ The command is registered when a command registry exists in the process. In the 
 | Command | Effect |
 |---|---|
 | `/mcp-trust` or `/mcp-trust status` | One line per server: name, first 12 characters of the review key or `-`, state, tool count, and for a blocked server a summary of what changed. Covers every server observed in this process and every lockfile entry. States: `approved`, `first-use pinned`, `accepted once, not pinned`, `unpinned`, `blocked pending review`, `review failed`, `lockfile unreadable`, and `pinned, not observed in this process`. Reads only. |
-| `/mcp-trust diff <server> [--key <prefix>]` | The field-level difference between the observed surface and its pin. The last line is the command that approves exactly this surface. Reads only. |
+| `/mcp-trust diff <server> [--key <prefix>]` | The field-level difference between the observed surface and its pin. For every added tool (all tools of an unpinned server) it prints the description, a one-line summary of the input schema (property names, types, required), and the annotations, and it prints the server instructions of an unpinned server, so the definitions to approve can be read before approving. The result is plain text with one item per line; the Web UI shows the first line collapsed and the full text expanded. The last line is the command that approves exactly this surface. Reads only. |
 | `/mcp-trust pin <server> [--key <prefix>] --surface <prefix>` | Pins the currently observed surface with `approvedBy: command`, re-syncs the server so its tools register, and reports how many tools are pinned. |
 | `/mcp-trust revoke <server> [--key <prefix>]` | Removes the pin and re-syncs the server so its tools unregister. |
 
@@ -71,6 +71,8 @@ The command is registered when a command registry exists in the process. In the 
 ## Known limitations
 
 - The review display cuts server text at 4,000 characters; the audit keeps the full text.
+- After a declined or blocked server, the model is not told why the tool is missing (it only sees that the tool does not exist), so it may try other tools. A model-visible notice is a follow-up.
+- A blocked server is also unreachable through `list_mcp_resources`, `list_mcp_resource_templates`, and `read_mcp_resource`: the guard denies a call whose `server` argument names a server that is unpinned and withheld, quarantined, failed its review, or while the lockfile is unreadable. Those tools identify a server by name only, so one blocked server blocks every server of that name.
 - Audit blobs are not rotated, and their number grows with the number of distinct changed definitions. Log files rotate to one previous file.
 - A declined change is asked again, up to `maxPromptsPerServer` times per server for the life of the process.
 - Accepting a changed surface once in a prompt lasts until the process exits and is never written to the lockfile.

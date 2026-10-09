@@ -57,7 +57,7 @@ const KEY_PREFIX = 12
  * @param pending - the surface being asked about.
  * @param cli - command prefix of the `air-mcp` profile.
  * @param enrolls - whether approving a server without a lock entry also saves the pin.
- * @returns the server (name and start of its key), what differs, what approving does, and the commands to read or save the approval.
+ * @returns the server (name and start of its key), what differs, what each button does, and the commands to read or save the approval.
  */
 export function promptReason(pending: PendingSurface, cli: string, enrolls: boolean): string {
   const { surface, serverName, reviewKey } = pending
@@ -67,17 +67,17 @@ export function promptReason(pending: PendingSurface, cli: string, enrolls: bool
     const extra = names.length > NAMES_SHOWN ? `, and ${String(names.length - NAMES_SHOWN)} more` : ''
     const offered = `It offers ${String(names.length)} tool${names.length === 1 ? '' : 's'}: ${names.slice(0, NAMES_SHOWN).join(', ')}${extra}.`
     const effect = enrolls
-      ? 'Approve to use it and remember the approval in the trust lockfile.'
+      ? '"Allow once" saves this exact tool list to the trust lockfile, so you are not asked again. "Reject" keeps the server blocked.'
       : reviewKey === undefined
-        ? `Approve to use it until the process exits, or run ${command('pin')} to save the approval.`
-        : 'Approve to use it until the process exits.'
+        ? `"Allow once" uses it until this process exits and saves nothing; run ${command('pin')} to save the approval. "Reject" keeps the server blocked.`
+        : '"Allow once" uses it until this process exits and saves nothing. "Reject" keeps the server blocked.'
     const key = reviewKey === undefined ? '' : ` (key ${visible(reviewKey.slice(0, KEY_PREFIX))})`
     return `MCP server "${clip(serverName, NAME_LIMIT)}"${key} has not been approved yet. ${offered} ${effect} `
       + (reviewKey === undefined
-        ? `To read the definitions first, decline and run ${command('diff')}.`
-        : `To read the definitions first and get the command that saves the approval, decline and run ${command('diff')}.`)
+        ? `To read the definitions first, choose "Reject" and run ${command('diff')}.`
+        : `To read the definitions first and get the command that saves the approval, choose "Reject" and run ${command('diff')}.`)
   }
-  return `${renderDiffSummary(serverName, surface.diff, reviewKey)} The lockfile is not changed. ${nextSteps(cli, serverName, reviewKey)}`
+  return `${renderDiffSummary(serverName, surface.diff, reviewKey)} ${nextSteps(cli, serverName, reviewKey)}`
 }
 
 /** Message of a caught value; the approval service and the engine only throw `Error` instances. */

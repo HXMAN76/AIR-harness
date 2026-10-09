@@ -197,6 +197,22 @@ describe('diff', () => {
     expect(lines.at(-1)).toBe(`/mcp-trust pin srv --surface ${surfaceHex('srv').slice(0, 12)}`)
   })
 
+  it('shows the definitions of an unpinned server before the pin command, one item per line', async () => {
+    const { observe, run, surfaceHex } = await world()
+    const echo: McpTool = {
+      name: 'echo', description: `Echo "text".\n${ESC}[2J`, inputSchema: { type: 'object', properties: { text: { type: 'string' } }, required: ['text'] },
+    }
+    await observe('srv', [echo, B], undefined, 'Be careful.')
+    const lines = ((await run('/mcp-trust diff srv')).text ?? '').split('\n')
+    expect(lines).toContain('  + added   echo')
+    expect(lines).toContain('      description: "Echo \\"text\\".<U+000A><U+001B>[2J"')
+    expect(lines).toContain('      input:       text: string (required)')
+    expect(lines).toContain('      description: "Tool B."')
+    expect(lines).toContain('  instructions: "Be careful."')
+    expect(lines.at(-2)).toBe('To approve exactly this surface, run:')
+    expect(lines.at(-1)).toBe(`/mcp-trust pin srv --surface ${surfaceHex('srv').slice(0, 12)}`)
+  })
+
   it('puts the key into the pin command of a keyed server', async () => {
     const { observe, run, surfaceHex } = await world()
     await observe('srv', [A], KEY_X)

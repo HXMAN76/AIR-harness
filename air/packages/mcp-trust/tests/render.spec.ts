@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { digestTool } from '../src/canonical.ts'
 import { commandHint, renderDiffSummary, renderSurfaceDiff, visible } from '../src/render.ts'
-import type { ObservedSurface } from '../src/types.ts'
+import type { McpTool, ObservedSurface } from '../src/types.ts'
 import { emptyDiff, pinSurface } from '../src/verdict.ts'
 
 const RLO = String.fromCharCode(0x202e)
@@ -68,7 +68,7 @@ describe('untrusted text cannot forge structure', () => {
     expect(text).toContain('server s<U+001B>[2J<U+000A>server evil: approved: quarantined')
     expect(text).toContain('~ changed nav (desc<U+000A>x)')
     expect(renderDiffSummary('s\n', { ...emptyDiff(), changed: [{ tool: 'nav', fields: ['a\nb'] }] })).toBe(
-      'MCP server "s<U+000A>" changed its tool surface: changed nav (a<U+000A>b). Approve to use this surface until the process exits.',
+      'MCP server "s<U+000A>" changed its tool surface: changed nav (a<U+000A>b). Allow once accepts the changed tools until this process exits, without saving anything. Reject keeps the server blocked.',
     )
   })
 
@@ -133,7 +133,7 @@ describe('naming same-named servers apart', () => {
 
   it('adds the first 12 characters of the review key to the summary and the diff', () => {
     expect(renderDiffSummary('browser', emptyDiff(), KEY))
-      .toBe('MCP server "browser" (key 0123456789ab) changed its tool surface: no differences. Approve to use this surface until the process exits.')
+      .toBe('MCP server "browser" (key 0123456789ab) changed its tool surface: no differences. Allow once accepts the changed tools until this process exits, without saving anything. Reject keeps the server blocked.')
     expect(renderSurfaceDiff(surface({ reviewKey: KEY }), undefined, new Map()).split('\n')[0]).toBe('server browser (key 0123456789ab): unpinned')
     expect(renderSurfaceDiff(surface({}), undefined, new Map()).split('\n')[0]).toBe('server browser: unpinned')
   })
@@ -152,14 +152,14 @@ describe('renderDiffSummary', () => {
     expect(renderDiffSummary('browser', {
       added: [`evil${RLO}`], removed: ['gone'], changed: [{ tool: 'nav', fields: ['description', 'inputSchema'] }],
       instructionsChanged: true,
-    })).toBe('MCP server "browser" changed its tool surface: added evil<U+202E>; removed gone; changed nav (description, inputSchema); instructions changed. Approve to use this surface until the process exits.')
+    })).toBe('MCP server "browser" changed its tool surface: added evil<U+202E>; removed gone; changed nav (description, inputSchema); instructions changed. Allow once accepts the changed tools until this process exits, without saving anything. Reject keeps the server blocked.')
   })
 
   it('reports an invalid surface and an unchanged surface', () => {
     expect(renderDiffSummary('s', { ...emptyDiff(), invalid: `$.x: bad${ZWSP}` }))
-      .toBe('MCP server "s" changed its tool surface: not canonicalizable ($.x: bad<U+200B>). Approve to use this surface until the process exits.')
+      .toBe('MCP server "s" changed its tool surface: not canonicalizable ($.x: bad<U+200B>). Allow once accepts the changed tools until this process exits, without saving anything. Reject keeps the server blocked.')
     expect(renderDiffSummary('s', emptyDiff()))
-      .toBe('MCP server "s" changed its tool surface: no differences. Approve to use this surface until the process exits.')
+      .toBe('MCP server "s" changed its tool surface: no differences. Allow once accepts the changed tools until this process exits, without saving anything. Reject keeps the server blocked.')
   })
 })
 
@@ -220,5 +220,77 @@ describe('renderSurfaceDiff', () => {
     expect(text).toContain('      description observed: "Navigate."')
     expect(text).toContain('      pinned:   (absent)')
     expect(text).toContain('  ~ changed ghost (description)\n      description pinned:   (absent)\n      description observed: (absent)')
+  })
+})
+
+describe('definitions of added tools', () => {
+  const ECHO: McpTool = {
+    name: 'echo',
+    description: 'Echo the text.',
+    inputSchema: { type: 'object', properties: { text: { type: 'string' }, n: { type: ['number', 'null'] }, any: {} }, required: ['text'] },
+    annotations: { readOnlyHint: true },
+  }
+  const surface = (overrides: Partial<ObservedSurface>): ObservedSurface => ({
+    serverName: 'demo', surfaceDigest: 'sha256:1', instructions: '', tools: [ECHO], diff: { ...emptyDiff(), added: ['echo'] },
+    state: 'unpinned', action: 'withhold', withheld: ['echo'], observedAt: 0, ...overrides,
+  })
+
+  it('shows the description, a schema summary, the annotations, and the instructions of an unpinned server, one item per line', () => {
+    const lines = renderSurfaceDiff(surface({ instructions: 'Use with care.' }), undefined, new Map()).split('\n')
+    expect(lines).toContain('  + added   echo')
+    expect(lines).toContain('      description: "Echo the text."')
+    expect(lines).toContain('      input:       text: string (required), n: number|null, any: any')
+    expect(lines).toContain('      annotations: "{\\"readOnlyHint\\":true}"')
+    expect(lines).toContain('  instructions: "Use with care."')
+    expect(lines.some(line => line.includes('audit directory'))).toBe(false)
+  })
+
+  it('summarizes schemas without properties and caps the property list', () => {
+    const many = Object.fromEntries(Array.from({ length: 22 }, (_value, index) => [`p${String(index)}`, { type: 'string' }]))
+    const text = renderSurfaceDiff(surface({
+      tools: [
+        { name: 'echo', inputSchema: { type: 'object', properties: many } },
+        { name: 'b', inputSchema: JSON.parse('{"type":"object","properties":null}') as McpTool['inputSchema'] },
+        { name: 'c', inputSchema: { type: 'object', properties: {} } },
+        { name: 'd', inputSchema: { type: 'object' } },
+        { name: 'e', inputSchema: { type: 'object', properties: { z: { type: 5 } } } },
+      ],
+      diff: { ...emptyDiff(), added: ['echo', 'b', 'c', 'd', 'e'] },
+    }), undefined, new Map())
+    expect(text).toContain('p19: string, and 2 more')
+    expect(text.match(/input: {7}\(no properties\)/gu)).toHaveLength(3)
+    expect(text).toContain('input:       z: any')
+    expect(text).toContain('description: (absent)')
+    expect(text).not.toContain('annotations')
+  })
+
+  it('escapes and cuts the definition text and says where the full text is', () => {
+    const long = 'a'.repeat(5000)
+    const text = renderSurfaceDiff(surface({
+      instructions: long,
+      tools: [{
+        name: 'echo',
+        description: 'Say "hi"\n  + added   trusted',
+        inputSchema: { type: 'object', properties: { ['x\n+ added y']: { type: `s${ESC}[2J` } } },
+      }],
+    }), undefined, new Map())
+    expect(text).toContain('description: "Say \\"hi\\"<U+000A>  + added   trusted"')
+    expect(text).toContain('x<U+000A>+ added y: s<U+001B>[2J')
+    expect(text).toContain(`instructions: "${'a'.repeat(4000)}<truncated 1000 more characters>"`)
+    expect(text.split('\n').at(-1)).toContain('the full text is in the audit directory')
+  })
+
+  it('does not repeat instructions that the diff reports as changed, and lists nothing for an added tool without a definition', () => {
+    const pinned = pinSurface([ECHO], 'Old.', 'cli', '2026-09-30T00:00:00.000Z')
+    const text = renderSurfaceDiff(surface({
+      instructions: 'New.', tools: [], diff: { ...emptyDiff(), added: ['ghost'], instructionsChanged: true },
+    }), pinned, new Map())
+    expect(text).not.toContain('  instructions:')
+    expect(text).not.toContain('description:')
+  })
+
+  it('shows no instructions line for a pinned server whose instructions did not change', () => {
+    const pinned = pinSurface([ECHO], 'Same.', 'cli', '2026-09-30T00:00:00.000Z')
+    expect(renderSurfaceDiff(surface({ instructions: 'Same.' }), pinned, new Map())).not.toContain('  instructions:')
   })
 })
