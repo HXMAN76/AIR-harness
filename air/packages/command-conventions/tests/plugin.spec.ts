@@ -7,7 +7,7 @@ import AgentRegistry from '@deepseek-ai/dsh-agent'
 import CommandRuntime from '@deepseek-ai/dsh-commands'
 import SessionStore from '@deepseek-ai/dsh-session'
 import * as commandConventions from '../src/index.ts'
-import { stubAgent, type StubAgent } from './harness.ts'
+import { provideWorkingDirectory, stubAgent, type StubAgent } from './harness.ts'
 
 const scopeFault = vi.hoisted(() => ({ message: undefined as string | undefined }))
 
@@ -59,6 +59,7 @@ async function mount(config: commandConventions.Config) {
   const ctx = new Context()
   contexts.push(ctx)
   await ctx.plugin(SessionStore)
+  provideWorkingDirectory(ctx)
   await ctx.plugin(CommandRuntime)
   await ctx.plugin(AgentRegistry)
   ctx.commands.register({ name: 'compact', description: 'Host command', handler: () => ({ kind: 'success' }) })
@@ -66,8 +67,8 @@ async function mount(config: commandConventions.Config) {
   return { ctx, fiber }
 }
 
-async function live(ctx: Context, cwd: string | undefined): Promise<StubAgent> {
-  const stub = stubAgent(ctx, cwd)
+async function live(ctx: Context, cwd: string | undefined, now?: string): Promise<StubAgent> {
+  const stub = stubAgent(ctx, cwd, now)
   await ctx.agents.register(stub.agent)
   return stub
 }
@@ -83,6 +84,16 @@ async function command(ctx: Context, stub: StubAgent, line: string) {
 }
 
 describe('air-command-conventions', () => {
+  it('discovers command files in the working directory, not the original session directory', async () => {
+    const original = await world()
+    const current = await world()
+    await write(join(original.root, '.claude/commands/old.md'), 'Old command.')
+    await write(join(current.root, '.claude/commands/moved.md'), 'Moved command.')
+    const { ctx } = await mount(current.config)
+    const stub = await live(ctx, original.root, current.root)
+    expect(names(ctx, stub)).toEqual(['compact', 'moved'])
+  })
+
   it('registers project command files for the Agent with description and hint', async () => {
     const { root, config } = await world()
     await write(join(root, '.claude/commands/fix-issue.md'), '---\ndescription: Fix a GitHub issue\nargument-hint: "[issue] [priority]"\n---\nFix issue $ARGUMENTS.')

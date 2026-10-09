@@ -15,12 +15,13 @@ import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
 import * as McpClient from '@deepseek-ai/dsh-mcp-client'
 import { createScope, type Scope } from '@deepseek-ai/dsh-scope'
 import type {} from '@deepseek-ai/dsh-tools'
+import type {} from '@deepseek-ai/dsh-working-directory'
 import { describeSkip, errorMessage, findProjectRoot, readContained } from '@air/dsh-convention-core'
 import { ApprovalStore, approvalKey, type McpApprovalKey } from './approvals.ts'
 import { parseMcpJson, quoteName, redact, type ServerSpec } from './config.ts'
 
 export const name = 'air-mcp-conventions'
-export const inject = ['agents', 'tools', 'commands']
+export const inject = ['agents', 'tools', 'commands', 'workingDirectory']
 
 const USAGE = 'Usage: /mcp [approve <server> | revoke <server>]'
 
@@ -119,7 +120,7 @@ interface AgentState {
 
 /**
  * Mount project MCP servers per Agent and register `/mcp`.
- * @param ctx - host-level plugin context with `agents`, `tools`, and `commands` injected.
+ * @param ctx - host-level plugin context with `agents`, `tools`, `commands`, and `workingDirectory` injected.
  * @param config - validated configuration.
  */
 export function apply(ctx: Context, config: Config = {}): void {
@@ -268,7 +269,7 @@ export function apply(ctx: Context, config: Config = {}): void {
   const runCommand = async (invocation: CommandInvocation): Promise<CommandResult> => {
     const state = states.get(invocation.agent)
     if (state === undefined) {
-      return { kind: 'error', text: 'This session has no working directory, so no .mcp.json was read.' }
+      return { kind: 'error', text: 'No .mcp.json was read for this session: its working directory was not resolved when it was created.' }
     }
     const parts = invocation.rawInput.trim().split(/\s+/u).filter(part => part.length > 0)
     const action = parts[0]
@@ -344,10 +345,8 @@ export function apply(ctx: Context, config: Config = {}): void {
   }
 
   ctx.on('agent/created', async ({ agent }) => {
-    const cwd = agent.session.header.cwd
-    if (cwd === undefined) return
     try {
-      await attach(agent, cwd)
+      await attach(agent, await ctx.workingDirectory.ensure(agent))
     } catch (error: unknown) {
       ctx.logger.warn(`air-mcp-conventions: ${errorMessage(error)}`)
     }

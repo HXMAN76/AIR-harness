@@ -10,7 +10,7 @@ import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime, { defineTool } from '@deepseek-ai/dsh-tools'
 import * as instructionConventions from '../src/index.ts'
 import { loadClaudeRules } from '../src/rules.ts'
-import { stubAgent } from './harness.ts'
+import { provideWorkingDirectory, stubAgent } from './harness.ts'
 
 const created: string[] = []
 const contexts: Context[] = []
@@ -85,6 +85,7 @@ async function mount(): Promise<Context> {
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRuntime)
   await ctx.plugin(SessionStore)
+  provideWorkingDirectory(ctx)
   await ctx.plugin(instructionConventions, { maxBytes: 32768, claudeHome: '/air-test-no-such-home/.claude' })
   registerTools(ctx)
   return ctx
@@ -125,6 +126,19 @@ function run(ctx: Context, name: string, args: Record<string, string>, agent?: A
 }
 
 describe('baseline injection on agent/pre-step', () => {
+  it('reads the baseline from the working directory, not the original session directory', async () => {
+    const original = await project()
+    const current = await project()
+    await write(join(original, '.claude/CLAUDE.md'), 'Original memory.')
+    await write(join(current, '.claude/CLAUDE.md'), 'Moved memory.')
+    const ctx = await mount()
+    const { agent } = stubAgent(ctx, original, current)
+    const block = entered(await preStep(ctx, agent, [prompt('hello')]))[1]?.content[0]
+    const text = block?.type === 'text' ? block.text : ''
+    expect(text).toContain('Moved memory.')
+    expect(text).not.toContain('Original memory.')
+  })
+
   it('adds one air-instructions message after the claimed prompt', async () => {
     const root = await project()
     await write(join(root, '.claude/CLAUDE.md'), 'Project memory.')
@@ -212,6 +226,16 @@ describe('path-scoped rules on tools/post-execute', () => {
     await write(join(root, '.claude/rules/ts.md'), '---\npaths: "**/*.ts"\n---\nUse strict TypeScript.')
     return { ctx: await mount(), root }
   }
+
+  it('matches rules from the working directory, not the original session directory', async () => {
+    const original = await project()
+    const { ctx, root: current } = await scoped()
+    const { agent } = stubAgent(ctx, original, current)
+    const result = await run(ctx, 'read', { file_path: 'src/a.ts' }, agent)
+    expect(result.additionalContexts).toHaveLength(1)
+    const block = result.additionalContexts?.[0]?.content[0]
+    expect(block?.type === 'text' ? block.text : '').toContain('Use strict TypeScript.')
+  })
 
   it('attaches a matching rule once per session', async () => {
     const { ctx, root } = await scoped()

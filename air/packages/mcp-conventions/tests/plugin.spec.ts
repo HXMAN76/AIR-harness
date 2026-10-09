@@ -14,7 +14,7 @@ import ToolRuntime from '@deepseek-ai/dsh-tools'
 import * as mcpConventions from '../src/index.ts'
 import { ApprovalStore, approvalKey, defaultApprovalIo } from '../src/approvals.ts'
 import { parseMcpJson } from '../src/config.ts'
-import { stubAgent } from './harness.ts'
+import { provideWorkingDirectory, stubAgent } from './harness.ts'
 
 interface Gate {
   /** Holds every `mcp-client` start until it settles. */
@@ -127,14 +127,15 @@ async function mount(approvalsFile: string, startupTimeoutMs = 15_000, extra: mc
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRuntime)
   await ctx.plugin(SessionStore)
+  provideWorkingDirectory(ctx)
   await ctx.plugin(CommandRuntime)
   await ctx.plugin(AgentRegistry)
   const fiber = await ctx.plugin(mcpConventions, Object.assign({ approvalsFile, startupTimeoutMs }, extra))
   return { ctx, fiber }
 }
 
-async function live(ctx: Context, cwd: string | undefined): Promise<Agent> {
-  const { agent } = stubAgent(ctx, cwd)
+async function live(ctx: Context, cwd: string | undefined, now?: string): Promise<Agent> {
+  const { agent } = stubAgent(ctx, cwd, now)
   await ctx.agents.register(agent)
   return agent
 }
@@ -171,6 +172,16 @@ function isAlive(pid: number): boolean {
 }
 
 describe('air-mcp-conventions', () => {
+  it('reads .mcp.json from the working directory, not the original session directory', async () => {
+    const original = await world(demo)
+    const current = await world({ mcpServers: { moved: { command: process.execPath, args: [echoServer] } } })
+    const { ctx } = await mount(current.approvalsFile)
+    const agent = await live(ctx, original.root, current.root)
+    const listed = await command(ctx, agent, '/mcp')
+    expect(listed.text).toContain(`moved (stdio: ${process.execPath} ${echoServer}; cwd: ${current.root}): not approved`)
+    expect(listed.text).not.toContain('demo')
+  })
+
   it('does not start a project server that nobody approved', async () => {
     const { root, approvalsFile } = await world(demo)
     const { ctx } = await mount(approvalsFile)
@@ -311,7 +322,7 @@ describe('air-mcp-conventions', () => {
     expect((await command(second.ctx, other, '/mcp')).text).toContain(`No servers are declared in ${join(empty.root, '.mcp.json')}.`)
   })
 
-  it('rejects unknown input and sessions without a working directory', async () => {
+  it('rejects unknown input and sessions whose .mcp.json was never read', async () => {
     const { root, approvalsFile } = await world(demo)
     const { ctx } = await mount(approvalsFile)
     const agent = await live(ctx, root)
@@ -323,10 +334,10 @@ describe('air-mcp-conventions', () => {
       kind: 'error',
       text: `No server named "other" is declared in ${join(root, '.mcp.json')}. ${usage}`,
     })
-    const detached = await live(ctx, undefined)
+    const { agent: detached } = stubAgent(ctx, root)
     expect(await command(ctx, detached, '/mcp')).toEqual({
       kind: 'error',
-      text: 'This session has no working directory, so no .mcp.json was read.',
+      text: 'No .mcp.json was read for this session: its working directory was not resolved when it was created.',
     })
   })
 })
@@ -382,7 +393,7 @@ describe('Agent lifecycle races', () => {
     ctx.emit('agent/disposed', { agent })
     reading.resolve()
     await registered
-    expect((await command(ctx, agent, '/mcp')).text).toContain('no working directory')
+    expect((await command(ctx, agent, '/mcp')).text).toContain('No .mcp.json was read')
   })
 
   it('reads nothing for an Agent disposed while its project root is being found', async () => {

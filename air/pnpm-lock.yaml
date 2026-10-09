@@ -84,6 +84,12 @@ importers:
       '@deepseek-ai/dsh-commands':
         specifier: link:../../../packages/interaction/commands
         version: link:../../../packages/interaction/commands
+      '@deepseek-ai/dsh-fs':
+        specifier: link:../../../packages/fs/fs
+        version: link:../../../packages/fs/fs
+      '@deepseek-ai/dsh-fs-local':
+        specifier: link:../../../packages/fs/fs-local
+        version: link:../../../packages/fs/fs-local
       '@deepseek-ai/dsh-llm':
         specifier: link:../../../packages/llm/llm
         version: link:../../../packages/llm/llm
@@ -93,6 +99,15 @@ importers:
       '@deepseek-ai/dsh-session':
         specifier: link:../../../packages/core/session
         version: link:../../../packages/core/session
+      '@deepseek-ai/dsh-session-projection':
+        specifier: link:../../../packages/session/session-projection
+        version: link:../../../packages/session/session-projection
+      '@deepseek-ai/dsh-system-prompt':
+        specifier: link:../../../packages/core/system-prompt
+        version: link:../../../packages/core/system-prompt
+      '@deepseek-ai/dsh-working-directory':
+        specifier: link:../../../packages/session/working-directory
+        version: link:../../../packages/session/working-directory
 
   packages/convention-core:
     dependencies:
@@ -127,18 +142,30 @@ importers:
       '@deepseek-ai/dsh-agent-loop-testkit':
         specifier: link:../../../packages/test-support/agent-loop-testkit
         version: link:../../../packages/test-support/agent-loop-testkit
+      '@deepseek-ai/dsh-fs':
+        specifier: link:../../../packages/fs/fs
+        version: link:../../../packages/fs/fs
+      '@deepseek-ai/dsh-fs-local':
+        specifier: link:../../../packages/fs/fs-local
+        version: link:../../../packages/fs/fs-local
       '@deepseek-ai/dsh-llm':
         specifier: link:../../../packages/llm/llm
         version: link:../../../packages/llm/llm
       '@deepseek-ai/dsh-session':
         specifier: link:../../../packages/core/session
         version: link:../../../packages/core/session
+      '@deepseek-ai/dsh-session-projection':
+        specifier: link:../../../packages/session/session-projection
+        version: link:../../../packages/session/session-projection
       '@deepseek-ai/dsh-system-prompt':
         specifier: link:../../../packages/core/system-prompt
         version: link:../../../packages/core/system-prompt
       '@deepseek-ai/dsh-tools':
         specifier: link:../../../packages/core/tools
         version: link:../../../packages/core/tools
+      '@deepseek-ai/dsh-working-directory':
+        specifier: link:../../../packages/session/working-directory
+        version: link:../../../packages/session/working-directory
       '@types/picomatch':
         specifier: ^4.0.2
         version: 4.0.3
@@ -173,6 +200,12 @@ importers:
       '@deepseek-ai/dsh-commands':
         specifier: link:../../../packages/interaction/commands
         version: link:../../../packages/interaction/commands
+      '@deepseek-ai/dsh-fs':
+        specifier: link:../../../packages/fs/fs
+        version: link:../../../packages/fs/fs
+      '@deepseek-ai/dsh-fs-local':
+        specifier: link:../../../packages/fs/fs-local
+        version: link:../../../packages/fs/fs-local
       '@deepseek-ai/dsh-home-paths':
         specifier: link:../../../packages/util/home-paths
         version: link:../../../packages/util/home-paths
@@ -188,12 +221,18 @@ importers:
       '@deepseek-ai/dsh-session':
         specifier: link:../../../packages/core/session
         version: link:../../../packages/core/session
+      '@deepseek-ai/dsh-session-projection':
+        specifier: link:../../../packages/session/session-projection
+        version: link:../../../packages/session/session-projection
       '@deepseek-ai/dsh-system-prompt':
         specifier: link:../../../packages/core/system-prompt
         version: link:../../../packages/core/system-prompt
       '@deepseek-ai/dsh-tools':
         specifier: link:../../../packages/core/tools
         version: link:../../../packages/core/tools
+      '@deepseek-ai/dsh-working-directory':
+        specifier: link:../../../packages/session/working-directory
+        version: link:../../../packages/session/working-directory
 
   packages/skill-conventions:
     dependencies:

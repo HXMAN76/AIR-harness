@@ -35,7 +35,8 @@
     "@deepseek-ai/dsh-home-paths": "^0.2.0-rc.1",
     "@deepseek-ai/dsh-mcp-client": "^0.2.0-rc.1",
     "@deepseek-ai/dsh-scope": "^0.2.0-rc.1",
-    "@deepseek-ai/dsh-tools": "^0.2.0-rc.1"
+    "@deepseek-ai/dsh-tools": "^0.2.0-rc.1",
+    "@deepseek-ai/dsh-working-directory": "^0.2.0-rc.1"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "link:../../../vendor/cordis",
@@ -45,12 +46,16 @@
     "@deepseek-ai/dsh-agent-loop-testkit": "link:../../../packages/test-support/agent-loop-testkit",
     "@deepseek-ai/dsh-brand": "link:../../../packages/util/brand",
     "@deepseek-ai/dsh-commands": "link:../../../packages/interaction/commands",
+    "@deepseek-ai/dsh-fs": "link:../../../packages/fs/fs",
+    "@deepseek-ai/dsh-fs-local": "link:../../../packages/fs/fs-local",
     "@deepseek-ai/dsh-home-paths": "link:../../../packages/util/home-paths",
     "@deepseek-ai/dsh-llm": "link:../../../packages/llm/llm",
     "@deepseek-ai/dsh-mcp-client": "link:../../../packages/mcp/mcp-client",
     "@deepseek-ai/dsh-scope": "link:../../../packages/core/scope",
     "@deepseek-ai/dsh-session": "link:../../../packages/core/session",
+    "@deepseek-ai/dsh-session-projection": "link:../../../packages/session/session-projection",
     "@deepseek-ai/dsh-system-prompt": "link:../../../packages/core/system-prompt",
-    "@deepseek-ai/dsh-tools": "link:../../../packages/core/tools"
+    "@deepseek-ai/dsh-tools": "link:../../../packages/core/tools",
+    "@deepseek-ai/dsh-working-directory": "link:../../../packages/session/working-directory"
   }
 }

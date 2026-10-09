@@ -13,6 +13,7 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { CommandInvocation, CommandResult } from '@deepseek-ai/dsh-commands'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { createScope, type Scope } from '@deepseek-ai/dsh-scope'
+import type {} from '@deepseek-ai/dsh-working-directory'
 import {
   describeSkip,
   describeTruncation,
@@ -32,7 +33,7 @@ import { substituteArguments } from './args.ts'
 export { splitArguments, substituteArguments } from './args.ts'
 
 export const name = 'air-command-conventions'
-export const inject = ['agents', 'commands']
+export const inject = ['agents', 'commands', 'workingDirectory']
 
 /** Same grammar the upstream command registry accepts. */
 const COMMAND_NAME = /^[a-z][a-z0-9_-]*$/u
@@ -147,7 +148,7 @@ function firstLine(text: string): string {
 
 /**
  * Register command files per Agent.
- * @param ctx - host-level plugin context with `agents` and `commands` injected.
+ * @param ctx - host-level plugin context with `agents`, `commands`, and `workingDirectory` injected.
  * @param config - validated configuration.
  */
 export function apply(ctx: Context, config: Config = {}): void {
@@ -234,14 +235,12 @@ export function apply(ctx: Context, config: Config = {}): void {
   })
 
   ctx.on('agent/created', async ({ agent }) => {
-    const cwd = agent.session.header.cwd
-    if (cwd === undefined) return
     // Registered before the first await so a disposal during discovery finds the entry and marks it released.
     const entry: { released: boolean; scope?: Scope } = { released: false }
     scopes.set(agent, entry)
     let files: CommandFile[]
     try {
-      files = await discover(agent, cwd)
+      files = await discover(agent, await ctx.workingDirectory.ensure(agent))
     } catch (error: unknown) {
       // A command folder that cannot be read costs the Agent its commands, never its creation.
       ctx.logger.warn(`air-command-conventions: command files could not be read: ${errorMessage(error)}`)

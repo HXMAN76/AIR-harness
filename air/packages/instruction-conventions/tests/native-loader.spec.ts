@@ -33,6 +33,10 @@ it('loads the built package through native Loader resolution', async () => {
   const configPath = join(root, 'cordis.yml')
   await writeFile(configPath, [
     "- name: '@deepseek-ai/dsh-session'",
+    "- name: '@deepseek-ai/dsh-system-prompt'",
+    "- name: '@deepseek-ai/dsh-fs-local'",
+    "- name: '@deepseek-ai/dsh-session-projection'",
+    "- name: '@deepseek-ai/dsh-working-directory'",
     '- id: air-instruction-conventions',
     "  name: '@air/dsh-instruction-conventions'",
     '  config:',

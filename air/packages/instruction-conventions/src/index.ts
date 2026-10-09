@@ -15,11 +15,14 @@ import Schema from '@deepseek-ai/schemastery'
 import type { Agent, PreStepDecision } from '@deepseek-ai/dsh-agent'
 import { createUserMessage, type Message } from '@deepseek-ai/dsh-llm'
 import type { PostToolDecision, ToolExecution } from '@deepseek-ai/dsh-tools'
+import type {} from '@deepseek-ai/dsh-working-directory'
 import { errorMessage, expandHome, findProjectRoot, isInside, resolveUserHomes, toPosixRelative } from '@air/dsh-convention-core'
 import { composeBaseline } from './baseline.ts'
 import { loadClaudeRules, matchingRules, type Rule, type RuleCache } from './rules.ts'
 
 export const name = 'air-instruction-conventions'
+
+export const inject = ['workingDirectory']
 
 /** Durable source of every message this plugin injects. */
 export interface AirInstructionSource {
@@ -149,7 +152,7 @@ function ruleKey(relativePath: string, digest: string): string {
 
 /**
  * Register the baseline and path-scoped rule injection.
- * @param ctx - plugin context; in a preset its listeners receive only that preset's Agents.
+ * @param ctx - plugin context with `workingDirectory` injected; in a preset its listeners receive only that preset's Agents.
  * @param config - validated configuration.
  */
 export function apply(ctx: Context, config: Config): void {
@@ -217,8 +220,7 @@ export function apply(ctx: Context, config: Config): void {
     // prompt cache survives an edit made mid-turn. An empty first step owns a no-step turn; adding context
     // would turn it into a request.
     if (step !== 1 || decision.kind === 'reject' || decision.messages.length === 0) return decision
-    const cwd = agent.session.header.cwd
-    if (cwd === undefined) return decision
+    const cwd = await ctx.workingDirectory.ensure(agent, signal)
     const composed = await compose(cwd)
     signal.throwIfAborted()
     if (composed === undefined) return decision
@@ -238,8 +240,7 @@ export function apply(ctx: Context, config: Config): void {
     const agent = exec.agent
     const filePath = touchedPath(exec)
     if (result.isError || agent === undefined || filePath === undefined || decision.kind !== 'accept') return decision
-    const cwd = agent.session.header.cwd
-    if (cwd === undefined) return decision
+    const cwd = await ctx.workingDirectory.ensure(agent, exec.signal)
     const projectRoot = await findProjectRoot(cwd, resolved.projectRootMarkers)
     const absolute = resolve(cwd, filePath)
     if (!isInside(projectRoot, absolute)) return decision

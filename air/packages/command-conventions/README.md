@@ -26,7 +26,7 @@ The model receives the rendered command body as an ordinary user turn. It does n
 
 - `@file` references and `` !`cmd` `` lines in a command body are not expanded; the model sees them as written.
 - `allowed-tools` and `model` in command frontmatter are ignored.
-- Command files are discovered once, when the Agent is created. A new file needs a new session; an edited file is picked up on the next run.
+- Command files are discovered once, when the Agent is created. A new file needs a new session; an edited file is picked up on the next run. Discovery uses the Agent's working directory at that moment, and a later directory change does not run it again.
 - Command names lose the `:` namespace separator Claude Code uses (`frontend:component` is `/frontend-component`).
 - A file whose path does not start with a letter after normalisation (for example `123.md`) is skipped.
 - `$N` consumes any dollar sign followed by digits, so a body that spells a price as `$5` loses it; this matches Claude Code. Backslashes escape only quotes and whitespace in the input.
