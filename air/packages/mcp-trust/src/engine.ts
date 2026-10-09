@@ -210,6 +210,9 @@ interface Registration {
 
 const PROMPTABLE: readonly string[] = ['withheld', 'quarantined', 'unpinned']
 
+/** Generic MCP resource tools registered by `dsh-mcp-resources`; each takes a `server` argument. */
+const RESOURCE_TOOLS: ReadonlySet<string> = new Set(['list_mcp_resources', 'list_mcp_resource_templates', 'read_mcp_resource'])
+
 /** Reviewer and trust store for every MCP server in one process. */
 export class TrustEngine implements McpToolReview, McpTrust {
   private lock: LockDocument | undefined
@@ -340,24 +343,19 @@ export class TrustEngine implements McpToolReview, McpTrust {
   /**
    * Call-time check for one ToolRuntime execution.
    * @param name - public tool name being executed.
+   * @param args - parsed arguments of the call; the generic MCP resource tools name their server here.
    * @returns a denial reason, or `undefined` to leave the call unchanged.
    */
-  guard(name: string): string | undefined {
+  guard(name: string, args?: unknown): string | undefined {
     const { config } = this.options
+    if (RESOURCE_TOOLS.has(name)) return this.guardResource(args)
     const entry = this.registered.get(name)
     if (entry === undefined) {
       if (!config.denyUnreviewedMcpTools || !name.startsWith('mcp__')) return undefined
       /* v8 ignore next -- split always yields a first element */
       const server = name.slice('mcp__'.length).split('__')[0] ?? ''
       if (config.policyOf(server).mode === 'off') return undefined
-      if (this.lockProblem !== undefined) return lockProblemReason(config.lockfile, config.cliCommand)
-      const known = [...this.observations.values()].filter(observation => observation.surface.serverName === server)
-      const failed = known.find(observation => observation.failure !== undefined)
-      if (failed !== undefined) return reviewFailedReason(server, failed.surface.reviewKey, config.cliCommand)
-      const blocked = known.find(observation => PROMPTABLE.includes(observation.surface.state))
-      return blocked !== undefined
-        ? blockedReason(server, blocked.surface, config.cliCommand)
-        : unreviewedReason(server, config.cliCommand)
+      return this.blockedBy(server) ?? unreviewedReason(server, config.cliCommand)
     }
     if (config.policyOf(entry.serverName).mode === 'off') return undefined
     if (this.acceptedOnce.get(entry.key) === entry.surfaceDigest) return undefined
@@ -367,6 +365,40 @@ export class TrustEngine implements McpToolReview, McpTrust {
     const registered = this.observations.get(entry.key)?.digests.get(entry.rawName)?.fields
     const changed = approved === undefined ? undefined : DIGEST_FIELDS.filter(field => registered?.[field] !== approved.fields[field])
     return revokedReason(entry.serverName, changed, config.cliCommand, entry.reviewKey)
+  }
+
+  /**
+   * Denial reason for a server whose review failed, whose surface is not approved, or while the lockfile is unreadable.
+   * @param server - local server name.
+   * @returns the reason, or `undefined` when no review of that name blocks it.
+   */
+  private blockedBy(server: string): string | undefined {
+    const { config } = this.options
+    if (this.lockProblem !== undefined) return lockProblemReason(config.lockfile, config.cliCommand)
+    const known = [...this.observations.values()].filter(observation => observation.surface.serverName === server)
+    const failed = known.find(observation => observation.failure !== undefined)
+    if (failed !== undefined) return reviewFailedReason(server, failed.surface.reviewKey, config.cliCommand)
+    const blocked = known.find(observation => PROMPTABLE.includes(observation.surface.state))
+    return blocked === undefined ? undefined : blockedReason(server, blocked.surface, config.cliCommand)
+  }
+
+  /**
+   * Call-time check for `list_mcp_resources`, `list_mcp_resource_templates`, and `read_mcp_resource`, which
+   * identify a server by name only. Any blocked server of that name denies the call.
+   * @param args - parsed tool arguments.
+   * @returns a denial reason, or `undefined` when the named server is not blocked.
+   */
+  private guardResource(args: unknown): string | undefined {
+    const server = typeof args === 'object' && args !== null && 'server' in args ? args.server : undefined
+    if (typeof server !== 'string') return undefined
+    const { config } = this.options
+    if (config.policyOf(server).mode === 'off') return undefined
+    const reason = this.blockedBy(server)
+    if (reason === undefined) return undefined
+    const sameName = [...this.observations.values()].filter(observation => observation.surface.serverName === server).length
+    return sameName > 1
+      ? `${reason} Resource tools identify a server by name only, and ${String(sameName)} servers share this name, so the call is denied while any of them is blocked.`
+      : reason
   }
 
   /** Re-read the lockfile after it changed on disk, then re-sync every observed server. */

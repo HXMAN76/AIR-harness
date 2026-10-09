@@ -167,7 +167,7 @@ export function apply(ctx: Context, config: Config): void {
     resolved.watchDebounceMs,
     engine.watchFailed,
   ), 'air-mcp-trust.watch')
-  ctx.tools.guard(execution => engine.guard(execution.name))
+  ctx.tools.guard(execution => engine.guard(execution.name, execution.arguments))
   // The approval service is optional: read it through the service store on each turn.
   const preStep = createPreStep({
     engine, audit, approval: () => ctx.get('approval'), logger, cli: resolved.cliCommand, enrolls: resolved.enrollOnApproval,
