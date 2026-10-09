@@ -126,9 +126,9 @@ Apply these when the build starts; the plan files are unchanged for now.
 | 05, 06 | Done (re-run on Fedora at `0.2.1-alpha.1`: 54 keyless tests pass, composition check clean, one live test passes; native Windows untested): no bash-only steps, a Python composition check, a Windows launcher shim, a per-arm permission table, and a guard that stops the undefended arm from being gated |
 | 07 | Done: dynamic port, release gate, per-line log redaction, 116 unit tests pass in a scratch copy |
 
-## New feature candidates (research note 14, awaiting owner choice)
+## Parked feature candidates (research note 14)
 
-From [research note 14](../../research/notes/14-feature-opportunities.md). None is planned yet.
+From [research note 14](../../research/notes/14-feature-opportunities.md). The owner parked these on 2026-10-09: none is planned or scheduled, and none blocks the build. Revisit them after the phase-1 plans land.
 
 - First-run setup that checks Ollama, pulls models with consent, and verifies the loaded context size (ranked first: the default 4,096-token context silently truncates the agent's prompt).
 - "Why was this blocked" explanations on every denied tool call (folded into plan 03's revision).
@@ -138,7 +138,7 @@ From [research note 14](../../research/notes/14-feature-opportunities.md). None 
 - Skill usage report derived from session logs.
 - No-code wins from upstream: enable the voice-input bundle for dictation; reminder tools already ship in the presets; settings and first-run on upstream's config editor.
 
-Note 14 also recommends cuts for a five-person team (reduce the phase-1 desktop work to Linux only, drop the permission rule store, merge plans 05 and 06, move the AgentDojo pilot out of phase 1). The Linux-only suggestion conflicts with the owner's Windows requirement and is not adopted; the others await the owner.
+Note 14 also recommends cuts for a five-person team (reduce the phase-1 desktop work to Linux only, drop the permission rule store, merge plans 05 and 06, move the AgentDojo pilot out of phase 1). The Linux-only suggestion conflicts with the owner's Windows requirement and is not adopted; the others await the owner (open decision 4).
 
 ## Changes the 2026-10-08 upstream sync requires in the written plans
 
@@ -156,3 +156,5 @@ All of these were applied to the plan files in the 2026-10-08 revision (see "Pla
 1. Department rubric and deadlines (owner will supply).
 2. Lanes for the four teammates (suggested: runtime and security, memory and context, desktop and voice, evaluation).
 3. Final product name; it unblocks branding and the desktop identifiers.
+4. Scope cuts from research note 14: drop the permission rule store, merge plans 05 and 06, move the AgentDojo pilot out of phase 1.
+5. When to start the build (plan 00 first).
