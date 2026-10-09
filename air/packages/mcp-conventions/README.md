@@ -14,7 +14,7 @@ Consent: a repository file can name any command, so nothing in `.mcp.json` runs 
 | `/mcp approve <server>` | record approval and start the server for this session |
 | `/mcp revoke <server>` | remove approval and stop the server in this session |
 
-Config: `approvalsFile`, `startupTimeoutMs` (default 15000), `toolCallTimeoutMs` (default 60000), `maxFileBytes` (default 262144), `projectRootMarkers` (default `['.git']`), `reviewTools` (default `false`). With `reviewTools: true` every mounted `mcp-client` waits for the `mcpToolReview` service of the MCP trust plan, so imported servers cannot register tools unreviewed; when the service is missing the approval reports at once that the reviewer is required and not loaded, and nothing is mounted; the AIR bundle turns it on when that plan is installed.
+Config: `approvalsFile`, `startupTimeoutMs` (default 15000), `toolCallTimeoutMs` (default 60000), `maxFileBytes` (default 262144), `projectRootMarkers` (default `['.git']`), `reviewTools` (default `false`). With `reviewTools: true` every mounted `mcp-client` waits for the `mcpToolReview` service of the MCP trust plan, so imported servers cannot register tools unreviewed; when the service is missing the approval reports at once that the reviewer is required and not loaded, and nothing is mounted; the AIR bundle turns it on when that plan is installed. In that mode each mounted client also receives the server's approval key as its `reviewKey`, so the reviewer can tell apart two projects' servers that share a local name.
 
 ## Model Experience
 
