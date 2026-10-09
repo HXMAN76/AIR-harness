@@ -41,6 +41,43 @@ importers:
 
   bundles/air: {}
 
+  packages/command-conventions:
+    dependencies:
+      '@air/dsh-convention-core':
+        specifier: workspace:*
+        version: link:../convention-core
+      '@deepseek-ai/schemastery':
+        specifier: link:../../../vendor/schemastery
+        version: link:../../../vendor/schemastery
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: link:../../../vendor/cordis
+        version: link:../../../vendor/cordis
+      '@deepseek-ai/cordis-plugin-include':
+        specifier: link:../../../vendor/include
+        version: link:../../../vendor/include
+      '@deepseek-ai/cordis-plugin-loader':
+        specifier: link:../../../vendor/loader
+        version: link:../../../vendor/loader
+      '@deepseek-ai/dsh-agent':
+        specifier: link:../../../packages/core/agent
+        version: link:../../../packages/core/agent
+      '@deepseek-ai/dsh-agent-loop-testkit':
+        specifier: link:../../../packages/test-support/agent-loop-testkit
+        version: link:../../../packages/test-support/agent-loop-testkit
+      '@deepseek-ai/dsh-commands':
+        specifier: link:../../../packages/interaction/commands
+        version: link:../../../packages/interaction/commands
+      '@deepseek-ai/dsh-llm':
+        specifier: link:../../../packages/llm/llm
+        version: link:../../../packages/llm/llm
+      '@deepseek-ai/dsh-scope':
+        specifier: link:../../../packages/core/scope
+        version: link:../../../packages/core/scope
+      '@deepseek-ai/dsh-session':
+        specifier: link:../../../packages/core/session
+        version: link:../../../packages/core/session
+
   packages/convention-core:
     dependencies:
       yaml:

@@ -1,0 +1,232 @@
+/**
+ * Registers Claude Code command files (`.claude/commands/**` Markdown) as slash commands scoped to
+ * the Agent whose project contains them. Running a command substitutes its arguments into the file
+ * body and queues the result as a user message with source kind `air-command`, so the prompt the
+ * model receives is in the session log.
+ *
+ * @module @air/dsh-command-conventions
+ */
+import { join } from 'node:path'
+import type { Context } from '@deepseek-ai/cordis'
+import Schema from '@deepseek-ai/schemastery'
+import type { Agent } from '@deepseek-ai/dsh-agent'
+import type { CommandInvocation, CommandResult } from '@deepseek-ai/dsh-commands'
+import { createUserMessage } from '@deepseek-ai/dsh-llm'
+import { createScope, type Scope } from '@deepseek-ai/dsh-scope'
+import {
+  findProjectRoot,
+  listMarkdownTree,
+  parseFrontmatter,
+  readTextFile,
+  resolveUserHomes,
+  stringField,
+  stringListField,
+  toKebabName,
+  type UserHomes,
+} from '@air/dsh-convention-core'
+import { substituteArguments } from './args.ts'
+
+export { splitArguments, substituteArguments } from './args.ts'
+
+export const name = 'air-command-conventions'
+export const inject = ['agents', 'commands']
+
+/** Same grammar the upstream command registry accepts. */
+const COMMAND_NAME = /^[a-z][a-z0-9_-]*$/u
+/** Directory levels walked under a commands root. */
+const COMMAND_TREE_DEPTH = 4
+const DESCRIPTION_MAX_CHARS = 120
+
+/** Durable source of the user message a command file produces. */
+export interface AirCommandSource {
+  readonly kind: 'air-command'
+  /** Command name without the slash. */
+  readonly name: string
+  /** The text is instructions read out of a file. */
+  readonly form: 'instructions'
+}
+
+declare module '@deepseek-ai/dsh-llm' {
+  interface MessageSourceMap {
+    /** A command file rendered by `@air/dsh-command-conventions`. */
+    'air-command': AirCommandSource
+  }
+}
+
+/** Plugin configuration. */
+export interface Config {
+  /** AIR home; its `commands` directory is always scanned. Defaults to `$AIR_HOME`, then `~/.air`. */
+  airHome?: string
+  /** Claude Code home, read only with `includeUserRoots`. Defaults to `~/.claude`. */
+  claudeHome?: string
+  /** Whether `<claudeHome>/commands` is scanned. Defaults to false. */
+  includeUserRoots?: boolean
+  /** Entry names that identify the project root. Defaults to `['.git']`. */
+  projectRootMarkers?: string[]
+  /** Index of the first argument for `$ARGUMENTS[N]` and `$N`: 0 or 1. Defaults to 0. */
+  positionalBase?: number
+}
+
+export const Config: Schema<Config> = Schema.object({
+  airHome: Schema.string().description('AIR home; defaults to $AIR_HOME, then ~/.air.'),
+  claudeHome: Schema.string().description('Claude Code home; defaults to ~/.claude.'),
+  includeUserRoots: Schema.boolean().default(false).description('Scan ~/.claude/commands.'),
+  projectRootMarkers: Schema.array(Schema.string()).default(['.git']).description('Entry names that identify the project root.'),
+  positionalBase: Schema.number().default(0).description('Index of the first argument for $ARGUMENTS[N] and $N: 0 or 1.'),
+})
+
+/** Configuration after defaulting and validation. */
+export interface ResolvedConfig {
+  readonly homes: UserHomes
+  readonly includeUserRoots: boolean
+  readonly projectRootMarkers: readonly string[]
+  readonly positionalBase: number
+}
+
+/**
+ * Apply defaults and reject invalid values.
+ * @param config - configuration from the Loader row or a direct caller.
+ * @returns the complete configuration.
+ * @throws TypeError naming the invalid field.
+ */
+export function resolveConfig(config: Config): ResolvedConfig {
+  const resolved: ResolvedConfig = {
+    homes: resolveUserHomes(config),
+    includeUserRoots: config.includeUserRoots ?? false,
+    projectRootMarkers: config.projectRootMarkers ?? ['.git'],
+    positionalBase: config.positionalBase ?? 0,
+  }
+  if (resolved.positionalBase !== 0 && resolved.positionalBase !== 1) {
+    throw new TypeError('air-command-conventions: positionalBase must be 0 or 1')
+  }
+  if (resolved.projectRootMarkers.length === 0) {
+    throw new TypeError('air-command-conventions: projectRootMarkers must not be empty')
+  }
+  return resolved
+}
+
+interface LoadedCommand {
+  readonly description: string
+  readonly hint: string
+  readonly argumentNames: readonly string[]
+  readonly body: string
+}
+
+interface CommandFile extends LoadedCommand {
+  readonly name: string
+  readonly path: string
+}
+
+function firstLine(text: string): string {
+  const end = text.indexOf('\n')
+  const line = (end < 0 ? text : text.slice(0, end)).replace(/^#+\s*/u, '').trim()
+  if (line.length === 0) return 'Project command file'
+  return line.length <= DESCRIPTION_MAX_CHARS ? line : `${line.slice(0, DESCRIPTION_MAX_CHARS - 1)}…`
+}
+
+/**
+ * Register command files per Agent.
+ * @param ctx - host-level plugin context with `agents` and `commands` injected.
+ * @param config - validated configuration.
+ */
+export function apply(ctx: Context, config: Config = {}): void {
+  const resolved = resolveConfig(config)
+  const scopes = new Map<Agent, Scope>()
+
+  /** Read and parse one command file; undefined when it is gone, empty, or does not parse. */
+  const load = async (path: string): Promise<LoadedCommand | undefined> => {
+    const raw = await readTextFile(path)
+    if (raw === undefined) return undefined
+    try {
+      const { data, body } = parseFrontmatter(raw)
+      const text = body.trim()
+      if (text.length === 0) return undefined
+      return {
+        description: stringField(data, 'description') ?? firstLine(text),
+        hint: stringField(data, 'argument-hint') ?? '[arguments]',
+        argumentNames: stringListField(data, 'arguments') ?? [],
+        body: text,
+      }
+    } catch (error: unknown) {
+      ctx.logger.warn(`air-command-conventions: ${path} ignored: ${(error as Error).message}`)
+      return undefined
+    }
+  }
+
+  const discover = async (agent: Agent, cwd: string): Promise<CommandFile[]> => {
+    const projectRoot = await findProjectRoot(cwd, resolved.projectRootMarkers)
+    const roots = [
+      join(projectRoot, '.claude', 'commands'),
+      join(resolved.homes.airHome, 'commands'),
+      ...resolved.includeUserRoots ? [join(resolved.homes.claudeHome, 'commands')] : [],
+    ]
+    const found = new Map<string, CommandFile>()
+    for (const root of roots) {
+      for (const entry of await listMarkdownTree(root, COMMAND_TREE_DEPTH)) {
+        const commandName = toKebabName(entry.segments.join('-'))
+        if (commandName === undefined || !COMMAND_NAME.test(commandName)) {
+          ctx.logger.warn(`air-command-conventions: ${entry.path} skipped: its path does not form a command name`)
+          continue
+        }
+        if (found.has(commandName)) continue
+        // A repository file must not replace a command the host or the preset already provides.
+        if (ctx.commands.find(agent, commandName) !== undefined) {
+          ctx.logger.warn(`air-command-conventions: ${entry.path} skipped: /${commandName} is already a command`)
+          continue
+        }
+        const loaded = await load(entry.path)
+        if (loaded === undefined) continue
+        found.set(commandName, Object.assign({}, loaded, { name: commandName, path: entry.path }))
+      }
+    }
+    return [...found.values()]
+  }
+
+  const run = async (file: CommandFile, invocation: CommandInvocation): Promise<CommandResult> => {
+    const loaded = await load(file.path)
+    if (loaded === undefined) return { kind: 'error', text: `/${file.name}: ${file.path} can no longer be read.` }
+    const text = substituteArguments(loaded.body, invocation.rawInput, loaded.argumentNames, resolved.positionalBase)
+    const source: AirCommandSource = { kind: 'air-command', name: file.name, form: 'instructions' }
+    invocation.agent.followup(createUserMessage({ content: [{ type: 'text', text }], source }))
+    return { kind: 'success', text: `Sent /${file.name} to the model.` }
+  }
+
+  const release = async (agent: Agent): Promise<void> => {
+    const scope = scopes.get(agent)
+    if (scope === undefined) return
+    scopes.delete(agent)
+    await scope.dispose()
+  }
+
+  ctx.on('agent/created', async ({ agent }) => {
+    const cwd = agent.session.header.cwd
+    if (cwd === undefined) return
+    let files: CommandFile[]
+    try {
+      files = await discover(agent, cwd)
+    } catch (error: unknown) {
+      // A command folder that cannot be read costs the Agent its commands, never its creation.
+      ctx.logger.warn(`air-command-conventions: command files could not be read: ${(error as Error).message}`)
+      return
+    }
+    if (files.length === 0) return
+    const scope = createScope(ctx, agent)
+    scopes.set(agent, scope)
+    for (const file of files) {
+      scope.ctx.commands.register({
+        name: file.name,
+        description: file.description,
+        input: { hint: file.hint },
+        handler: invocation => run(file, invocation),
+      })
+    }
+  })
+
+  ctx.on('agent/disposed', ({ agent }) => {
+    void release(agent)
+  })
+
+  ctx.effect(() => async () => {
+    await Promise.all([...scopes.keys()].map(agent => release(agent)))
+  }, 'air-command-conventions.scopes')
+}

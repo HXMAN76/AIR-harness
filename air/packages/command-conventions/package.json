@@ -1,0 +1,48 @@
+{
+  "name": "@air/dsh-command-conventions",
+  "description": "Registers .claude/commands files as slash commands with argument substitution",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "main": "lib/index.js",
+  "types": "lib/types/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/types/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib/index.js",
+    "lib/types/**/*.d.ts"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json && tsdown",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@air/dsh-convention-core": "workspace:*",
+    "@deepseek-ai/schemastery": "link:../../../vendor/schemastery"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.4",
+    "@deepseek-ai/dsh-agent": "^0.2.0-rc.1",
+    "@deepseek-ai/dsh-commands": "^0.2.0-rc.1",
+    "@deepseek-ai/dsh-llm": "^0.2.0-rc.1",
+    "@deepseek-ai/dsh-scope": "^0.2.0-rc.1"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "link:../../../vendor/cordis",
+    "@deepseek-ai/cordis-plugin-include": "link:../../../vendor/include",
+    "@deepseek-ai/cordis-plugin-loader": "link:../../../vendor/loader",
+    "@deepseek-ai/dsh-agent": "link:../../../packages/core/agent",
+    "@deepseek-ai/dsh-agent-loop-testkit": "link:../../../packages/test-support/agent-loop-testkit",
+    "@deepseek-ai/dsh-commands": "link:../../../packages/interaction/commands",
+    "@deepseek-ai/dsh-llm": "link:../../../packages/llm/llm",
+    "@deepseek-ai/dsh-scope": "link:../../../packages/core/scope",
+    "@deepseek-ai/dsh-session": "link:../../../packages/core/session"
+  }
+}
