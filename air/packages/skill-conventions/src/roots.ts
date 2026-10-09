@@ -11,6 +11,8 @@ export interface SkillRoot {
   readonly path: string
   readonly source: SkillSource
   readonly rank: number
+  /** Directory the real path of every file under `path` must stay inside: the project root or the user root that owns `path`. */
+  readonly confine: string
 }
 
 /** Inputs for {@link skillRoots}. */
@@ -35,19 +37,19 @@ export function skillRoots(options: RootOptions): SkillRoot[] {
   const roots: SkillRoot[] = []
   if (projectRoot !== undefined) {
     roots.push(
-      { path: join(projectRoot, '.dsh', 'skills'), source: 'project-dsh', rank: 100 },
-      { path: join(projectRoot, '.agents', 'skills'), source: 'project-agents', rank: 200 },
-      { path: join(projectRoot, '.claude', 'skills'), source: 'project-claude', rank: 220 },
+      { path: join(projectRoot, '.dsh', 'skills'), source: 'project-dsh', rank: 100, confine: projectRoot },
+      { path: join(projectRoot, '.agents', 'skills'), source: 'project-agents', rank: 200, confine: projectRoot },
+      { path: join(projectRoot, '.claude', 'skills'), source: 'project-claude', rank: 220, confine: projectRoot },
     )
     for (const relativeRoot of options.extraProjectRoots) {
-      roots.push({ path: join(projectRoot, relativeRoot), source: 'project-extra', rank: 240 })
+      roots.push({ path: join(projectRoot, relativeRoot), source: 'project-extra', rank: 240, confine: projectRoot })
     }
   }
-  roots.push({ path: join(homes.airHome, 'skills'), source: 'user-air', rank: 350 })
+  roots.push({ path: join(homes.airHome, 'skills'), source: 'user-air', rank: 350, confine: homes.airHome })
   if (options.includeUserRoots) {
     roots.push(
-      { path: join(homes.agentsHome, 'skills'), source: 'user-agents', rank: 500 },
-      { path: join(homes.claudeHome, 'skills'), source: 'user-claude', rank: 520 },
+      { path: join(homes.agentsHome, 'skills'), source: 'user-agents', rank: 500, confine: homes.agentsHome },
+      { path: join(homes.claudeHome, 'skills'), source: 'user-claude', rank: 520, confine: homes.claudeHome },
     )
   }
   return roots

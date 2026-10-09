@@ -17,7 +17,7 @@ import { createUserMessage, type Message } from '@deepseek-ai/dsh-llm'
 import type { PostToolDecision, ToolExecution } from '@deepseek-ai/dsh-tools'
 import { expandHome, findProjectRoot, isInside, resolveUserHomes, toPosixRelative } from '@air/dsh-convention-core'
 import { composeBaseline } from './baseline.ts'
-import { loadClaudeRules, matchingRules, type Rule } from './rules.ts'
+import { loadClaudeRules, matchingRules, type Rule, type RuleCache } from './rules.ts'
 
 export const name = 'air-instruction-conventions'
 
@@ -45,6 +45,12 @@ declare module '@deepseek-ai/dsh-llm' {
 export interface Config {
   /** UTF-8 byte budget for the baseline file blocks. Required. */
   maxBytes: number
+  /** Largest single file read (seed files, imports, rules) in bytes. Defaults to 262144. */
+  maxFileBytes?: number
+  /** Most directory entries examined while walking `.claude/rules`. Defaults to 2000. */
+  maxWalkEntries?: number
+  /** Most `@path` imports followed in one file. Defaults to 32. */
+  maxImportsPerFile?: number
   /** Claude Code home. Defaults to `~/.claude`. */
   claudeHome?: string
   /** Whether `<claudeHome>/CLAUDE.md` is read and may import files under `claudeHome`. Defaults to false. */
@@ -57,6 +63,9 @@ export interface Config {
 
 export const Config: Schema<Config> = Schema.object({
   maxBytes: Schema.number().required().description('UTF-8 byte budget for the baseline file blocks.'),
+  maxFileBytes: Schema.number().default(262144).description('Largest single file read, in bytes.'),
+  maxWalkEntries: Schema.number().default(2000).description('Most directory entries examined while walking .claude/rules.'),
+  maxImportsPerFile: Schema.number().default(32).description('Most @path imports followed in one file.'),
   claudeHome: Schema.string().description('Claude Code home; defaults to ~/.claude.'),
   includeUserRoots: Schema.boolean().default(false).description('Read ~/.claude/CLAUDE.md and allow imports under ~/.claude.'),
   allowedImportRoots: Schema.array(Schema.string()).default([]).description('Directories outside the project that @path imports may read.'),
@@ -66,6 +75,9 @@ export const Config: Schema<Config> = Schema.object({
 /** Configuration after defaulting and validation. */
 export interface ResolvedConfig {
   readonly maxBytes: number
+  readonly maxFileBytes: number
+  readonly maxWalkEntries: number
+  readonly maxImportsPerFile: number
   readonly claudeHome: string
   readonly home: string
   readonly includeUserRoots: boolean
@@ -83,6 +95,14 @@ export function resolveConfig(config: Config): ResolvedConfig {
   if (!Number.isInteger(config.maxBytes) || config.maxBytes < 1) {
     throw new TypeError('air-instruction-conventions: maxBytes must be a positive integer')
   }
+  const limits = {
+    maxFileBytes: config.maxFileBytes ?? 262144,
+    maxWalkEntries: config.maxWalkEntries ?? 2000,
+    maxImportsPerFile: config.maxImportsPerFile ?? 32,
+  }
+  for (const [field, value] of Object.entries(limits)) {
+    if (!Number.isInteger(value) || value < 1) throw new TypeError(`air-instruction-conventions: ${field} must be a positive integer`)
+  }
   const home = homedir()
   const allowedImportRoots = (config.allowedImportRoots ?? []).map((root) => {
     const expanded = expandHome(root, home)
@@ -97,6 +117,7 @@ export function resolveConfig(config: Config): ResolvedConfig {
   }
   return {
     maxBytes: config.maxBytes,
+    ...limits,
     claudeHome: resolveUserHomes(config).claudeHome,
     home,
     includeUserRoots: config.includeUserRoots ?? false,
@@ -134,6 +155,7 @@ function ruleKey(relativePath: string, digest: string): string {
 export function apply(ctx: Context, config: Config): void {
   const resolved = resolveConfig(config)
   const reported = new Set<string>()
+  const ruleCache: RuleCache = new Map()
   const delivered = new WeakMap<Agent['session'], Set<string>>()
 
   const report = (problems: readonly string[]): void => {
@@ -178,6 +200,10 @@ export function apply(ctx: Context, config: Config): void {
         includeUserRoots: resolved.includeUserRoots,
         allowedImportRoots: resolved.allowedImportRoots,
         maxBytes: resolved.maxBytes,
+        maxFileBytes: resolved.maxFileBytes,
+        maxEntries: resolved.maxWalkEntries,
+        maxImportsPerFile: resolved.maxImportsPerFile,
+        ruleCache,
       })
     } catch (error: unknown) {
       report([`convention files could not be read: ${(error as Error).message}`])
@@ -217,7 +243,8 @@ export function apply(ctx: Context, config: Config): void {
     const projectRoot = await findProjectRoot(cwd, resolved.projectRootMarkers)
     const absolute = resolve(cwd, filePath)
     if (!isInside(projectRoot, absolute)) return decision
-    const ruleSet = await loadClaudeRules(projectRoot)
+    const limits = { maxFileBytes: resolved.maxFileBytes, maxEntries: resolved.maxWalkEntries }
+    const ruleSet = await loadClaudeRules(projectRoot, limits, ruleCache)
     report(ruleSet.problems)
     const keys = deliveredRules(agent.session)
     const fresh = matchingRules(ruleSet.rules, toPosixRelative(projectRoot, absolute))

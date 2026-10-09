@@ -2,10 +2,11 @@ import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { MAX_IMPORT_HOPS, findImportPaths, isSensitivePath, resolveImports } from '../src/imports.ts'
+import { MAX_IMPORT_HOPS, findImportPaths, resolveImports } from '../src/imports.ts'
 
 const created: string[] = []
 const MAX_FILE_BYTES = 1_000_000
+const MAX_IMPORTS = 50
 
 afterEach(async () => {
   vi.unstubAllGlobals()
@@ -54,22 +55,6 @@ describe('findImportPaths', () => {
   })
 })
 
-describe('isSensitivePath', () => {
-  it.each([
-    ['/home/u/project/.env', true],
-    ['/home/u/project/.env.production', true],
-    ['C:\\Users\\u\\.ssh\\config', true],
-    ['/home/u/.aws/credentials', true],
-    ['/home/u/project/id_ed25519', true],
-    ['/home/u/project/server.pem', true],
-    ['/home/u/project/.npmrc', true],
-    ['/home/u/project/docs/environment.md', false],
-    ['/home/u/project/notes.md', false],
-  ])('classifies %s', (path, expected) => {
-    expect(isSensitivePath(path)).toBe(expected)
-  })
-})
-
 describe('resolveImports', () => {
   it('follows imports relative to the importing file, in document order', async () => {
     const { project, home } = await world()
@@ -77,7 +62,7 @@ describe('resolveImports', () => {
     await write(join(project, 'docs/a.md'), 'A imports @nested/c.md')
     await write(join(project, 'docs/nested/c.md'), 'C')
     await write(join(project, 'docs/b.md'), 'B')
-    const result = await resolveImports([{ path: seed, content: 'Read @docs/a.md and @docs/b.md' }], { projectRoot: project, allowedRoots: [], home, maxFileBytes: MAX_FILE_BYTES })
+    const result = await resolveImports([{ path: seed, content: 'Read @docs/a.md and @docs/b.md' }], { projectRoot: project, allowedRoots: [], home, maxFileBytes: MAX_FILE_BYTES, maxImportsPerFile: MAX_IMPORTS })
     expect(result.files.map(file => file.content)).toEqual(['A imports @nested/c.md', 'C', 'B'])
     expect(result.skipped).toEqual([])
   })
@@ -91,7 +76,7 @@ describe('resolveImports', () => {
     const result = await resolveImports([
       { path: seed, content: '@a.md @a.md @AGENTS.md @missing.md @docs' },
       { path: agents, content: 'Agents imports @a.md' },
-    ], { projectRoot: project, allowedRoots: [], home, maxFileBytes: MAX_FILE_BYTES })
+    ], { projectRoot: project, allowedRoots: [], home, maxFileBytes: MAX_FILE_BYTES, maxImportsPerFile: MAX_IMPORTS })
     expect(result.files).toEqual([{ path: join(project, 'a.md'), content: 'A imports @CLAUDE.md' }])
     expect(result.skipped).toEqual([])
   })
@@ -100,7 +85,7 @@ describe('resolveImports', () => {
     const { project, home } = await world()
     expect(MAX_IMPORT_HOPS).toBe(4)
     for (let hop = 1; hop <= 5; hop += 1) await write(join(project, `h${hop}.md`), `hop ${hop} @h${hop + 1}.md`)
-    const result = await resolveImports([{ path: join(project, 'CLAUDE.md'), content: '@h1.md' }], { projectRoot: project, allowedRoots: [], home, maxFileBytes: MAX_FILE_BYTES })
+    const result = await resolveImports([{ path: join(project, 'CLAUDE.md'), content: '@h1.md' }], { projectRoot: project, allowedRoots: [], home, maxFileBytes: MAX_FILE_BYTES, maxImportsPerFile: MAX_IMPORTS })
     expect(result.files.map(file => file.path)).toEqual([1, 2, 3, 4].map(hop => join(project, `h${hop}.md`)))
     expect(result.skipped).toEqual([{ path: join(project, 'h5.md'), reason: 'max-hops' }])
   })
@@ -111,7 +96,7 @@ describe('resolveImports', () => {
     await write(join(home, 'notes.md'), 'Notes')
     await mkdir(project, { recursive: true })
     const seed = { path: join(project, 'CLAUDE.md'), content: '@../outside/shared.md @~/notes.md' }
-    const options = { projectRoot: project, home, maxFileBytes: MAX_FILE_BYTES }
+    const options = { projectRoot: project, home, maxFileBytes: MAX_FILE_BYTES, maxImportsPerFile: MAX_IMPORTS }
     const denied = await resolveImports([seed], { ...options, allowedRoots: [] })
     expect(denied.files).toEqual([])
     expect(denied.skipped).toEqual([
@@ -125,7 +110,7 @@ describe('resolveImports', () => {
 
   it('reports an outside path that does not exist without reading it', async () => {
     const { project, home } = await world()
-    const result = await resolveImports([{ path: join(project, 'CLAUDE.md'), content: '@../nowhere.md' }], { projectRoot: project, allowedRoots: [], home, maxFileBytes: MAX_FILE_BYTES })
+    const result = await resolveImports([{ path: join(project, 'CLAUDE.md'), content: '@../nowhere.md' }], { projectRoot: project, allowedRoots: [], home, maxFileBytes: MAX_FILE_BYTES, maxImportsPerFile: MAX_IMPORTS })
     expect(result).toEqual({ files: [], skipped: [{ path: join(dirname(project), 'nowhere.md'), reason: 'outside-project' }] })
   })
 
@@ -134,7 +119,7 @@ describe('resolveImports', () => {
     await write(join(outside, 'secret.md'), 'Secret')
     await mkdir(project, { recursive: true })
     await symlink(join(outside, 'secret.md'), join(project, 'link.md'))
-    const result = await resolveImports([{ path: join(project, 'CLAUDE.md'), content: '@link.md' }], { projectRoot: project, allowedRoots: [], home, maxFileBytes: MAX_FILE_BYTES })
+    const result = await resolveImports([{ path: join(project, 'CLAUDE.md'), content: '@link.md' }], { projectRoot: project, allowedRoots: [], home, maxFileBytes: MAX_FILE_BYTES, maxImportsPerFile: MAX_IMPORTS })
     expect(result).toEqual({ files: [], skipped: [{ path: join(project, 'link.md'), reason: 'outside-project' }] })
   })
 
@@ -142,7 +127,7 @@ describe('resolveImports', () => {
     const { project, home } = await world()
     await write(join(project, 'a.md'), 'A')
     vi.stubGlobal('process', Object.create(process, { platform: { value: 'win32' } }))
-    const result = await resolveImports([{ path: join(project, 'CLAUDE.md'), content: '@a.md @A.MD' }], { projectRoot: project, allowedRoots: [], home, maxFileBytes: MAX_FILE_BYTES })
+    const result = await resolveImports([{ path: join(project, 'CLAUDE.md'), content: '@a.md @A.MD' }], { projectRoot: project, allowedRoots: [], home, maxFileBytes: MAX_FILE_BYTES, maxImportsPerFile: MAX_IMPORTS })
     vi.unstubAllGlobals()
     expect(result.files).toEqual([{ path: join(project, 'a.md'), content: 'A' }])
   })
@@ -154,12 +139,25 @@ describe('resolveImports', () => {
     await write(join(project, 'big.md'), 'x'.repeat(50))
     await write(join(project, 'small.md'), 'ok')
     const content = '@.env @.ssh/config @big.md @small.md'
-    const result = await resolveImports([{ path: join(project, 'CLAUDE.md'), content }], { projectRoot: project, allowedRoots: [], home, maxFileBytes: 10 })
+    const result = await resolveImports([{ path: join(project, 'CLAUDE.md'), content }], { projectRoot: project, allowedRoots: [], home, maxFileBytes: 10, maxImportsPerFile: MAX_IMPORTS })
     expect(result.files).toEqual([{ path: join(project, 'small.md'), content: 'ok' }])
     expect(result.skipped).toEqual([
       { path: join(project, '.env'), reason: 'sensitive' },
       { path: join(project, '.ssh', 'config'), reason: 'sensitive' },
       { path: join(project, 'big.md'), reason: 'too-large' },
     ])
+  })
+})
+
+describe('resolveImports import limit', () => {
+  it('follows at most maxImportsPerFile tokens of one file and records one import-limit entry', async () => {
+    const { project, home } = await world()
+    const content = '@a.md @b.md @c.md'
+    for (const name of ['a', 'b', 'c']) await write(join(project, `${name}.md`), name)
+    const seed = join(project, 'CLAUDE.md')
+    const options = { projectRoot: project, allowedRoots: [], home, maxFileBytes: MAX_FILE_BYTES, maxImportsPerFile: 2 }
+    const result = await resolveImports([{ path: seed, content }], options)
+    expect(result.files.map(file => file.content)).toEqual(['a', 'b'])
+    expect(result.skipped).toEqual([{ path: seed, reason: 'import-limit' }])
   })
 })

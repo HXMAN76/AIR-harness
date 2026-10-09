@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -24,6 +24,9 @@ async function world(): Promise<BaselineInput> {
     includeUserRoots: false,
     allowedImportRoots: [],
     maxBytes: 32768,
+    maxFileBytes: 32768,
+    maxEntries: 500,
+    maxImportsPerFile: 32,
   }
 }
 
@@ -122,5 +125,73 @@ describe('composeBaseline', () => {
     const { baseline, problems } = await composeBaseline(input)
     expect(baseline).toBeUndefined()
     expect(problems).toHaveLength(1)
+  })
+
+  it.skipIf(process.platform === 'win32')('refuses a seed file linked to a file outside the project', async () => {
+    const input = await world()
+    const root = input.projectRoot
+    await write(join(root, '..', 'elsewhere.md'), 'PRIVATE CONTENT')
+    await symlink(join(root, '..', 'elsewhere.md'), join(root, 'CLAUDE.md'))
+    const { baseline, problems } = await composeBaseline(input)
+    expect(baseline).toBeUndefined()
+    expect(problems).toEqual([`${join(root, 'CLAUDE.md')} skipped: its real path is outside the allowed directory`])
+  })
+
+  it.skipIf(process.platform === 'win32')('refuses a user CLAUDE.md linked outside the Claude home', async () => {
+    const input = await world()
+    await write(join(input.home, 'secrets.md'), 'PRIVATE CONTENT')
+    await mkdir(input.claudeHome, { recursive: true })
+    await symlink(join(input.home, 'secrets.md'), join(input.claudeHome, 'CLAUDE.md'))
+    const { baseline, problems } = await composeBaseline({ ...input, includeUserRoots: true })
+    expect(baseline).toBeUndefined()
+    expect(problems).toHaveLength(1)
+    expect(problems[0]).toContain('outside the allowed directory')
+  })
+
+  it.skipIf(process.platform === 'win32')('reads .claude/CLAUDE.md linked to AGENTS.md in the same project', async () => {
+    const input = await world()
+    await write(join(input.projectRoot, 'AGENTS.md'), 'Shared instructions.')
+    await mkdir(join(input.projectRoot, '.claude'), { recursive: true })
+    await symlink(join(input.projectRoot, 'AGENTS.md'), join(input.projectRoot, '.claude', 'CLAUDE.md'))
+    const { baseline, problems } = await composeBaseline(input)
+    expect(problems).toEqual([])
+    expect(baseline?.text).toContain('Shared instructions.')
+  })
+
+  it('refuses an oversize seed file and a seed that is a directory', async () => {
+    const input = await world()
+    const root = input.projectRoot
+    await write(join(root, 'AGENTS.md'), 'x'.repeat(100))
+    await mkdir(join(root, 'CLAUDE.md'))
+    const { baseline, problems } = await composeBaseline({ ...input, maxFileBytes: 50 })
+    expect(baseline).toBeUndefined()
+    expect(problems).toEqual([
+      `${join(root, 'AGENTS.md')} skipped: it is larger than 50 bytes`,
+      `${join(root, 'CLAUDE.md')} skipped: it is not a regular file`,
+    ])
+  })
+
+  it('counts skipped-import notes against the byte budget and summarises the omitted ones', async () => {
+    const input = await world()
+    const root = input.projectRoot
+    const imports = Array.from({ length: 12 }, (_, index) => `@/outside-${index}.md`).join(' ')
+    await write(join(root, 'CLAUDE.md'), `Hi. ${imports}`)
+    const { baseline } = await composeBaseline({ ...input, maxBytes: 400, maxImportsPerFile: 12 })
+    const text = baseline?.text ?? ''
+    expect(text.match(/<skipped path=/gu)?.length).toBeLessThan(12)
+    expect(text).toMatch(/<skipped reason="notes-omitted" count="\d+"\/>/u)
+    const kept = text.split('\n').filter(line => line.startsWith('<skipped path=')).join('\n') + (text.includes('<file') ? text.slice(text.indexOf('<file'), text.indexOf('</file>') + 7) : '')
+    expect(Buffer.byteLength(kept)).toBeLessThanOrEqual(400)
+  })
+
+  it('caps the imports followed in one file', async () => {
+    const input = await world()
+    const root = input.projectRoot
+    for (const name of ['a', 'b', 'c']) await write(join(root, `${name}.md`), `Imported ${name}.`)
+    await write(join(root, 'CLAUDE.md'), 'Main. @a.md @b.md @c.md')
+    const { baseline } = await composeBaseline({ ...input, maxImportsPerFile: 1 })
+    expect(baseline?.text).toContain('Imported a.')
+    expect(baseline?.text).not.toContain('Imported b.')
+    expect(baseline?.text).toContain(`<skipped path="${join(root, 'CLAUDE.md')}" reason="import-limit"/>`)
   })
 })

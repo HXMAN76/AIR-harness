@@ -9,7 +9,9 @@ A library, not a plugin. It holds the code every AIR file-convention plugin need
 | `resolveUserHomes`, `expandHome` | `~/.air` (or `$AIR_HOME`), `~/.claude`, `~/.agents` (or `$DSH_AGENTS_HOME`) |
 | `findProjectRoot`, `isInside`, `directoriesBetween`, `toPosixRelative` | nearest ancestor containing `.git`; containment checks; forward-slash relative paths for globs |
 | `parseFrontmatter`, `stringField`, `booleanField`, `stringListField` | skill, command, and rule files |
-| `readTextFile`, `fileSize`, `realpathIfPresent`, `listDirectory`, `listMarkdownTree` | discovery and containment checks; an absent path is an empty result |
+| `readContained`, `listDirectory`, `listMarkdownTree` | contained reads and walks: a file or entry is used only when its real path is inside an allowed root, is not a credential file, and is within the size and entry limits; a walk enters each real directory once and reports a cap hit |
+| `isSensitivePath`, `describeSkip`, `describeTruncation` | credential-file classification (`.env*`, keys, `.git/config`, `.git-credentials`, `.pypirc`, `.pgpass`, `*.tfvars`, `.claude/settings.local.json`, `.config/gh`, `.ssh`, `.aws`, `.gnupg`, `.kube`, `.docker`) and one-line wording of a refusal |
+| `readTextFile`, `fileSize`, `fileSignature`, `realpathIfPresent` | uncontained reads for AIR-owned files, size, content-version signature, and canonical paths; an absent path is an empty result |
 | `PollWatcher` | one timer that invalidates a catalog when a watched file or directory of a project changes |
 | `toKebabName` | `frontend/component.md` becomes `frontend-component` |
 | `toDshToolName`, `toClaudeToolNames`, `translateToolNames` | `Edit` and `MultiEdit` become `edit`; `mcp__*` names pass through |

@@ -18,15 +18,17 @@ import type {
 } from '@deepseek-ai/dsh-skill'
 import {
   PollWatcher,
+  describeSkip,
+  describeTruncation,
   findProjectRoot,
   isRecord,
   listDirectory,
-  readTextFile,
+  readContained,
   resolveUserHomes,
   type UserHomes,
 } from '@air/dsh-convention-core'
 import { parseSkillText, type ParsedSkillFile } from './parse.ts'
-import { skillRoots } from './roots.ts'
+import { skillRoots, type SkillRoot } from './roots.ts'
 
 export const name = 'air-skill-conventions'
 export const inject = ['skills']
@@ -45,6 +47,10 @@ export interface Config {
   includeUserRoots?: boolean
   /** Extra skill directories relative to the project root, for example `.opencode/skills`. */
   extraProjectRoots?: string[]
+  /** Largest skill file in bytes. Defaults to 262144. */
+  maxFileBytes?: number
+  /** Most directory entries examined per skill root. Defaults to 2000. */
+  maxWalkEntries?: number
   /** Longest skill description kept in the catalog. Defaults to 1500. */
   descriptionMaxChars?: number
   /** Milliseconds between polls of scanned roots and skill files; 0 disables watching. Defaults to 3000. */
@@ -60,6 +66,8 @@ export const Config: Schema<Config> = Schema.object({
   agentsHome: Schema.string().description('Shared agents home; defaults to $DSH_AGENTS_HOME, then ~/.agents.'),
   includeUserRoots: Schema.boolean().default(false).description('Scan ~/.agents/skills and ~/.claude/skills.'),
   extraProjectRoots: Schema.array(Schema.string()).default([]).description('Extra skill directories relative to the project root.'),
+  maxFileBytes: Schema.number().default(262144).description('Largest skill file, in bytes.'),
+  maxWalkEntries: Schema.number().default(2000).description('Most directory entries examined per skill root.'),
   descriptionMaxChars: Schema.number().default(1500).description('Longest skill description kept in the catalog.'),
   watchIntervalMs: Schema.number().default(3000).description('Milliseconds between polls of scanned paths; 0 disables watching.'),
   watchMaxProjects: Schema.number().default(32).description('Maximum number of projects whose skill roots stay watched.'),
@@ -71,6 +79,8 @@ export interface ResolvedConfig {
   readonly homes: UserHomes
   readonly includeUserRoots: boolean
   readonly extraProjectRoots: readonly string[]
+  readonly maxFileBytes: number
+  readonly maxWalkEntries: number
   readonly descriptionMaxChars: number
   readonly watchIntervalMs: number
   readonly watchMaxProjects: number
@@ -88,12 +98,20 @@ export function resolveConfig(config: Config): ResolvedConfig {
     homes: resolveUserHomes(config),
     includeUserRoots: config.includeUserRoots ?? false,
     extraProjectRoots: config.extraProjectRoots ?? [],
+    maxFileBytes: config.maxFileBytes ?? 262144,
+    maxWalkEntries: config.maxWalkEntries ?? 2000,
     descriptionMaxChars: config.descriptionMaxChars ?? 1500,
     watchIntervalMs: config.watchIntervalMs ?? 3000,
     watchMaxProjects: config.watchMaxProjects ?? 32,
   }
   if (!Number.isInteger(resolved.descriptionMaxChars) || resolved.descriptionMaxChars < 1) {
     throw new TypeError('air-skill-conventions: descriptionMaxChars must be a positive integer')
+  }
+  if (!Number.isInteger(resolved.maxFileBytes) || resolved.maxFileBytes < 1) {
+    throw new TypeError('air-skill-conventions: maxFileBytes must be a positive integer')
+  }
+  if (!Number.isInteger(resolved.maxWalkEntries) || resolved.maxWalkEntries < 1) {
+    throw new TypeError('air-skill-conventions: maxWalkEntries must be a positive integer')
   }
   if (!Number.isInteger(resolved.watchIntervalMs) || resolved.watchIntervalMs < 0) {
     throw new TypeError('air-skill-conventions: watchIntervalMs must be a non-negative integer')
@@ -117,6 +135,8 @@ interface SkillFile {
   readonly fallbackName: string
   /** True for `<name>.md` directly in a root. */
   readonly flat: boolean
+  /** Directory the file's real path must stay inside. */
+  readonly confine: string
 }
 
 function isLocator(value: unknown): value is SkillFile {
@@ -125,24 +145,15 @@ function isLocator(value: unknown): value is SkillFile {
     && typeof value['directory'] === 'string'
     && typeof value['fallbackName'] === 'string'
     && typeof value['flat'] === 'boolean'
-}
-
-async function skillFiles(rootPath: string): Promise<SkillFile[]> {
-  const files: SkillFile[] = []
-  for (const entry of await listDirectory(rootPath)) {
-    if (entry.kind === 'directory') {
-      files.push({ path: join(entry.path, 'SKILL.md'), directory: entry.path, fallbackName: entry.name, flat: false })
-    } else if (entry.name.endsWith('.md')) {
-      files.push({ path: entry.path, directory: rootPath, fallbackName: entry.name.slice(0, -3), flat: true })
-    }
-  }
-  return files
+    && typeof value['confine'] === 'string'
 }
 
 /** Skill provider over the convention roots. One instance serves every lookup cwd. */
 export class ConventionSkillProvider implements SkillProvider {
   readonly name: string
   private readonly watcher: PollWatcher | undefined
+  /** Warnings already logged, so a repeated listing does not repeat them. */
+  private readonly warned = new Set<string>()
 
   /**
    * @param logger - receives warnings about unreadable skill files and failed change notifications.
@@ -184,7 +195,7 @@ export class ConventionSkillProvider implements SkillProvider {
     const watched: string[] = []
     for (const root of roots) {
       watched.push(root.path)
-      for (const file of await skillFiles(root.path)) {
+      for (const file of await this.skillFiles(root)) {
         watched.push(file.path)
         const parsed = await this.parse(file)
         if (parsed === undefined) continue
@@ -238,11 +249,36 @@ export class ConventionSkillProvider implements SkillProvider {
     this.watcher?.close()
   }
 
+  private warnOnce(text: string): void {
+    if (this.warned.has(text)) return
+    this.warned.add(text)
+    this.logger.warn(`air-skill-conventions: ${text}`)
+  }
+
+  private async skillFiles(root: SkillRoot): Promise<SkillFile[]> {
+    const listing = await listDirectory(root.path, { roots: [root.confine], maxEntries: this.config.maxWalkEntries })
+    for (const skipped of listing.skipped) this.warnOnce(describeSkip(skipped.path, skipped.reason, this.config.maxFileBytes))
+    if (listing.truncated) this.warnOnce(describeTruncation(root.path, this.config.maxWalkEntries))
+    const files: SkillFile[] = []
+    for (const entry of listing.entries) {
+      if (entry.kind === 'directory') {
+        files.push({ path: join(entry.path, 'SKILL.md'), directory: entry.path, fallbackName: entry.name, flat: false, confine: root.confine })
+      } else if (entry.name.endsWith('.md')) {
+        files.push({ path: entry.path, directory: root.path, fallbackName: entry.name.slice(0, -3), flat: true, confine: root.confine })
+      }
+    }
+    return files
+  }
+
   private async parse(file: SkillFile): Promise<ParsedSkillFile | undefined> {
-    const raw = await readTextFile(file.path)
-    if (raw === undefined) return undefined
+    const read = await readContained(file.path, { roots: [file.confine], maxBytes: this.config.maxFileBytes })
+    if (read.kind === 'absent' || read.kind === 'not-file') return undefined
+    if (read.kind !== 'ok') {
+      this.warnOnce(describeSkip(file.path, read.kind, this.config.maxFileBytes))
+      return undefined
+    }
     try {
-      return parseSkillText(raw, {
+      return parseSkillText(read.text, {
         fallbackName: file.fallbackName,
         flat: file.flat,
         descriptionMaxChars: this.config.descriptionMaxChars,

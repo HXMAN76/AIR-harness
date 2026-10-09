@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve, sep } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -176,18 +176,79 @@ describe('air-command-conventions', () => {
   })
 })
 
+describe('containment', () => {
+  it.skipIf(process.platform === 'win32')('refuses a command file linked to a file outside the project', async () => {
+    const { root, config } = await world()
+    await write(join(root, '..', 'private.md'), 'PRIVATE CONTENT')
+    await mkdir(join(root, '.claude/commands'), { recursive: true })
+    await symlink(join(root, '..', 'private.md'), join(root, '.claude/commands/leak.md'))
+    await write(join(root, '.claude/commands/ok.md'), 'Fine.')
+    const { ctx } = await mount(config)
+    const warn = vi.spyOn(ctx.logger, 'warn')
+    const stub = await live(ctx, root)
+    expect(names(ctx, stub)).toEqual(['compact', 'ok'])
+    expect(warn).toHaveBeenCalledWith(`air-command-conventions: ${join(root, '.claude/commands/leak.md')} skipped: its real path is outside the allowed directory`)
+  })
+
+  it.skipIf(process.platform === 'win32')('does not walk a commands directory linked outside the project', async () => {
+    const { root, config } = await world()
+    await write(join(root, '..', 'outside/secret.md'), 'PRIVATE CONTENT')
+    await mkdir(join(root, '.claude/commands'), { recursive: true })
+    await symlink(join(root, '..', 'outside'), join(root, '.claude/commands/team'))
+    const { ctx } = await mount(config)
+    const stub = await live(ctx, root)
+    expect(names(ctx, stub)).toEqual(['compact'])
+  })
+
+  it.skipIf(process.platform === 'win32')('keeps a command linked to a file inside the project and ends link loops', async () => {
+    const { root, config } = await world()
+    await write(join(root, 'docs/review.md'), 'Review it.')
+    await mkdir(join(root, '.claude/commands'), { recursive: true })
+    await symlink(join(root, 'docs/review.md'), join(root, '.claude/commands/review.md'))
+    await symlink('.', join(root, '.claude/commands/loop'))
+    const { ctx } = await mount(config)
+    const stub = await live(ctx, root)
+    expect(names(ctx, stub)).toEqual(['compact', 'review'])
+  })
+
+  it.skipIf(process.platform === 'win32')('refuses a user command linked outside the Claude home', async () => {
+    const { root, home, config } = await world()
+    await write(join(home, 'elsewhere.md'), 'PRIVATE CONTENT')
+    await mkdir(join(home, '.claude/commands'), { recursive: true })
+    await symlink(join(home, 'elsewhere.md'), join(home, '.claude/commands/x.md'))
+    const { ctx } = await mount(Object.assign({}, config, { includeUserRoots: true }))
+    expect(names(ctx, await live(ctx, root))).toEqual(['compact'])
+  })
+
+  it('refuses an oversize command file and reports a walk that reaches the entry cap', async () => {
+    const { root, config } = await world()
+    await write(join(root, '.claude/commands/big.md'), 'x'.repeat(100))
+    await write(join(root, '.claude/commands/small.md'), 'ok')
+    await write(join(root, '.claude/commands/z.md'), 'never listed')
+    const { ctx } = await mount(Object.assign({}, config, { maxFileBytes: 50, maxWalkEntries: 2 }))
+    const warn = vi.spyOn(ctx.logger, 'warn')
+    expect(names(ctx, await live(ctx, root))).toEqual(['compact', 'small'])
+    expect(warn).toHaveBeenCalledWith(`air-command-conventions: ${join(root, '.claude/commands/big.md')} skipped: it is larger than 50 bytes`)
+    expect(warn).toHaveBeenCalledWith(`air-command-conventions: ${join(root, '.claude/commands')} listing stopped after 2 entries; later entries were not read`)
+  })
+})
+
 describe('resolveConfig', () => {
   it('applies defaults', () => {
     expect(commandConventions.resolveConfig({ airHome: resolve(sep, 'a'), claudeHome: resolve(sep, 'c') })).toMatchObject({
       homes: { airHome: resolve(sep, 'a'), claudeHome: resolve(sep, 'c') },
       includeUserRoots: false,
       projectRootMarkers: ['.git'],
+      maxFileBytes: 262144,
+      maxWalkEntries: 2000,
       positionalBase: 0,
     })
   })
 
   it('rejects invalid values', () => {
     expect(() => commandConventions.resolveConfig({ positionalBase: 2 })).toThrow('positionalBase must be 0 or 1')
+    expect(() => commandConventions.resolveConfig({ maxFileBytes: 0 })).toThrow('maxFileBytes must be a positive integer')
+    expect(() => commandConventions.resolveConfig({ maxWalkEntries: 1.5 })).toThrow('maxWalkEntries must be a positive integer')
     expect(() => commandConventions.resolveConfig({ projectRootMarkers: [] })).toThrow('projectRootMarkers must not be empty')
   })
 })

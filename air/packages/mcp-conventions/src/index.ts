@@ -15,7 +15,7 @@ import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
 import * as McpClient from '@deepseek-ai/dsh-mcp-client'
 import { createScope, type Scope } from '@deepseek-ai/dsh-scope'
 import type {} from '@deepseek-ai/dsh-tools'
-import { findProjectRoot, readTextFile } from '@air/dsh-convention-core'
+import { describeSkip, findProjectRoot, readContained } from '@air/dsh-convention-core'
 import { ApprovalStore, approvalKey } from './approvals.ts'
 import { parseMcpJson, type ServerSpec } from './config.ts'
 
@@ -38,6 +38,8 @@ export interface Config {
   startupTimeoutMs?: number
   /** Milliseconds allowed per tool call or resource request. Defaults to 60000. */
   toolCallTimeoutMs?: number
+  /** Largest `.mcp.json` in bytes. Defaults to 262144. */
+  maxFileBytes?: number
   /** Entry names that identify the project root. Defaults to `['.git']`. */
   projectRootMarkers?: string[]
   /**
@@ -51,6 +53,7 @@ export const Config: Schema<Config> = Schema.object({
   approvalsFile: Schema.string().description('Approvals file; defaults to <DSH_HOME>/air/mcp-approvals.json.'),
   startupTimeoutMs: Schema.number().default(15000).description('Milliseconds a server may take to start.'),
   toolCallTimeoutMs: Schema.number().default(60000).description('Milliseconds allowed per tool call.'),
+  maxFileBytes: Schema.number().default(262144).description('Largest .mcp.json, in bytes.'),
   projectRootMarkers: Schema.array(Schema.string()).default(['.git']).description('Entry names that identify the project root.'),
   reviewTools: Schema.boolean().default(false).description('Hold each server until the MCP tool reviewer service exists, so its tools are reviewed before they register.'),
 })
@@ -60,6 +63,7 @@ export interface ResolvedConfig {
   readonly approvalsFile: string
   readonly startupTimeoutMs: number
   readonly toolCallTimeoutMs: number
+  readonly maxFileBytes: number
   readonly projectRootMarkers: readonly string[]
   readonly reviewTools: boolean
 }
@@ -75,6 +79,7 @@ export function resolveConfig(config: Config): ResolvedConfig {
     approvalsFile: config.approvalsFile ?? dshHomePath('air', 'mcp-approvals.json'),
     startupTimeoutMs: config.startupTimeoutMs ?? 15000,
     toolCallTimeoutMs: config.toolCallTimeoutMs ?? 60000,
+    maxFileBytes: config.maxFileBytes ?? 262144,
     projectRootMarkers: config.projectRootMarkers ?? ['.git'],
     reviewTools: config.reviewTools ?? false,
   }
@@ -83,6 +88,9 @@ export function resolveConfig(config: Config): ResolvedConfig {
   }
   if (!Number.isInteger(resolved.toolCallTimeoutMs) || resolved.toolCallTimeoutMs < 1) {
     throw new TypeError('air-mcp-conventions: toolCallTimeoutMs must be a positive integer')
+  }
+  if (!Number.isInteger(resolved.maxFileBytes) || resolved.maxFileBytes < 1) {
+    throw new TypeError('air-mcp-conventions: maxFileBytes must be a positive integer')
   }
   if (resolved.projectRootMarkers.length === 0) {
     throw new TypeError('air-mcp-conventions: projectRootMarkers must not be empty')
@@ -212,8 +220,11 @@ export function apply(ctx: Context, config: Config = {}): void {
   /** Read `.mcp.json` and start the approved servers. A failure is logged and never fails Agent creation. */
   const attach = async (agent: Agent, cwd: string): Promise<void> => {
     const projectRoot = await findProjectRoot(cwd, resolved.projectRootMarkers)
-    const text = await readTextFile(join(projectRoot, '.mcp.json'))
-    const parsed = text === undefined ? { servers: [], problems: [] } : parseMcpJson(text, { cwd, env: process.env })
+    const file = join(projectRoot, '.mcp.json')
+    const read = await readContained(file, { roots: [projectRoot], maxBytes: resolved.maxFileBytes })
+    let parsed: ReturnType<typeof parseMcpJson> = { servers: [], problems: [] }
+    if (read.kind === 'ok') parsed = parseMcpJson(read.text, { cwd, env: process.env })
+    else if (read.kind !== 'absent') parsed = { servers: [], problems: [describeSkip(file, read.kind, resolved.maxFileBytes)] }
     const state: AgentState = { projectRoot, servers: parsed.servers, problems: parsed.problems, mounted: new Map() }
     states.set(agent, state)
     for (const problem of state.problems) ctx.logger.warn(`air-mcp-conventions: ${problem}`)

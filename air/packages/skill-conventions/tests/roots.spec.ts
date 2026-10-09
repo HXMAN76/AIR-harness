@@ -9,19 +9,19 @@ describe('skillRoots', () => {
   it('lists project roots and the AIR home, without user roots by default', () => {
     const projectRoot = base('p')
     expect(skillRoots({ projectRoot, homes, includeUserRoots: false, extraProjectRoots: ['.opencode/skills'] })).toEqual([
-      { path: join(projectRoot, '.dsh', 'skills'), source: 'project-dsh', rank: 100 },
-      { path: join(projectRoot, '.agents', 'skills'), source: 'project-agents', rank: 200 },
-      { path: join(projectRoot, '.claude', 'skills'), source: 'project-claude', rank: 220 },
-      { path: join(projectRoot, '.opencode', 'skills'), source: 'project-extra', rank: 240 },
-      { path: join(homes.airHome, 'skills'), source: 'user-air', rank: 350 },
+      { path: join(projectRoot, '.dsh', 'skills'), source: 'project-dsh', rank: 100, confine: projectRoot },
+      { path: join(projectRoot, '.agents', 'skills'), source: 'project-agents', rank: 200, confine: projectRoot },
+      { path: join(projectRoot, '.claude', 'skills'), source: 'project-claude', rank: 220, confine: projectRoot },
+      { path: join(projectRoot, '.opencode', 'skills'), source: 'project-extra', rank: 240, confine: projectRoot },
+      { path: join(homes.airHome, 'skills'), source: 'user-air', rank: 350, confine: homes.airHome },
     ])
   })
 
   it('adds the user roots only on request and omits project roots without a project', () => {
     expect(skillRoots({ projectRoot: undefined, homes, includeUserRoots: true, extraProjectRoots: ['x'] })).toEqual([
-      { path: join(homes.airHome, 'skills'), source: 'user-air', rank: 350 },
-      { path: join(homes.agentsHome, 'skills'), source: 'user-agents', rank: 500 },
-      { path: join(homes.claudeHome, 'skills'), source: 'user-claude', rank: 520 },
+      { path: join(homes.airHome, 'skills'), source: 'user-air', rank: 350, confine: homes.airHome },
+      { path: join(homes.agentsHome, 'skills'), source: 'user-agents', rank: 500, confine: homes.agentsHome },
+      { path: join(homes.claudeHome, 'skills'), source: 'user-claude', rank: 520, confine: homes.claudeHome },
     ])
   })
 })

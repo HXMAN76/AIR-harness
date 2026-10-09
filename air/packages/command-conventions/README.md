@@ -14,7 +14,7 @@ Running a command reads the file again, substitutes arguments, and queues the te
 
 A missing argument becomes an empty string. When the body has no placeholder and input was typed, `ARGUMENTS: <input>` is appended. Frontmatter `description` (default: the first body line) and `argument-hint` (default `[arguments]`) appear in the `/` picker.
 
-Config: `airHome`, `claudeHome`, `includeUserRoots` (default `false`), `projectRootMarkers` (default `['.git']`), `positionalBase` (default `0`; set `1` for files written for the older `$1` convention).
+Config: `airHome`, `claudeHome`, `includeUserRoots` (default `false`), `maxFileBytes` (default 262144), `maxWalkEntries` (default 2000), `projectRootMarkers` (default `['.git']`), `positionalBase` (default `0`; set `1` for files written for the older `$1` convention).
 
 This plugin is the only reader of `.claude/commands`: `@air/dsh-skill-conventions` does not list command files as skills, so each file appears once in the `/` picker.
 

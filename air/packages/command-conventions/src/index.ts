@@ -14,10 +14,12 @@ import type { CommandInvocation, CommandResult } from '@deepseek-ai/dsh-commands
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { createScope, type Scope } from '@deepseek-ai/dsh-scope'
 import {
+  describeSkip,
+  describeTruncation,
   findProjectRoot,
   listMarkdownTree,
   parseFrontmatter,
-  readTextFile,
+  readContained,
   resolveUserHomes,
   stringField,
   stringListField,
@@ -61,6 +63,10 @@ export interface Config {
   claudeHome?: string
   /** Whether `<claudeHome>/commands` is scanned. Defaults to false. */
   includeUserRoots?: boolean
+  /** Largest command file in bytes. Defaults to 262144. */
+  maxFileBytes?: number
+  /** Most directory entries examined per commands root. Defaults to 2000. */
+  maxWalkEntries?: number
   /** Entry names that identify the project root. Defaults to `['.git']`. */
   projectRootMarkers?: string[]
   /** Index of the first argument for `$ARGUMENTS[N]` and `$N`: 0 or 1. Defaults to 0. */
@@ -71,6 +77,8 @@ export const Config: Schema<Config> = Schema.object({
   airHome: Schema.string().description('AIR home; defaults to $AIR_HOME, then ~/.air.'),
   claudeHome: Schema.string().description('Claude Code home; defaults to ~/.claude.'),
   includeUserRoots: Schema.boolean().default(false).description('Scan ~/.claude/commands.'),
+  maxFileBytes: Schema.number().default(262144).description('Largest command file, in bytes.'),
+  maxWalkEntries: Schema.number().default(2000).description('Most directory entries examined per commands root.'),
   projectRootMarkers: Schema.array(Schema.string()).default(['.git']).description('Entry names that identify the project root.'),
   positionalBase: Schema.number().default(0).description('Index of the first argument for $ARGUMENTS[N] and $N: 0 or 1.'),
 })
@@ -79,6 +87,8 @@ export const Config: Schema<Config> = Schema.object({
 export interface ResolvedConfig {
   readonly homes: UserHomes
   readonly includeUserRoots: boolean
+  readonly maxFileBytes: number
+  readonly maxWalkEntries: number
   readonly projectRootMarkers: readonly string[]
   readonly positionalBase: number
 }
@@ -93,11 +103,19 @@ export function resolveConfig(config: Config): ResolvedConfig {
   const resolved: ResolvedConfig = {
     homes: resolveUserHomes(config),
     includeUserRoots: config.includeUserRoots ?? false,
+    maxFileBytes: config.maxFileBytes ?? 262144,
+    maxWalkEntries: config.maxWalkEntries ?? 2000,
     projectRootMarkers: config.projectRootMarkers ?? ['.git'],
     positionalBase: config.positionalBase ?? 0,
   }
   if (resolved.positionalBase !== 0 && resolved.positionalBase !== 1) {
     throw new TypeError('air-command-conventions: positionalBase must be 0 or 1')
+  }
+  if (!Number.isInteger(resolved.maxFileBytes) || resolved.maxFileBytes < 1) {
+    throw new TypeError('air-command-conventions: maxFileBytes must be a positive integer')
+  }
+  if (!Number.isInteger(resolved.maxWalkEntries) || resolved.maxWalkEntries < 1) {
+    throw new TypeError('air-command-conventions: maxWalkEntries must be a positive integer')
   }
   if (resolved.projectRootMarkers.length === 0) {
     throw new TypeError('air-command-conventions: projectRootMarkers must not be empty')
@@ -115,6 +133,8 @@ interface LoadedCommand {
 interface CommandFile extends LoadedCommand {
   readonly name: string
   readonly path: string
+  /** Directory the file's real path must stay inside. */
+  readonly confine: string
 }
 
 function firstLine(text: string): string {
@@ -133,12 +153,16 @@ export function apply(ctx: Context, config: Config = {}): void {
   const resolved = resolveConfig(config)
   const scopes = new Map<Agent, Scope>()
 
-  /** Read and parse one command file; undefined when it is gone, empty, or does not parse. */
-  const load = async (path: string): Promise<LoadedCommand | undefined> => {
-    const raw = await readTextFile(path)
-    if (raw === undefined) return undefined
+  /** Read and parse one command file; undefined when it is gone, refused, empty, or does not parse. */
+  const load = async (path: string, confine: string): Promise<LoadedCommand | undefined> => {
+    const read = await readContained(path, { roots: [confine], maxBytes: resolved.maxFileBytes })
+    if (read.kind === 'absent') return undefined
+    if (read.kind !== 'ok') {
+      ctx.logger.warn(`air-command-conventions: ${describeSkip(path, read.kind, resolved.maxFileBytes)}`)
+      return undefined
+    }
     try {
-      const { data, body } = parseFrontmatter(raw)
+      const { data, body } = parseFrontmatter(read.text)
       const text = body.trim()
       if (text.length === 0) return undefined
       return {
@@ -156,13 +180,16 @@ export function apply(ctx: Context, config: Config = {}): void {
   const discover = async (agent: Agent, cwd: string): Promise<CommandFile[]> => {
     const projectRoot = await findProjectRoot(cwd, resolved.projectRootMarkers)
     const roots = [
-      join(projectRoot, '.claude', 'commands'),
-      join(resolved.homes.airHome, 'commands'),
-      ...resolved.includeUserRoots ? [join(resolved.homes.claudeHome, 'commands')] : [],
+      { path: join(projectRoot, '.claude', 'commands'), confine: projectRoot },
+      { path: join(resolved.homes.airHome, 'commands'), confine: resolved.homes.airHome },
+      ...resolved.includeUserRoots ? [{ path: join(resolved.homes.claudeHome, 'commands'), confine: resolved.homes.claudeHome }] : [],
     ]
     const found = new Map<string, CommandFile>()
     for (const root of roots) {
-      for (const entry of await listMarkdownTree(root, COMMAND_TREE_DEPTH)) {
+      const tree = await listMarkdownTree(root.path, COMMAND_TREE_DEPTH, { roots: [root.confine], maxEntries: resolved.maxWalkEntries })
+      for (const skipped of tree.skipped) ctx.logger.warn(`air-command-conventions: ${describeSkip(skipped.path, skipped.reason, resolved.maxFileBytes)}`)
+      if (tree.truncated) ctx.logger.warn(`air-command-conventions: ${describeTruncation(root.path, resolved.maxWalkEntries)}`)
+      for (const entry of tree.entries) {
         const commandName = toKebabName(entry.segments.join('-'))
         if (commandName === undefined || !COMMAND_NAME.test(commandName)) {
           ctx.logger.warn(`air-command-conventions: ${entry.path} skipped: its path does not form a command name`)
@@ -174,16 +201,16 @@ export function apply(ctx: Context, config: Config = {}): void {
           ctx.logger.warn(`air-command-conventions: ${entry.path} skipped: /${commandName} is already a command`)
           continue
         }
-        const loaded = await load(entry.path)
+        const loaded = await load(entry.path, root.confine)
         if (loaded === undefined) continue
-        found.set(commandName, Object.assign({}, loaded, { name: commandName, path: entry.path }))
+        found.set(commandName, Object.assign({}, loaded, { name: commandName, path: entry.path, confine: root.confine }))
       }
     }
     return [...found.values()]
   }
 
   const run = async (file: CommandFile, invocation: CommandInvocation): Promise<CommandResult> => {
-    const loaded = await load(file.path)
+    const loaded = await load(file.path, file.confine)
     if (loaded === undefined) return { kind: 'error', text: `/${file.name}: ${file.path} can no longer be read.` }
     const text = substituteArguments(loaded.body, invocation.rawInput, loaded.argumentNames, resolved.positionalBase)
     const source: AirCommandSource = { kind: 'air-command', name: file.name, form: 'instructions' }

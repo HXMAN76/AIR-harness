@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve, sep } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -187,6 +187,87 @@ describe('air-skill-conventions provider', () => {
   })
 })
 
+describe('containment', () => {
+  const control = { signal: new AbortController().signal, invalidate: () => {} }
+
+  function providerFor(config: skillConventions.Config, warn: (text: string) => void, extra: skillConventions.Config = {}) {
+    return new skillConventions.ConventionSkillProvider({ warn }, control, skillConventions.resolveConfig(configWith(config, extra)))
+  }
+
+  it.skipIf(process.platform === 'win32')('refuses a SKILL.md linked to a file outside the project and warns once', async () => {
+    const { project, config } = await world()
+    await write(join(project, '..', 'private.md'), skillText('Private'))
+    await mkdir(join(project, '.claude/skills/leak'), { recursive: true })
+    await symlink(join(project, '..', 'private.md'), join(project, '.claude/skills/leak/SKILL.md'))
+    const warn = vi.fn()
+    const provider = providerFor(config, warn)
+    expect(await provider.list({ cwd: project })).toEqual([])
+    expect(await provider.list({ cwd: project })).toEqual([])
+    expect(warn).toHaveBeenCalledTimes(1)
+    expect(warn.mock.calls[0]?.[0]).toBe(`air-skill-conventions: ${join(project, '.claude/skills/leak/SKILL.md')} skipped: its real path is outside the allowed directory`)
+    provider.dispose()
+  })
+
+  it.skipIf(process.platform === 'win32')('refuses a flat skill file and a skill directory linked outside the project', async () => {
+    const { project, config } = await world()
+    await write(join(project, '..', 'private.md'), skillText('Private'))
+    await write(join(project, '..', 'outside-dir/SKILL.md'), skillText('Outside'))
+    await mkdir(join(project, '.claude/skills'), { recursive: true })
+    await symlink(join(project, '..', 'private.md'), join(project, '.claude/skills/flat.md'))
+    await symlink(join(project, '..', 'outside-dir'), join(project, '.claude/skills/dir'))
+    const warn = vi.fn()
+    const provider = providerFor(config, warn)
+    expect(await provider.list({ cwd: project })).toEqual([])
+    expect(warn).toHaveBeenCalledTimes(2)
+    provider.dispose()
+  })
+
+  it.skipIf(process.platform === 'win32')('keeps a skill linked to a directory inside the project', async () => {
+    const { project, config } = await world()
+    await write(join(project, 'shared/real/SKILL.md'), skillText('Real'))
+    await mkdir(join(project, '.claude/skills'), { recursive: true })
+    await symlink(join(project, 'shared/real'), join(project, '.claude/skills/real'))
+    const provider = providerFor(config, () => {})
+    expect((await provider.list({ cwd: project })).map(skill => skill.name)).toEqual(['real'])
+    provider.dispose()
+  })
+
+  it.skipIf(process.platform === 'win32')('refuses a user skill linked outside its user root', async () => {
+    const { project, home, config } = await world()
+    await write(join(home, 'elsewhere.md'), skillText('Elsewhere'))
+    await mkdir(join(home, '.claude/skills'), { recursive: true })
+    await symlink(join(home, 'elsewhere.md'), join(home, '.claude/skills/x.md'))
+    const warn = vi.fn()
+    const provider = providerFor(config, warn, { includeUserRoots: true })
+    expect(await provider.list({ cwd: project })).toEqual([])
+    expect(warn).toHaveBeenCalledTimes(1)
+    provider.dispose()
+  })
+
+  it('refuses an oversize skill file with a warning and ignores a SKILL.md directory', async () => {
+    const { project, config } = await world()
+    await write(join(project, '.claude/skills/big/SKILL.md'), skillText('Big', '', 'x'.repeat(400)))
+    await write(join(project, '.claude/skills/fine/SKILL.md'), skillText('Fine'))
+    await mkdir(join(project, '.claude/skills/dirskill/SKILL.md'), { recursive: true })
+    const warn = vi.fn()
+    const provider = providerFor(config, warn, { maxFileBytes: 200 })
+    expect((await provider.list({ cwd: project })).map(skill => skill.name)).toEqual(['fine'])
+    expect(warn).toHaveBeenCalledTimes(1)
+    expect(warn.mock.calls[0]?.[0]).toContain('larger than 200 bytes')
+    provider.dispose()
+  })
+
+  it('reports a root that reaches the entry cap', async () => {
+    const { project, config } = await world()
+    for (const name of ['a', 'b', 'c']) await write(join(project, `.claude/skills/${name}.md`), skillText(name))
+    const warn = vi.fn()
+    const provider = providerFor(config, warn, { maxWalkEntries: 2 })
+    expect(await provider.list({ cwd: project })).toHaveLength(2)
+    expect(warn).toHaveBeenCalledWith(`air-skill-conventions: ${join(project, '.claude/skills')} listing stopped after 2 entries; later entries were not read`)
+    provider.dispose()
+  })
+})
+
 describe('ConventionSkillProvider.get', () => {
   const control = { signal: new AbortController().signal, invalidate: () => {} }
 
@@ -230,6 +311,8 @@ describe('resolveConfig', () => {
       homes,
       includeUserRoots: false,
       extraProjectRoots: [],
+      maxFileBytes: 262144,
+      maxWalkEntries: 2000,
       descriptionMaxChars: 1500,
       watchIntervalMs: 3000,
       watchMaxProjects: 32,
@@ -238,6 +321,8 @@ describe('resolveConfig', () => {
 
   it('rejects invalid values', () => {
     expect(() => skillConventions.resolveConfig({ descriptionMaxChars: 0 })).toThrow('descriptionMaxChars must be a positive integer')
+    expect(() => skillConventions.resolveConfig({ maxFileBytes: 0 })).toThrow('maxFileBytes must be a positive integer')
+    expect(() => skillConventions.resolveConfig({ maxWalkEntries: 0.5 })).toThrow('maxWalkEntries must be a positive integer')
     expect(() => skillConventions.resolveConfig({ watchIntervalMs: -1 })).toThrow('watchIntervalMs must be a non-negative integer')
     expect(() => skillConventions.resolveConfig({ watchMaxProjects: 0.5 })).toThrow('watchMaxProjects must be a positive integer')
     for (const root of ['/abs', 'C:\\abs', 'a/../../b', 'a\\..\\..\\b']) {

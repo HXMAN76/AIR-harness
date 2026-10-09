@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readdir, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -284,16 +284,47 @@ describe('reviewTools', () => {
   })
 })
 
+describe('containment', () => {
+  it.skipIf(process.platform === 'win32')('does not read a .mcp.json linked to a file outside the project', async () => {
+    const { root, approvalsFile } = await world()
+    await writeFile(join(root, '..', 'outside.json'), JSON.stringify(demo))
+    await symlink(join(root, '..', 'outside.json'), join(root, '.mcp.json'))
+    const { ctx } = await mount(approvalsFile)
+    const agent = await live(ctx, root)
+    const text = (await command(ctx, agent, '/mcp')).text ?? ''
+    expect(text).toContain(`Problem: ${join(root, '.mcp.json')} skipped: its real path is outside the allowed directory`)
+    expect(text).not.toContain('demo')
+  })
+
+  it.skipIf(process.platform === 'win32')('reads a .mcp.json linked to a file inside the project', async () => {
+    const { root, approvalsFile } = await world()
+    await mkdir(join(root, 'config'), { recursive: true })
+    await writeFile(join(root, 'config', 'servers.json'), JSON.stringify(demo))
+    await symlink(join(root, 'config', 'servers.json'), join(root, '.mcp.json'))
+    const { ctx } = await mount(approvalsFile)
+    const agent = await live(ctx, root)
+    expect((await command(ctx, agent, '/mcp')).text).toContain('demo (stdio:')
+  })
+
+  it('refuses an oversize .mcp.json', async () => {
+    const { root, approvalsFile } = await world(demo)
+    const { ctx } = await mount(approvalsFile, 15_000, { maxFileBytes: 10 })
+    const agent = await live(ctx, root)
+    expect((await command(ctx, agent, '/mcp')).text).toContain('skipped: it is larger than 10 bytes')
+  })
+})
+
 describe('resolveConfig', () => {
   it('applies defaults under the harness home', () => {
     const resolved = mcpConventions.resolveConfig({})
     expect(resolved.approvalsFile.endsWith(join('air', 'mcp-approvals.json'))).toBe(true)
-    expect(resolved).toMatchObject({ startupTimeoutMs: 15000, toolCallTimeoutMs: 60000, projectRootMarkers: ['.git'], reviewTools: false })
+    expect(resolved).toMatchObject({ startupTimeoutMs: 15000, toolCallTimeoutMs: 60000, projectRootMarkers: ['.git'], reviewTools: false, maxFileBytes: 262144 })
   })
 
   it('rejects invalid values', () => {
     expect(() => mcpConventions.resolveConfig({ startupTimeoutMs: 0 })).toThrow('startupTimeoutMs must be a positive integer')
     expect(() => mcpConventions.resolveConfig({ toolCallTimeoutMs: 1.5 })).toThrow('toolCallTimeoutMs must be a positive integer')
+    expect(() => mcpConventions.resolveConfig({ maxFileBytes: 0 })).toThrow('maxFileBytes must be a positive integer')
     expect(() => mcpConventions.resolveConfig({ projectRootMarkers: [] })).toThrow('projectRootMarkers must not be empty')
   })
 })

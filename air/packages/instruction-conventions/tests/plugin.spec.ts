@@ -232,7 +232,7 @@ describe('path-scoped rules on tools/post-execute', () => {
   it('does not attach a rule the resumed session already holds', async () => {
     const { ctx, root } = await scoped()
     const { agent } = stubAgent(ctx, root)
-    const [rule] = (await loadClaudeRules(root)).rules
+    const [rule] = (await loadClaudeRules(root, { maxFileBytes: 4096, maxEntries: 500 })).rules
     if (rule === undefined) throw new Error('expected one rule')
     agent.session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: 'earlier rule text' }],
@@ -268,12 +268,18 @@ describe('resolveConfig', () => {
       includeUserRoots: false,
       allowedImportRoots: [shared],
       projectRootMarkers: ['.git'],
+      maxFileBytes: 262144,
+      maxWalkEntries: 2000,
+      maxImportsPerFile: 32,
     })
     expect(instructionConventions.resolveConfig({ maxBytes: 1, allowedImportRoots: ['~/notes'] }).allowedImportRoots).toEqual([join(homedir(), 'notes')])
   })
 
   it('rejects invalid values', () => {
     expect(() => instructionConventions.resolveConfig({ maxBytes: 0 })).toThrow('maxBytes must be a positive integer')
+    expect(() => instructionConventions.resolveConfig({ maxBytes: 1, maxFileBytes: 0 })).toThrow('maxFileBytes must be a positive integer')
+    expect(() => instructionConventions.resolveConfig({ maxBytes: 1, maxWalkEntries: 1.5 })).toThrow('maxWalkEntries must be a positive integer')
+    expect(() => instructionConventions.resolveConfig({ maxBytes: 1, maxImportsPerFile: -1 })).toThrow('maxImportsPerFile must be a positive integer')
     expect(() => instructionConventions.resolveConfig({ maxBytes: 1, allowedImportRoots: ['relative/dir'] })).toThrow('must be an absolute path or start with ~/')
     expect(() => instructionConventions.resolveConfig({ maxBytes: 1, projectRootMarkers: [] })).toThrow('projectRootMarkers must not be empty')
   })

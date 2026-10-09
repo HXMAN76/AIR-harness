@@ -1,6 +1,6 @@
 /** Resolves Claude Code `@path` imports found in instruction files. */
 import { dirname, resolve } from 'node:path'
-import { expandHome, fileSize, isInside, readTextFile, realpathIfPresent } from '@air/dsh-convention-core'
+import { expandHome, fileSize, isInside, isSensitivePath, readTextFile, realpathIfPresent } from '@air/dsh-convention-core'
 
 /** Claude Code follows imports at most this many files deep from the file that starts the chain. */
 export const MAX_IMPORT_HOPS = 4
@@ -14,7 +14,7 @@ export interface InstructionFile {
 /** An import that was found but not read. */
 export interface SkippedImport {
   readonly path: string
-  readonly reason: 'outside-project' | 'max-hops' | 'sensitive' | 'too-large'
+  readonly reason: 'outside-project' | 'max-hops' | 'sensitive' | 'too-large' | 'import-limit'
 }
 
 /** Containment and size settings for {@link resolveImports}. */
@@ -26,26 +26,12 @@ export interface ImportOptions {
   readonly home: string
   /** Largest imported file in bytes; a larger file is skipped without being read. */
   readonly maxFileBytes: number
+  /** Most `@path` tokens followed in one file; the rest are skipped with one `import-limit` entry for that file. */
+  readonly maxImportsPerFile: number
 }
 
 const FENCE = /^(?:```|~~~)/u
 const TRAILING_PUNCTUATION = /[.,;:!?)\]]+$/u
-/** Directories that hold credentials; any path through one is never imported. */
-const SENSITIVE_DIRECTORIES = new Set(['.ssh', '.aws', '.gnupg', '.kube', '.docker'])
-const SENSITIVE_FILES = /^(?:\.env(?:\..*)?|id_(?:rsa|dsa|ecdsa|ed25519)(?:\.pub)?|\.npmrc|\.netrc|credentials|.*\.(?:pem|key|p12|pfx))$/iu
-
-/**
- * Test whether a path looks like a credential file: an `.env*` file, an SSH key, a certificate or key
- * file, `.npmrc`, `.netrc`, or any file under `.ssh`, `.aws`, `.gnupg`, `.kube`, or `.docker`.
- * @param path - absolute path with `/` or `\` separators.
- * @returns true when the file must not be sent to a model through an import.
- */
-export function isSensitivePath(path: string): boolean {
-  const segments = path.split(/[\\/]/u)
-  const name = path.slice(Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\')) + 1)
-  return segments.slice(0, -1).some(segment => SENSITIVE_DIRECTORIES.has(segment.toLowerCase())) || SENSITIVE_FILES.test(name)
-}
-
 function pathKey(path: string): string {
   return process.platform === 'win32' ? path.toLowerCase() : path
 }
@@ -80,6 +66,7 @@ export function findImportPaths(text: string): string[] {
  * are never returned. A path that is absent or not a regular file is ignored. A file is read only
  * when its path and its real path (symbolic links resolved) are inside the project root or an allowed
  * root, it is not a credential-like file, and it is no larger than `maxFileBytes`.
+ * At most `maxImportsPerFile` tokens of one file are followed.
  * @param seeds - files whose content starts the import chains (hop 0).
  * @param options - project root, extra allowed roots, home directory, and size limit.
  * @returns imported files in depth-first document order, plus the imports that were not read.
@@ -95,7 +82,11 @@ export async function resolveImports(
   const realRoots = await Promise.all(lexicalRoots.map(async root => (await realpathIfPresent(root)) ?? root))
   const permitted = (roots: readonly string[], path: string): boolean => roots.some(root => isInside(root, path))
   const visit = async (file: InstructionFile, hop: number): Promise<void> => {
-    for (const written of findImportPaths(file.content)) {
+    for (const [index, written] of findImportPaths(file.content).entries()) {
+      if (index >= options.maxImportsPerFile) {
+        skipped.push({ path: file.path, reason: 'import-limit' })
+        break
+      }
       const target = resolve(dirname(file.path), expandHome(written, options.home))
       if (visited.has(pathKey(target))) continue
       visited.add(pathKey(target))
