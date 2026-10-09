@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { deriveAirOxlintConfig, parseJsonWithComments } from '../gen-oxlintrc.ts'
 
 describe('deriveAirOxlintConfig', () => {
-  it('rewrites package globs and drops non-package globs', () => {
+  it('rewrites package globs, keeps script and app globs, and drops other globs', () => {
     const derived = deriveAirOxlintConfig({
       $schema: './node_modules/oxlint/configuration_schema.json',
       ignorePatterns: ['**/lib/**', 'vendor/**', '**/*.js'],
@@ -17,7 +17,7 @@ describe('deriveAirOxlintConfig', () => {
     expect(derived.ignorePatterns).toEqual(['**/lib/**', '**/*.js'])
     expect(derived.overrides).toEqual([
       { files: ['packages/*/src/**/*.{ts,tsx}', 'apps/*/src/**/*.{ts,tsx}'], rules: { 'no-console': 'error' } },
-      { files: ['packages/**/*.{ts,tsx}'], rules: { eqeqeq: 'error' }, jsPlugins: ['eslint-plugin-sonarjs'] },
+      { files: ['packages/**/*.{ts,tsx}', 'scripts/**/*.{ts,tsx}'], rules: { eqeqeq: 'error' }, jsPlugins: ['eslint-plugin-sonarjs'] },
     ])
   })
 

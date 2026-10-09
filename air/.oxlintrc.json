@@ -29,7 +29,8 @@
         "packages/*/src/**/*.{ts,tsx}",
         "packages/*/tests/**/*.{ts,tsx}",
         "apps/*/src/**/*.{ts,tsx}",
-        "apps/*/tests/**/*.{ts,tsx}"
+        "apps/*/tests/**/*.{ts,tsx}",
+        "scripts/**/*.{ts,tsx}"
       ],
       "rules": {
         "no-var": "error",
@@ -140,7 +141,8 @@
     {
       "files": [
         "packages/*/src/**/*.{ts,tsx}",
-        "apps/*/src/**/*.{ts,tsx}"
+        "apps/*/src/**/*.{ts,tsx}",
+        "scripts/**/*.{ts,tsx}"
       ],
       "rules": {
         "typescript/no-non-null-assertion": "error",
@@ -173,7 +175,8 @@
     {
       "files": [
         "packages/*/tests/**/*.{ts,tsx}",
-        "apps/*/tests/**/*.{ts,tsx}"
+        "apps/*/tests/**/*.{ts,tsx}",
+        "scripts/**/*.spec.{ts,tsx}"
       ],
       "rules": {
         "typescript/no-deprecated": [
@@ -206,7 +209,8 @@
     {
       "files": [
         "packages/**/*.{ts,tsx}",
-        "apps/**/*.{ts,tsx}"
+        "apps/**/*.{ts,tsx}",
+        "scripts/**/*.{ts,tsx}"
       ],
       "rules": {
         "sonarjs/duplicates-in-character-class": "error",
@@ -225,7 +229,8 @@
     {
       "files": [
         "packages/**/*.{ts,tsx}",
-        "apps/**/*.{ts,tsx}"
+        "apps/**/*.{ts,tsx}",
+        "scripts/**/*.{ts,tsx}"
       ],
       "rules": {
         "@stylistic/indent": [

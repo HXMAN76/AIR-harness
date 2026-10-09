@@ -21,17 +21,19 @@ export interface OxlintOverride {
 const UPSTREAM_PACKAGE_PREFIX = 'packages/*/*/'
 const ANY_PACKAGE_PREFIX = 'packages/**/'
 const APP_PREFIX = 'apps/'
+const SCRIPT_PREFIX = 'scripts/'
 const AIR_SCHEMA = './node_modules/oxlint/configuration_schema.json'
 
 function mapGlob(glob: string): string | undefined {
   if (glob.startsWith(UPSTREAM_PACKAGE_PREFIX)) return `packages/*/${glob.slice(UPSTREAM_PACKAGE_PREFIX.length)}`
   if (glob.startsWith(ANY_PACKAGE_PREFIX)) return glob
-  if (glob.startsWith(APP_PREFIX)) return glob
+  if (glob.startsWith(APP_PREFIX) || glob.startsWith(SCRIPT_PREFIX)) return glob
   return undefined
 }
 
 /**
- * Map root lint rules onto the AIR layout: `air/packages/<pkg>` instead of `packages/<group>/<pkg>`; `apps/*` globs carry over to `air/apps/*`.
+ * Map root lint rules onto the AIR layout: `air/packages/<pkg>` instead of `packages/<group>/<pkg>`;
+ * `apps/*` and `scripts/*` globs carry over to `air/apps/*` and `air/scripts/*`.
  * @param root - parsed root configuration.
  * @returns the configuration to write to air/.oxlintrc.json.
  */

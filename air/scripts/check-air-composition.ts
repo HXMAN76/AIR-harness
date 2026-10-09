@@ -3,13 +3,13 @@ import { spawnSync } from 'node:child_process'
 import { copyFileSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
+import { LAUNCHER_PROBLEM } from './launcher-problems.ts'
 
 const repoRoot = resolve(import.meta.dirname, '..', '..')
 const home = mkdtempSync(join(tmpdir(), 'air-check-'))
 const profile = 'air-check'
 const env = { ...process.env, DSH_HOME: home }
 const launcher = ['--import', 'tsx/esm', join(repoRoot, 'apps', 'cli', 'src', 'bin.ts')]
-const PROBLEM = /unmatched|incompatible|failed|disabling profile plugin row|did not activate|pending/i
 
 function fail(message: string, detail = ''): never {
   console.error(`composition: ${message}`)
@@ -17,7 +17,7 @@ function fail(message: string, detail = ''): never {
   process.exit(1)
 }
 
-function dsh(args: readonly string[]): { stdout: string, stderr: string } {
+function dsh(args: readonly string[]): { stdout: string; stderr: string } {
   const result = spawnSync(process.execPath, [...launcher, ...args], { cwd: repoRoot, env, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 })
   if (result.status !== 0) fail(`dsh ${args.join(' ')} exited ${String(result.status)}`, result.stderr)
   return { stdout: result.stdout, stderr: result.stderr }
@@ -32,7 +32,7 @@ copyFileSync(
 writeFileSync(join(home, '.env'), 'OLLAMA_API_KEY=ollama\n')
 
 const dump = dsh(['--profile', profile, '--dump-config'])
-if (PROBLEM.test(dump.stderr)) fail('problems while composing:', dump.stderr)
+if (LAUNCHER_PROBLEM.test(dump.stderr)) fail('problems while composing:', dump.stderr)
 
 const text = dump.stdout
 const count = (pattern: RegExp): number => text.match(pattern)?.length ?? 0
