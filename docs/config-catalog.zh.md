@@ -2157,7 +2157,7 @@ export interface LspLocalServerConfig {
 ## `@deepseek-ai/dsh-mcp-client`
 
 - `inject`: `tools`
-- `source`: [`packages/mcp/mcp-client/src/index.ts:104`](../packages/mcp/mcp-client/src/index.ts)
+- `source`: [`packages/mcp/mcp-client/src/index.ts:120`](../packages/mcp/mcp-client/src/index.ts)
 
 ```ts config-catalog
 /** Configuration for one stdio or Streamable HTTP MCP server. */
@@ -2189,6 +2189,12 @@ export interface StdioConfig {
   maxInstructionBytes?: number
   /** Automatic reconnect policy after a lost connection; omission uses the defaults. */
   reconnect?: ReconnectConfig
+  /**
+   * Opaque identity of this server definition, supplied by the code that mounts
+   * the client and forwarded unchanged to the `mcpToolReview` service; the
+   * client never interprets it. Must match `[A-Za-z0-9._:-]{1,128}`.
+   */
+  reviewKey?: string
 }
 
 /** Config for connecting to an MCP server over Streamable HTTP (SSE). */
@@ -2213,6 +2219,12 @@ export interface StreamableHttpConfig {
   maxInstructionBytes?: number
   /** Automatic reconnect policy after a lost connection; omission uses the defaults. */
   reconnect?: ReconnectConfig
+  /**
+   * Opaque identity of this server definition, supplied by the code that mounts
+   * the client and forwarded unchanged to the `mcpToolReview` service; the
+   * client never interprets it. Must match `[A-Za-z0-9._:-]{1,128}`.
+   */
+  reviewKey?: string
 }
 
 /** Automatic reconnect policy for one MCP server connection. */

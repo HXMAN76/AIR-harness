@@ -157,7 +157,11 @@ export function apply(ctx: Context, config: Config = {}): void {
     if (existing !== undefined) return existing.done
     if (isGone(agent)) return Promise.resolve('the session ended before the server started')
     const scope = createScope(ctx, agent)
-    const common = { toolCallTimeoutMs: resolved.toolCallTimeoutMs, failOnStartupError: true }
+    const common = Object.assign(
+      { toolCallTimeoutMs: resolved.toolCallTimeoutMs, failOnStartupError: true },
+      // The reviewer pins a tool surface per server definition, so it gets the key the approval is stored under.
+      resolved.reviewTools ? { reviewKey: approvalKey(state.projectRoot, spec) } : {},
+    )
     const clientConfig = spec.transport === 'stdio'
       ? McpClient.Config({ transport: 'stdio', serverName: spec.serverName, command: spec.command, args: spec.args, env: spec.env, cwd: spec.cwd, ...common })
       : McpClient.Config({ transport: 'streamable-http', serverName: spec.serverName, url: spec.url, headers: spec.headers, ...common })

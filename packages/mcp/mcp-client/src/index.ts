@@ -26,6 +26,7 @@ import type {} from '@deepseek-ai/dsh-tools'
 export { createMcpToolDefinition } from './tools.ts'
 export type { McpResult, McpToolDefinitionOptions } from './tools.ts'
 export type { ReconnectConfig, ResolvedReconnectPolicy } from './connection.ts'
+export type { McpReviewedTool, McpToolReview, McpToolReviewRequest, McpToolReviewVerdict } from './review.ts'
 
 /** Cordis plugin name used by loader diagnostics. */
 export const name = 'mcp-client'
@@ -38,6 +39,9 @@ const DEFAULT_TOOL_CALL_TIMEOUT_MS = 60_000
 
 /** Valid `serverName`, kept below the public tool-name budget. */
 const SERVER_NAME_PATTERN = /^[A-Za-z0-9_-]{1,32}$/
+
+/** Valid `reviewKey`: 1 to 128 characters of a conservative identifier alphabet. */
+const REVIEW_KEY_PATTERN = /^[A-Za-z0-9._:-]{1,128}$/
 
 /**
  * Live `serverName` reservations per registration scope. Agent-scoped MCP
@@ -74,6 +78,12 @@ export interface StdioConfig {
   maxInstructionBytes?: number
   /** Automatic reconnect policy after a lost connection; omission uses the defaults. */
   reconnect?: ReconnectConfig
+  /**
+   * Opaque identity of this server definition, supplied by the code that mounts
+   * the client and forwarded unchanged to the `mcpToolReview` service; the
+   * client never interprets it. Must match `[A-Za-z0-9._:-]{1,128}`.
+   */
+  reviewKey?: string
 }
 
 /** Config for connecting to an MCP server over Streamable HTTP (SSE). */
@@ -98,6 +108,12 @@ export interface StreamableHttpConfig {
   maxInstructionBytes?: number
   /** Automatic reconnect policy after a lost connection; omission uses the defaults. */
   reconnect?: ReconnectConfig
+  /**
+   * Opaque identity of this server definition, supplied by the code that mounts
+   * the client and forwarded unchanged to the `mcpToolReview` service; the
+   * client never interprets it. Must match `[A-Za-z0-9._:-]{1,128}`.
+   */
+  reviewKey?: string
 }
 
 /** Configuration for one stdio or Streamable HTTP MCP server. */
@@ -128,6 +144,7 @@ export const Config = z.union([
     failOnStartupError: z.boolean().default(false),
     maxInstructionBytes: z.number().step(1).min(1).default(DEFAULT_MAX_INSTRUCTION_BYTES),
     reconnect: Reconnect,
+    reviewKey: z.string().pattern(REVIEW_KEY_PATTERN),
   }),
   z.object({
     transport: z.const('streamable-http'),
@@ -138,6 +155,7 @@ export const Config = z.union([
     failOnStartupError: z.boolean().default(false),
     maxInstructionBytes: z.number().step(1).min(1).default(DEFAULT_MAX_INSTRUCTION_BYTES),
     reconnect: Reconnect,
+    reviewKey: z.string().pattern(REVIEW_KEY_PATTERN),
   }),
 ]) as z<ConfigInput, Config>
 

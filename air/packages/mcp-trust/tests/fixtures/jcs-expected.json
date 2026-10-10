@@ -1,0 +1,53 @@
+{
+  "numbers": {
+    "value": {
+      "numbers": [
+        333333333.3333333,
+        1e+30,
+        4.5,
+        0.002,
+        1e-27
+      ],
+      "literals": [
+        null,
+        true,
+        false
+      ]
+    },
+    "digest": "sha256:f9ef8430c38ca3edd7fb96a698d14fdf39c74c63299627162d38b59af2af5abb"
+  },
+  "key-order-utf16": {
+    "value": {
+      "€": "Euro Sign",
+      "דּ": "Hebrew Letter Dalet With Dagesh",
+      "1": "One",
+      "𐀀": "Linear B Syllable B008 A",
+      "ö": "Latin Small Letter O With Diaeresis"
+    },
+    "digest": "sha256:c764c8f46ba0d865708b0c4e08f2ed1ac6b9daa7277f0ddc33771bd356da9e46"
+  },
+  "tool": {
+    "value": {
+      "name": "browser_navigate",
+      "description": "Navigate to a URL — café.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "default": "about:blank"
+          },
+          "timeout": {
+            "type": "number",
+            "default": 1.0
+          }
+        },
+        "required": [
+          "url"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "digest": "sha256:bdb1d997d28c478b433d511b5a5ef8e73401611f5320f6b2c0f1ab499e27e276"
+  }
+}

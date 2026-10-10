@@ -130,6 +130,7 @@ export function startConnection(ctx: Context, config: Config, policy: ResolvedRe
   const opts: ToolBridgeOptions = {
     registrationFailure: 'contain',
     serverName: config.serverName,
+    ...config.reviewKey === undefined ? {} : { reviewKey: config.reviewKey },
     toolCallTimeoutMs: config.toolCallTimeoutMs,
   }
   // The initial sync uses 'throw' when failOnStartupError is configured, so
@@ -142,6 +143,10 @@ export function startConnection(ctx: Context, config: Config, policy: ResolvedRe
   let disposed = false
   const maxInstructionBytes = config.maxInstructionBytes ?? DEFAULT_MAX_INSTRUCTION_BYTES
   let serverInstructions = ''
+  /** Raw server text of the live generation, offered again on every review of that generation. */
+  let generationText = ''
+  /** Re-sync entry of the newest generation; assigned before that generation's first sync. */
+  let refreshCurrent!: () => Promise<void>
   /** Current generation: the connecting or connected client; undefined during backoff waits and after final failure. */
   let client: Client | undefined
   /** Transport-aware close operation paired with {@link client}. */
@@ -169,7 +174,17 @@ export function startConnection(ctx: Context, config: Config, policy: ResolvedRe
   function enqueueSync(generation: Client, syncOpts: ToolBridgeOptions = opts): Promise<void> {
     const run = syncChain.then(async () => {
       if (!isCurrent(generation)) return
-      disposers = await syncTools(generation, ctx, syncOpts, disposers)
+      disposers = await syncTools(generation, ctx, {
+        ...syncOpts,
+        instructions: generationText,
+        publishInstructions: (text) => {
+          if (!isCurrent(generation)) return
+          serverInstructions = text === '' ? '' : `### MCP server: ${config.serverName}\n\n${text}`
+        },
+        resync: () => {
+          if (isCurrent(generation)) void refreshCurrent()
+        },
+      }, disposers)
     })
     // The chain tail must survive a failed sync; the enqueuing caller owns reporting.
     syncChain = run.catch(() => {})
@@ -276,6 +291,7 @@ export function startConnection(ctx: Context, config: Config, policy: ResolvedRe
     const hasClosed = (): boolean => closeObserved
     client = generation
     closeClient = closeGeneration
+    refreshCurrent = refreshTools
     generation.onclose = () => {
       closeObserved = true
       closed.resolve()
@@ -302,7 +318,6 @@ export function startConnection(ctx: Context, config: Config, policy: ResolvedRe
         if (!disposed) ctx.logger.error(`${label}: tool re-sync failed: ${String(error)}`)
       }
     }
-    let instructions: string
     try {
       transport = createTransport(config)
       await generation.connect(transport)
@@ -316,10 +331,11 @@ export function startConnection(ctx: Context, config: Config, policy: ResolvedRe
         return
       }
       const serverText = generation.getInstructions()?.trimEnd() ?? ''
-      instructions = serverText ? `### MCP server: ${config.serverName}\n\n${serverText}` : ''
+      const instructions = serverText ? `### MCP server: ${config.serverName}\n\n${serverText}` : ''
       if (Buffer.byteLength(instructions) > maxInstructionBytes) {
         throw new Error(`${label}: server instructions exceed maxInstructionBytes (${maxInstructionBytes})`)
       }
+      generationText = serverText
       await enqueueSync(generation, startup ? startupOpts : opts)
     } catch (error) {
       if (firstAttemptError === undefined) firstAttemptError = error
@@ -337,7 +353,6 @@ export function startConnection(ctx: Context, config: Config, policy: ResolvedRe
       return
     }
     if (!isCurrent(generation)) return
-    serverInstructions = instructions
     connectedAt = Date.now()
     if (failedAttempts > 0) ctx.logger.info(`${label}: reconnected and re-synced tools (attempt ${failedAttempts}/${policy.maxAttempts})`)
   }

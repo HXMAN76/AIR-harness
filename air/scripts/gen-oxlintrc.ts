@@ -1,4 +1,4 @@
-/** Derives air/.oxlintrc.json from the repository's root .oxlintrc.json. */
+/** Derives air/oxlint.air.json from the repository's root .oxlintrc.json. */
 import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -34,8 +34,10 @@ function mapGlob(glob: string): string | undefined {
 /**
  * Map root lint rules onto the AIR layout: `air/packages/<pkg>` instead of `packages/<group>/<pkg>`;
  * `apps/*` and `scripts/*` globs carry over to `air/apps/*` and `air/scripts/*`.
+ * The top-level `options` block is dropped because oxlint accepts it only in the root configuration;
+ * AIR passes `--type-aware` on the command line.
  * @param root - parsed root configuration.
- * @returns the configuration to write to air/.oxlintrc.json.
+ * @returns the configuration to write to air/oxlint.air.json.
  */
 export function deriveAirOxlintConfig(root: OxlintConfig): OxlintConfig {
   const overrides: OxlintOverride[] = []
@@ -43,7 +45,8 @@ export function deriveAirOxlintConfig(root: OxlintConfig): OxlintConfig {
     const files = override.files.map(mapGlob).filter((glob): glob is string => glob !== undefined)
     if (files.length > 0) overrides.push({ ...override, files })
   }
-  const derived: OxlintConfig = { ...root, $schema: AIR_SCHEMA, overrides }
+  const topLevel = Object.fromEntries(Object.entries(root).filter(([key]) => key !== 'options'))
+  const derived: OxlintConfig = { ...topLevel, $schema: AIR_SCHEMA, overrides }
   if (root.ignorePatterns !== undefined) {
     derived.ignorePatterns = root.ignorePatterns.filter(pattern => pattern.startsWith('**/'))
   }
@@ -67,7 +70,7 @@ function main(argv: readonly string[]): number {
   const airDir = join(import.meta.dirname, '..')
   const rootConfig = parseJsonWithComments(readFileSync(join(airDir, '..', '.oxlintrc.json'), 'utf8'))
   const next = `${JSON.stringify(deriveAirOxlintConfig(rootConfig), null, 2)}\n`
-  const target = join(airDir, '.oxlintrc.json')
+  const target = join(airDir, 'oxlint.air.json')
   if (argv.includes('--check')) {
     let current = ''
     try {
@@ -77,7 +80,7 @@ function main(argv: readonly string[]): number {
       void error
     }
     if (current !== next) {
-      console.error('gen-oxlintrc: air/.oxlintrc.json is stale; run `pnpm -C air run lint:gen`.')
+      console.error('gen-oxlintrc: air/oxlint.air.json is stale; run `pnpm -C air run lint:gen`.')
       return 1
     }
     return 0

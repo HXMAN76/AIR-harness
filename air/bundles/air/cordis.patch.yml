@@ -197,6 +197,33 @@
     # Host rows: each mounts per-Agent children through createScope.
     - id: air-mcp-conventions
       name: '@air/dsh-mcp-conventions'
+      config:
+        # Every .mcp.json server waits for the MCP tool reviewer, so its tool
+        # definitions are reviewed before any of them reaches a model.
+        reviewTools: true
+    # Same row as air/bundles/mcp-servers (a test keeps them equal). Mode
+    # `enforce`: a server with no pin registers nothing until the first-use
+    # prompt is allowed or `air-mcp pin` runs. Lockfile and audit directory
+    # sit under the harness home, shared with the `air-mcp` profile.
+    - id: air-mcp-trust
+      name: '@air/dsh-mcp-trust'
+      config:
+        lockfile: !!js dshHomePath('air', 'mcp-lock.json')
+        auditDir: !!js dshHomePath('air', 'mcp-audit')
+        defaults:
+          mode: enforce
+          onAdded: withhold
+          onChanged: reject-generation
+          onRemoved: accept
+          instructions: pin
+        denyUnreviewedMcpTools: true
+        maxPromptsPerServer: 2
+        minReverifyMs: 60000
+        maxReverifyMs: 86400000
+        lockWaitMs: 2000
+        watchDebounceMs: 200
+        cliCommand: pnpm dsh --profile air-mcp
+        enrollOnApproval: true
     - id: air-command-conventions
       name: '@air/dsh-command-conventions'
 
