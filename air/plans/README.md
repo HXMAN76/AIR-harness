@@ -83,8 +83,9 @@ Each item gets its own plan after the plans above land. The spike section that a
 - **Release path:** how users install AIR (clone plus scripts now; npm packages for the `@air/*` bundle later), version pinning to upstream tags, release notes.
 - **Upstream sync routine:** a script wrapping fetch, fast-forward `master`, merge into `air/main`, install, clean, build, `graphify update`, smoke, and a reminder to read `docs/upgrade-guide/`.
 - **Fork CI hygiene:** decide which inherited upstream workflows to disable in the fork (they need upstream secrets and runners).
-- **Context budget on local models:** each request is about 8,500 tokens before any conversation, 52 to 54 percent of the 16,384-token context of the default model `qwen3-8b-16k`, which leaves little room for long conversations and needs the default context size re-decided. One reply in a 7-turn session was cut off after 1 second with "Output token limit reached"; it did not repeat in a new session, and whether the context budget caused it is not established.
-- **Thinking switch leak:** one reply ended with the stray text "/think", which suggests the thinking switch for Qwen 3 models leaks into the output.
+- **Context budget on local models:** each request is about 8,500 tokens before any conversation, 52 to 54 percent of the 16,384-token context of the default model `qwen3-8b-16k`, which leaves little room for long conversations and needs the default context size re-decided. One reply in a 7-turn session was cut off after 1 second with "Output token limit reached"; it did not repeat in a new session, and whether the context budget caused it is not established. On 2026-10-12 the lean preset `air-lean` (no schedule, delegation, workflow, or goal tools) became the default and thinking was turned off by default for the Qwen 3 model; compaction on small windows is still being worked on.
+- **Preset by model:** automatic choice of the preset from the selected model's context window is not built.
+- **Thinking switch leak:** one reply ended with the stray text "/think", which suggests the thinking switch for Qwen 3 models leaks into the output. Thinking is now off by default for that model (2026-10-12); not yet re-checked live in the desktop app.
 
 ## Owner decisions (2026-10-02)
 

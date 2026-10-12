@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { parse } from 'yaml'
+import { REMOVED_ROW_IDS, regenerate } from '../gen-preset-air-lean.ts'
 
 const airDir = join(import.meta.dirname, '..', '..')
 const bundleDir = join(airDir, 'bundles', 'air')
@@ -67,8 +68,30 @@ describe('AIR bundle composition', () => {
     expect(ids).toEqual(expect.arrayContaining(['time-context', 'tool-schedule']))
   })
 
-  it('makes the AIR preset the default and mounts the host rows', () => {
-    expect(patches(airPatch)).toContainEqual({ id: 'agent-preset-registry', config: { default: 'air' } })
+  it('keeps preset-air-lean equal to preset-air minus exactly the declared removed rows', () => {
+    const full = presetPlugins(airPatch, 'preset-air')
+    const lean = presetPlugins(airPatch, 'preset-air-lean')
+    expect(REMOVED_ROW_IDS.every(id => full.some(row => row['id'] === id))).toBe(true)
+    expect(lean.some(row => REMOVED_ROW_IDS.includes(String(row['id'])))).toBe(false)
+    expect(lean).toEqual(full.filter(row => !REMOVED_ROW_IDS.includes(String(row['id']))))
+  })
+
+  it('keeps the generated lean block current', () => {
+    const text = readFileSync(airPatch, 'utf8')
+    expect(regenerate(text)).toBe(text)
+  })
+
+  it('lists the lean preset first and the full preset second', () => {
+    const order = (rowId: string): unknown => {
+      const config = insertedRows(airPatch).find(row => row['id'] === rowId)?.['config']
+      return isRow(config) ? config['order'] : undefined
+    }
+    expect(order('preset-air-lean')).toBe(-1)
+    expect(order('preset-air')).toBe(0)
+  })
+
+  it('makes the lean AIR preset the default and mounts the host rows', () => {
+    expect(patches(airPatch)).toContainEqual({ id: 'agent-preset-registry', config: { default: 'air-lean' } })
     const hostRows = insertedRows(airPatch).filter(isAirRow)
     expect(hostRows.map(row => [row.id, row.name])).toEqual([
       ['air-mcp-conventions', '@air/dsh-mcp-conventions'],
@@ -81,7 +104,7 @@ describe('AIR bundle composition', () => {
     const manifest: unknown = JSON.parse(readFileSync(join(bundleDir, 'package.json'), 'utf8'))
     const dependencies = isRow(manifest) && isRow(manifest['dependencies']) ? manifest['dependencies'] : {}
     const rowPackages = [...readFileSync(airPatch, 'utf8').matchAll(/name: '(@air\/[^']+)'/gu)].map(match => match[1])
-    expect(rowPackages).toHaveLength(5)
+    expect(rowPackages).toHaveLength(7)
     for (const packageName of rowPackages) expect(dependencies).toHaveProperty([String(packageName)], 'workspace:*')
   })
 })

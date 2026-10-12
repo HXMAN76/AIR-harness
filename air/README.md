@@ -52,6 +52,12 @@ EOF
 ollama create qwen3-8b-16k -f Modelfile
 ```
 
+The example patch turns thinking off for this model (`reasoning: off` on the route, `reasoningEfforts` mapping `off` to `none` and `medium` to `medium`, and `compat.supportsReasoningEffort: true`). With thinking on, Qwen 3 emitted a stray `/think` on short prompts and spent seconds reasoning; with the setting, one test showed short replies in 0.3 to 0.4 seconds instead of 2.6 to 4.4. Choose "medium" in the app's effort control to turn thinking on for a session.
+
+### Cloud models
+
+A user can add an API key and select a hosted model. Hosted models have large context windows, so the full `air` preset is the appropriate choice there. The preset is chosen per session in the composer and does not change automatically when the model changes; automatic selection by model is not implemented.
+
 For browser automation of the Web UI, start it with `pnpm dsh --profile air --patch apps/web/tests/pin-browse-picker.overlay.yml`; "Add workspace" then opens an in-page folder picker instead of a native dialog.
 
 The bundle disables the upstream rows that send data to, or depend on accounts with, the upstream vendor's services, and makes a local Ollama model the default. See [bundles/air/cordis.patch.yml](bundles/air/cordis.patch.yml).
@@ -143,7 +149,11 @@ Upstream workflows under `.github/workflows/` also run on pushes to this fork; d
 
 ## File conventions
 
-New sessions use the `air` agent preset, a copy of the upstream `standard` preset with the convention plugins added (`bundles/air/cordis.patch.yml`). After every upstream merge, run `pnpm -C air exec vitest run scripts/tests/preset-air-drift.spec.ts`; a failure names the upstream row to re-copy into `preset-air`, and `pnpm -C air run check:composition` confirms the composed profile.
+Two agent presets are registered, both copies of the upstream `standard` preset with the convention plugins added (`bundles/air/cordis.patch.yml`). `air-lean` ("AIR Lean", listed first) is the default for new sessions; `air` (full) stays selectable in the composer.
+
+`air-lean` omits the schedule tools (`tool-schedule`), the delegation group (`delegation`: `subagent`, `subagent_fork`, `list_agents`, `send_message`, `interrupt_agent`, and the workflow tool), and the goal command and tool (`command-goal`, `tool-goal`). Local models run with 16K to 32K tokens of context, and one captured request put the tool definitions at about 6,200 of the 8,100 fixed tokens. Estimated from that one request, including their system-prompt lines, schedule costs about 1,170 tokens per request, delegation about 920, workflow about 780, and goal about 490. These are estimates, not measurements of the lean preset. The prompt text for plan mode and the other kept tools is not split per tool, so it is unchanged.
+
+The `preset-air-lean` plugin list is generated from `preset-air` by `scripts/gen-preset-air-lean.ts`, because a YAML anchor cannot drop items from a list; run `pnpm -C air run gen:lean` after editing `preset-air`. `pnpm -C air run lint` checks that the generated block is current. After every upstream merge, run `pnpm -C air exec vitest run scripts/tests/preset-air-drift.spec.ts`; a failure names the upstream row to re-copy into `preset-air` (then regenerate the lean list), and `pnpm -C air run check:composition` confirms the composed profile.
 
 User-level folders written for other agents (`~/.agents/skills`, `~/.claude/skills`, `~/.claude/commands`, `~/.claude/CLAUDE.md`) are not read by default, because a large unrelated skill catalog derails small local models. `~/.air/skills` and `~/.air/commands` are always read. To opt in, add to `$DSH_HOME/profiles/air/cordis.patch.yml`:
 
@@ -153,7 +163,7 @@ User-level folders written for other agents (`~/.agents/skills`, `~/.claude/skil
     includeUserRoots: true
 ```
 
-and copy the `preset-air` row from the bundle patch into the same file with `includeUserRoots: true` added to the `air-skill-conventions` and `air-instruction-conventions` configs (a patch replaces a row's whole `config`, so the full plugin list must be repeated).
+and copy the `preset-air` row (and `preset-air-lean`, the default) from the bundle patch into the same file with `includeUserRoots: true` added to the `air-skill-conventions` and `air-instruction-conventions` configs (a patch replaces a row's whole `config`, so the full plugin list must be repeated).
 
 Project MCP servers from `.mcp.json` start only after `/mcp approve <server>`; run it before the first message of a session. Approvals are stored in `$DSH_HOME/air/mcp-approvals.json`.
 
