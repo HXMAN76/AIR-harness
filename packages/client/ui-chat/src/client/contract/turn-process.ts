@@ -26,6 +26,7 @@ const TURN_PROCESS_INDEPENDENT_KIND_LIST = [
   'turn-error',
   'turn-max-tokens',
   'turn-tail',
+  'compaction',
 ] as const satisfies readonly ChatNode['kind'][]
 
 /** Chat Node kinds that remain independent of a Turn's process disclosure. */

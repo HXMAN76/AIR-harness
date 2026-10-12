@@ -19,8 +19,19 @@ async function tempDir(): Promise<string> {
   return dir
 }
 
-function watcher(onChange: () => void, options: { maxGroups?: number; onError?: (error: unknown) => void } = {}): PollWatcher {
-  const subject = new PollWatcher({ intervalMs: 20, maxGroups: options.maxGroups ?? 8, onChange, onError: options.onError ?? (() => {}) })
+interface WatcherOptions {
+  readonly intervalMs?: number
+  readonly maxGroups?: number
+  readonly onError?: (error: unknown) => void
+}
+
+function watcher(onChange: () => void, options: WatcherOptions = {}): PollWatcher {
+  const subject = new PollWatcher({
+    intervalMs: options.intervalMs ?? 20,
+    maxGroups: options.maxGroups ?? 8,
+    onChange,
+    onError: options.onError ?? (() => {}),
+  })
   watchers.push(subject)
   return subject
 }
@@ -32,7 +43,7 @@ describe('PollWatcher', () => {
     await writeFile(file, 'one')
     await sleep(120)
     const onChange = vi.fn()
-    const subject = watcher(onChange)
+    const subject = watcher(onChange, { intervalMs: 60_000 })
     subject.retain('project', [file], Date.now())
     await subject.pollOnce()
     await subject.pollOnce()
@@ -42,11 +53,58 @@ describe('PollWatcher', () => {
     expect(onChange).toHaveBeenCalledTimes(1)
   })
 
+  it('reports one change once when two polls overlap', async () => {
+    const dir = await tempDir()
+    const file = join(dir, 'a.md')
+    await writeFile(file, 'one')
+    await sleep(120)
+    const onChange = vi.fn()
+    const subject = watcher(onChange, { intervalMs: 60_000 })
+    subject.retain('project', [file], Date.now())
+    await subject.pollOnce()
+    await writeFile(file, 'one two three')
+    await Promise.all([subject.pollOnce(), subject.pollOnce(), subject.pollOnce()])
+    expect(onChange).toHaveBeenCalledTimes(1)
+  })
+
+  it('reports a change written while a poll is in flight by the time the next poll resolves', async () => {
+    const dir = await tempDir()
+    const file = join(dir, 'a.md')
+    await writeFile(file, 'one')
+    await sleep(120)
+    const onChange = vi.fn()
+    const subject = watcher(onChange, { intervalMs: 60_000 })
+    subject.retain('project', [file], Date.now())
+    await subject.pollOnce()
+    const inFlight = subject.pollOnce()
+    await writeFile(file, 'one two three')
+    await subject.pollOnce()
+    await inFlight
+    expect(onChange).toHaveBeenCalledTimes(1)
+  })
+
+  it('still runs the follow-up poll when the in-flight poll fails', async () => {
+    const dir = await tempDir()
+    const file = join(dir, 'a.md')
+    await writeFile(file, 'one')
+    await sleep(120)
+    const onChange = vi.fn(() => { throw new Error('listener failed') })
+    const subject = watcher(onChange, { intervalMs: 60_000 })
+    subject.retain('project', [file], Date.now())
+    await subject.pollOnce()
+    await writeFile(file, 'one two three')
+    const first = subject.pollOnce()
+    const second = subject.pollOnce()
+    await expect(first).rejects.toThrow('listener failed')
+    await expect(second).resolves.toBeUndefined()
+    expect(onChange).toHaveBeenCalledTimes(1)
+  })
+
   it('reports a retained path that appears after it was listed as absent', async () => {
     const dir = await tempDir()
     const file = join(dir, 'later.md')
     const onChange = vi.fn()
-    const subject = watcher(onChange)
+    const subject = watcher(onChange, { intervalMs: 60_000 })
     subject.retain('project', [file], Date.now())
     await subject.pollOnce()
     expect(onChange).not.toHaveBeenCalled()
@@ -60,13 +118,13 @@ describe('PollWatcher', () => {
     const file = join(dir, 'a.md')
     await writeFile(file, 'content')
     const stale = vi.fn()
-    watcher(stale).retain('project', [file], Date.now() + 10_000)
+    watcher(stale, { intervalMs: 60_000 }).retain('project', [file], Date.now() + 10_000)
     const early = vi.fn()
-    const subject = watcher(early)
+    const subject = watcher(early, { intervalMs: 60_000 })
     subject.retain('project', [file], Date.now() - 10_000)
     await subject.pollOnce()
     expect(early).toHaveBeenCalledTimes(1)
-    const quiet = watcher(stale)
+    const quiet = watcher(stale, { intervalMs: 60_000 })
     quiet.retain('project', [file], Date.now() + 10_000)
     await quiet.pollOnce()
     expect(stale).not.toHaveBeenCalled()
@@ -108,7 +166,7 @@ describe('PollWatcher', () => {
 
   it('treats an unreadable path as unchanged', async () => {
     const onChange = vi.fn()
-    const subject = watcher(onChange)
+    const subject = watcher(onChange, { intervalMs: 60_000 })
     subject.retain('project', ['bad\0path'], Date.now())
     await subject.pollOnce()
     await subject.pollOnce()
@@ -132,7 +190,7 @@ describe('PollWatcher', () => {
     const file = join(dir, 'a.md')
     await writeFile(file, 'one')
     const onChange = vi.fn()
-    const subject = watcher(onChange)
+    const subject = watcher(onChange, { intervalMs: 60_000 })
     subject.retain('project', [file], Date.now() + 10_000)
     await subject.pollOnce()
     await writeFile(file, 'one two three four')

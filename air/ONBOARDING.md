@@ -1,142 +1,100 @@
 # Onboarding for the AIR team
 
-This page gets a new teammate from a fresh clone to a running local agent, and tells them where the project's context lives.
+This page is the entry point for a new teammate. It says what the project is, where to start, what to do on the first day, how the team works, and where the context lives.
 
 ## 1. What you are joining
 
-AIR (working name; the final name is on hold) is a local-first personal agent: a desktop app for Windows and Linux that runs an AI agent on your own machine, extended through plain files and plugins, with security properties that can be checked. It is built on a fork of an open-source, MIT-licensed agent harness, and it is a final-year project with research questions about MCP tool pinning, permission policy, and memory.
+1. AIR (working name; the final name is undecided) is a local-first personal agent. It is a final-year project with research questions on MCP tool pinning, permission policy, and memory.
+2. It is built on a fork of an MIT-licensed open-source agent harness and delivered as plugins and bundles in the `air/` workspace.
+3. The product runs inside upstream's Electron desktop app. The desktop app is the primary surface, the Web UI must keep working, and a headless profile serves evaluation and scripted runs. macOS is out of scope.
+4. The default model is `qwen3:8b` on Ollama with a 32K context variant. Hosted models are untested.
+5. Working: project files from other agents (`.claude` folders, `.mcp.json`) are read unchanged, project MCP servers are pinned and reviewed, two presets switch by model size, and compaction keeps a chronological log.
+6. Checked: on Fedora, by hand, in the desktop app ([CHECKS.md](CHECKS.md)).
+7. Not checked: nobody has run anything on native Windows, and there is no installer on any OS.
+8. Written but not executed: plans 03 (permissions), 04 (memory), 05 and 06 (evaluation). Plan 07 (desktop shell) is superseded and needs a rewrite ([plans/README.md](plans/README.md)).
+9. The status table in [README.md](README.md#status) is the short version.
+10. Nothing important lives only in one person's chat history; the repository is the record.
 
-Status: research (notes 01–14) and implementation plans (00–07) are complete; building has not started. Today the agent runs in the browser through the `air` profile; the desktop app is plan 07. See [plans/README.md](plans/README.md) for the roadmap and the owner's decisions.
+## 2. Choose your path
 
-## 2. Set up
+| You use | Go to |
+|---|---|
+| Native Windows (PowerShell, no WSL) | [WINDOWS.md](WINDOWS.md), then return to section 3 |
+| Linux | The quick start in [README.md](README.md#quick-start-desktop-app) |
 
-Requirements: Linux or native Windows (WSL 2 is optional; if you use it, keep the checkout inside the Linux filesystem), Node `^22.19` or `>=24`, Git 2.26+, about 10 GB of free disk for the build, and [Ollama](https://ollama.com) for local models.
+## 3. First-day checklist
 
-```sh
-git clone git@github.com:HXMAN76/AIR-harness.git
-cd AIR-harness
-git switch air/main
-git remote add upstream https://github.com/deepseek-ai/deepseek-harness.git
-corepack enable
-pnpm install
-pnpm run build                      # several minutes
-```
+1. Set up the toolchain and build, following the page for your path (Node `^22.19` or `>=24`, pnpm exactly `11.28.5`, Git 2.26 or newer, Ollama).
+2. Create the model `qwen3-8b-32k` ([README.md](README.md#local-models)).
+3. Run `pnpm -C air run desktop:setup`, then `pnpm -C air run desktop`. The first launch downloads a runtime payload and takes a while.
+4. Send a message. Check that the window shows the preset "AIR Lean" and the model `qwen3-8b-32k`.
+5. Try a `.claude` project: run `pnpm -C air run demo` to create a scratch project, add it as a workspace, and ask the model to use the `hello` skill or the `/issue 42` command ([README.md](README.md#project-conventions)).
+6. Try an MCP server from that project's `.mcp.json`: `/mcp approve <server>`, then the tool-list approval ([README.md](README.md#mcp-trust)).
+7. Run the AIR checks: `pnpm -C air run typecheck`, `lint`, `test`, and `smoke`.
+8. Windows teammates: fill in the report template at the end of [WINDOWS.md](WINDOWS.md) and post it.
 
-On native Windows run the commands in PowerShell; replace `$PWD` with the repository path, `cp` with `Copy-Item`, `~/.dsh` with `$HOME\.dsh`, and write the `.env` line with `Add-Content`. The agent's shell tool on Windows is PowerShell, and the command sandbox there has partial enforcement (see `packages/sandbox/sandbox-windows-acl`).
+## 4. How the work is organised
 
-Create the `air` profile (once per machine):
+- Branch from `air/main` (`feat/<topic>`, `fix/<topic>`, `docs/<topic>`), open a pull request into `air/main`, and get one teammate's review. `master` mirrors upstream: never push to it and never commit to it.
+- The fork's own `air` CI job (Linux and Windows) is the signal for AIR work.
+- Upstream's `CI` workflow also runs on the fork. Some of its jobs need upstream's private runners and are cancelled after 24 hours, which leaves a red "all checks passed" mark on every pull request. That mark is expected: ignore it.
+- Never change workflow settings or disable workflows in the fork.
+- Each plan has one owner at a time. Write your name and the date next to the plan in the roadmap table when you take it, and tick the task checkboxes in the plan file as you finish them.
+- Anything that changes scope, defaults, or architecture goes into [plans/README.md](plans/README.md) in the same pull request, with the date.
+- Before pushing, run `pnpm run test:docs` if you touched Markdown and the relevant AIR tests if you touched code. Do not run the whole upstream suite; CI owns it.
+- Upstream syncs are done by one person, following the routine in [AGENTS.md](AGENTS.md).
 
-```sh
-pnpm dsh --profile air --from-default-profile web --dump-config > /dev/null
-pnpm dsh plugin --profile air add "$PWD/air/bundles/air"
-cp air/examples/ollama.profile.cordis.patch.yml ~/.dsh/profiles/air/cordis.patch.yml
-echo 'OLLAMA_API_KEY=ollama' >> ~/.dsh/.env
-```
+## 5. Working with a coding agent in this repository
 
-Pull the default local model and start the app:
+- The agent reads the root `AGENTS.md` (upstream rules). Claude Code also loads `.claude/rules/air.md`, which points at [AGENTS.md](AGENTS.md) in this directory. For other tools, tell the agent to read `air/AGENTS.md` first.
+- Build the code graph once with `graphify update .` if graphify is installed, then use `graphify query "<question>"`, `graphify explain "<concept>"`, and `graphify path "<A>" "<B>"` before grepping across `packages/`. It is optional.
+- Worker rules the project uses: give a worker one small task; write the test first; have the worker report what it ran and what it did not run, with estimates labelled as estimates; do not execute a later plan until the owner says to.
+- Agent memory is per machine. Put anything the team needs into the repository: a decision in `plans/README.md`, a measurement in [CHECKS.md](CHECKS.md) or a research note, a pitfall in the relevant plan.
 
-```sh
-ollama pull qwen3:8b
-pnpm dsh --profile air              # opens the Web UI on http://127.0.0.1:3080
-```
-
-Create the context-size variants once. Ollama's default 4,096-token context truncates the agent's prompt silently, so the profile uses two variants of `qwen3:8b`. `qwen3-8b-32k` (`num_ctx 32768`) is the default, because the fixed prompt plus the reply reserve leaves too little room on 16K. `qwen3-8b-16k` (`num_ctx 16384`) is about twice as fast (33 versus 15 tokens per second on an 8 GB GPU) and can be selected in the app:
-
-```sh
-cat > Modelfile <<'EOF'
-FROM qwen3:8b
-PARAMETER num_ctx 32768
-EOF
-ollama create qwen3-8b-32k -f Modelfile
-cat > Modelfile <<'EOF'
-FROM qwen3:8b
-PARAMETER num_ctx 16384
-EOF
-ollama create qwen3-8b-16k -f Modelfile
-```
-
-Other documented variants (create each the same way, with the base model and `num_ctx` from the table):
-
-| Variant id | Base model | Context |
-|---|---|---|
-| `qwen35-4b-32k` | `qwen3.5:4b` | 32,768 |
-| `qwen35-9b-24k` | `qwen3.5:9b` | 24,576 |
-| `qwen25-7b-32k` | `qwen2.5:7b-instruct` | 32,768 |
-| `gemma4-e4b-32k` | `gemma4:e4b-it-qat` | 32,768 |
-| `granite42-8b-16k` | `granite4.2:8b` | 16,384 |
-| `granite42-3b-32k` | `granite4.2:3b` | 32,768 |
-| `llama31-8b-16k` | `llama3.1:8b` | 16,384 |
-
-Any other local model needs its own variant and, until compaction settings are derived from the model's window, an entry in the compaction table in `air/scripts/gen-compaction-policies.ts` to get compaction. See the compaction section of [air/README.md](README.md).
-
-Known issue: Ollama's default context is 4,096 tokens, which silently truncates the agent's prompt. Until the bundle ships a check, start Ollama with a larger context (`OLLAMA_CONTEXT_LENGTH=16384`), see [research note 10](../research/notes/10-local-models-rig.md).
-
-Known issue: skills in your personal `~/.agents/skills` are loaded too and can distract a small local model; plan 01 fixes this.
-
-## 3. Where the context is
-
-Everything the team needs is in the repository; nothing important lives only in one person's chat history.
+## 6. Where the context lives
 
 | You want | Read |
 |---|---|
-| The whole picture in one document | [../research/research.md](../research/research.md) |
-| Evidence and sources per topic | `../research/notes/01`–`14` |
-| What we decided and what is still open | [plans/README.md](plans/README.md), sections "Owner decisions" and "Open decisions" |
-| What to build, step by step | `plans/2026-*.md` (one plan per feature, each task has code and tests) |
+| The status and how to run it | [README.md](README.md) |
+| What was checked, when, and where | [CHECKS.md](CHECKS.md) |
+| Roadmap, plans, decisions, open questions | [plans/README.md](plans/README.md) |
+| The whole research picture | [../research/research.md](../research/research.md) |
+| Evidence per topic | `../research/notes/01` to `14` |
 | Exact upstream APIs for a feature | [plans/spikes/](plans/spikes/) |
-| Rules for working in this fork | [AGENTS.md](AGENTS.md), then the root `AGENTS.md` for upstream conventions |
-| Which upstream files we changed and why | [UPSTREAM-DELTA.md](UPSTREAM-DELTA.md) |
-| How to develop a plugin | [../research/notes/08-dev-contrib-guide.md](../research/notes/08-dev-contrib-guide.md), [plans/spikes/01-toolchain.md](plans/spikes/01-toolchain.md) |
+| Rules for agents working in this fork | [AGENTS.md](AGENTS.md) |
+| Which upstream files the fork changed | [UPSTREAM-DELTA.md](UPSTREAM-DELTA.md) |
+| Product name and icon placeholders | [BRANDING.md](BRANDING.md) |
+| How to write a plugin | [../research/notes/08-dev-contrib-guide.md](../research/notes/08-dev-contrib-guide.md), [plans/spikes/01-toolchain.md](plans/spikes/01-toolchain.md) |
 
-## 4. Working with an AI coding agent
+## 7. Who decides
 
-If you use Claude Code, Codex, or a similar tool in this repository:
+The project owner decides the product name, scope cuts, model budget, rubric and deadlines, and release steps. The open questions are listed at the end of [plans/README.md](plans/README.md).
 
-- The agent reads the root `AGENTS.md` (upstream rules) automatically. Claude Code also loads `.claude/rules/air.md`, which points it at [AGENTS.md](AGENTS.md) in this directory. For other tools, tell the agent to read `air/AGENTS.md` first.
-- Build the code graph once (`graphify update .`) if you have graphify installed; it makes questions about the 319 upstream packages much cheaper. It is optional.
-- Agent memory is per machine and is not shared. When you or your agent learn something the team needs (a decision, a pitfall, a measured number), put it in the repository: a decision in `plans/README.md`, a finding in the relevant research note or spike, a pitfall in the relevant plan.
-- Execute plans task by task and commit after each task, as the plans describe.
+## 8. Models
 
-### Project MCP servers in the running app
+Measured recommendation (research note 10 section 12, 2026-10-10, and the desktop checks of 2026-10-12): use `qwen3:8b` with a context variant as the agent model. `qwen3-8b-32k` is the default (about 15 tokens per second on an 8 GB GPU) and `qwen3-8b-16k` is faster (about 33 tokens per second) but tight. Plain `qwen3:8b` runs at a 4,096-token context and silently truncates requests, so always create a variant. `qwen2.5:7b-instruct` is faster but less reliable on multi-step tasks. The other variants and their sizes are in [README.md](README.md#local-models).
 
-Project MCP servers in `.mcp.json` need `/mcp approve <server>` before they run. After that, approve the server's tool list either at the prompt on the first message, or with `/mcp-trust diff <server>` followed by the `/mcp-trust pin` command that it prints. `/mcp-trust status` shows the state of every server.
-
-## 5. Team workflow
-
-- **Branches.** `master` mirrors upstream; never commit to it. Branch from `air/main` (`feat/<topic>`, `docs/<topic>`), open a pull request into `air/main`, and get one teammate's review.
-- **One plan, one owner.** Each plan in `plans/` has one person responsible at a time; write your name and the date next to the plan in the roadmap table when you take it, and tick the task checkboxes in the plan file as you finish them. That file is the progress record.
-- **Decisions.** Anything that changes scope, defaults, or architecture goes into `plans/README.md` in the same pull request, with the date.
-- **Before pushing.** Run `pnpm run test:docs` if you touched Markdown, and the plan's own test commands if you touched code. Do not run the entire upstream test suite; CI owns it.
-- **Upstream syncs.** One person does them, following the routine in [AGENTS.md](AGENTS.md), and announces the new release tag to the team.
-
-## 6. Who decides
-
-The project owner decides the product name, scope cuts, model budget, and release steps. Open questions for the owner are listed at the end of [plans/README.md](plans/README.md).
-
-## 7. Models to pull for testing
-
-Candidate local models for an 8 GB GPU, from [research note 10](../research/notes/10-local-models-rig.md). All tags were checked against the Ollama registry on 2026-10-02. One command pulls the small set (about 25 GB); it continues past a failed pull and can be re-run to resume:
+Candidate models for an 8 GB GPU (tags checked against the Ollama registry on 2026-10-02; the small set is about 25 GB). On Linux:
 
 ```sh
-for m in qwen3.5:9b qwen3.5:4b granite4.2:8b granite4.2:3b gemma4:e4b-it-qat qwen3-embedding:0.6b embeddinggemma; do ollama pull "$m" || echo "FAILED: $m"; done
+for m in qwen3:8b qwen3.5:9b qwen3.5:4b granite4.2:8b granite4.2:3b gemma4:e4b-it-qat qwen3-embedding:0.6b embeddinggemma; do ollama pull "$m" || echo "FAILED: $m"; done
+```
+
+On Windows PowerShell:
+
+```powershell
+foreach ($m in "qwen3:8b","qwen3.5:9b","qwen3.5:4b","granite4.2:8b","granite4.2:3b","gemma4:e4b-it-qat","qwen3-embedding:0.6b","embeddinggemma") { ollama pull $m; if ($LASTEXITCODE -ne 0) { "FAILED: $m" } }
 ```
 
 | Tag | Download | Why |
 |---|---|---|
-| `qwen3.5:9b` | 6.6 GB | Newest Qwen in this size; candidate default (tight fit) |
+| `qwen3:8b` | not recorded | Recommended agent model, with a context variant |
+| `qwen3.5:9b` | 6.6 GB | Newest Qwen in this size; tight fit |
 | `qwen3.5:4b` | 3.4 GB | Fast small model for routing and judging |
 | `granite4.2:8b` | 5.3 GB | Tool calling and JSON output; Apache-2.0 |
 | `granite4.2:3b` | 2.2 GB | Small tool-calling model |
 | `gemma4:e4b-it-qat` | 6.1 GB | Comparison point; check its licence before shipping |
-| `qwen3-embedding:0.6b` | 0.6 GB | Candidate embedding upgrade (1,024 dims) |
+| `qwen3-embedding:0.6b` | 0.6 GB | Candidate embedding upgrade (1,024 dimensions) |
 | `embeddinggemma` | 0.6 GB | Candidate small embedder |
 
-The candidates were measured on 2026-10-10 (research note 10 section 12). `qwen3:8b` with a context variant remains the recommended agent model, and `qwen2.5:7b-instruct` is faster but less reliable on multi-step tasks.
-
-Optional large models that run split across CPU and GPU (about 32 GB more; pull only with disk and bandwidth to spare):
-
-```sh
-for m in gpt-oss:20b qwen3:30b; do ollama pull "$m" || echo "FAILED: $m"; done
-```
-
-Already used by the project: `qwen3:8b`, `qwen2.5:7b-instruct`, `llama3.1:8b`, `nomic-embed-text`.
+Optional large models that run split across CPU and GPU (about 32 GB more): `gpt-oss:20b` and `qwen3:30b`. Already used by the project: `qwen3:8b`, `qwen2.5:7b-instruct`, `llama3.1:8b`, `nomic-embed-text`.

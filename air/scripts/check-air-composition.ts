@@ -65,9 +65,9 @@ function presetChecks(prefix: string, lean: string, full: string): readonly (rea
     ]),
   ]
 }
-/** Whether the text after a `dsh-compaction-basic` row carries the qwen3-8b-32k policy with the given headroom. */
+/** Whether the text after a `dsh-compaction-log` row carries the qwen3-8b-32k policy with the given headroom. */
 function hasPolicy(section: string, headroomTokens: number): boolean {
-  const basicAt = section.indexOf('dsh-compaction-basic')
+  const basicAt = section.indexOf('dsh-compaction-log')
   const found = /model:\s*['"]?qwen3-8b-32k['"]?\s*\n\s*headroomTokens:\s*(\d+)/u.exec(basicAt < 0 ? '' : section.slice(basicAt))
   return found?.[1] === String(headroomTokens)
 }
@@ -79,6 +79,9 @@ const checks: readonly (readonly [string, boolean])[] = [
   ['command conventions mounted once', count(/@air\/dsh-command-conventions/gu) === 1],
   ['preset by model mounted once, with the lean and full preset ids', count(/@air\/dsh-preset-by-model/gu) === 1
     && /smallPreset:\s*['"]?air-lean\b/u.test(text) && /largePreset:\s*['"]?air['"]?\s*$/mu.test(text)],
+  ['compaction log engine replaces the basic engine in both presets', [presetText, leanText].every(body => body.includes('@air/dsh-compaction-log')
+    && !body.includes('@deepseek-ai/dsh-compaction-basic'))],
+  ['effort pick kept in the session, mounted once', count(/@air\/dsh-effort-session-only/gu) === 1],
   ['one preset-air-lean row', count(/id:\s*['"]?preset-air-lean\b/gu) === 1],
   ['registry default is air-lean', registryAt >= 0 && /default:\s*['"]?air-lean\b/u.test(text.slice(registryAt, registryAt + 400))],
   ['skill-filesystem default roots off in both presets', count(/includeDefaultRoots:\s*false/gu) === 2],
@@ -124,6 +127,53 @@ const desktopChecks: readonly (readonly [string, boolean])[] = [
   ...presetChecks('desktop: ', desktopLean, desktopFull),
 ]
 for (const [label, passed] of desktopChecks) {
+  console.log(`${passed ? 'ok' : 'FAILED'}: ${label}`)
+  if (!passed) failed = true
+}
+if (failed) fail('see FAILED lines above')
+
+// The headless profile starts from upstream's headless template and lists the headless bundle INSTEAD of the AIR bundle.
+const headlessProfile = 'air-headless-check'
+dsh(['--profile', headlessProfile, '--from-default-profile', 'headless', '--dump-config'])
+dsh(['plugin', '--profile', headlessProfile, 'add', join(repoRoot, 'air', 'bundles', 'air-headless')])
+copyFileSync(
+  join(repoRoot, 'air', 'examples', 'ollama.profile.cordis.patch.yml'),
+  join(home, 'profiles', headlessProfile, 'cordis.patch.yml'),
+)
+const headlessDump = dsh(['--profile', headlessProfile, '--dump-config'])
+if (LAUNCHER_PROBLEM.test(headlessDump.stderr)) fail('problems while composing the headless profile:', headlessDump.stderr)
+/** Text of the top-level row with this id in the headless dump, or undefined when the dump has no such row. */
+function headlessRow(id: string): string | undefined {
+  const found = new RegExp(`^- id:\\s*['"]?${id}['"]?\\n(?:(?!- id:|# ==)[^\\n]*\\n?)*`, 'mu').exec(headlessDump.stdout)
+  return found?.[0]
+}
+/** Whether the headless dump has the row and it is not disabled. */
+function headlessEnabled(id: string): boolean {
+  const row = headlessRow(id)
+  return row !== undefined && !/^ {2}disabled:\s*true/mu.test(row)
+}
+/** Whether the headless dump has the row and it is disabled. */
+function headlessDisabled(id: string): boolean {
+  const row = headlessRow(id)
+  return row !== undefined && /^ {2}disabled:\s*true/mu.test(row)
+}
+const headlessChecks: readonly (readonly [string, boolean])[] = [
+  ['headless: AIR bundle layer present', headlessDump.stdout.includes('patched by @air/dsh-air-headless-bundle')],
+  ['headless: no preset or preset registry row', !/id:\s*['"]?(preset-air|agent-preset-registry)/u.test(headlessDump.stdout)],
+  ['headless: the headless runner is enabled', headlessEnabled('headless-runner')],
+  ...['air-instruction-conventions', 'air-skill-conventions', 'air-command-conventions', 'air-mcp-conventions', 'air-mcp-trust', 'air-compaction-log']
+    .map((id): readonly [string, boolean] => [`headless: ${id} present and enabled`, headlessEnabled(id)]),
+  ...['session-log-deepseek', 'plugin-package-inventory-deepseek', 'session-telemetry-otel', 'deepseek-account',
+    'llm-deepseek-account', 'web-search-deepseek', 'command-goal', 'tool-goal', 'tool-subagent-control',
+    'tool-subagent-list-agents', 'tool-subagent', 'tool-subagent-fork', 'workflow-ptc', 'tool-workflow', 'compaction-basic']
+    .map((id): readonly [string, boolean] => [`headless: ${id} present and disabled`, headlessDisabled(id)]),
+  ...['tool-fs', 'tool-fs-search', 'tool-todo', 'tool-skill', 'commands', 'approval', 'working-directory']
+    .map((id): readonly [string, boolean] => [`headless: ${id} kept enabled`, headlessEnabled(id)]),
+  ['headless: default model is ollama qwen3-8b-32k', /provider:\s*ollama\s*\n\s*model:\s*['"]?qwen3-8b-32k/u.test(headlessRow('agent-default-model') ?? '')],
+  ['headless: user skill roots off', /includeDefaultRoots:\s*false/u.test(headlessRow('skill-filesystem') ?? '')],
+  ['headless: lean qwen3-8b-32k compaction policy (headroom 8672)', hasPolicy(headlessRow('air-compaction-log') ?? '', 8672)],
+]
+for (const [label, passed] of headlessChecks) {
   console.log(`${passed ? 'ok' : 'FAILED'}: ${label}`)
   if (!passed) failed = true
 }

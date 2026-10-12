@@ -48,12 +48,15 @@ async function fingerprint(path: string): Promise<Fingerprint> {
 /**
  * Watches the paths of a bounded number of project groups with one timer. A path that does not exist
  * yet is reported when it appears. The timer does not keep the process alive, and each poll costs one
- * `stat` per retained path.
+ * `stat` per retained path. One edit can be reported more than once, for example when a poll sees a file
+ * before its write completes; callers must treat `onChange` as idempotent invalidation.
  */
 export class PollWatcher {
   private readonly retained = new Map<string, Group>()
   private timer: NodeJS.Timeout | undefined
   private closed = false
+  private running: Promise<void> | undefined
+  private queued: Promise<void> | undefined
 
   /** @param options - poll interval, group limit, and callbacks. */
   constructor(private readonly options: PollWatcherOptions) {}
@@ -87,9 +90,27 @@ export class PollWatcher {
 
   /**
    * Compare every retained path with its last fingerprint and call `onChange` once when any differs.
+   * At most one scan runs at a time. A call made while a scan is in flight shares one follow-up scan
+   * with the other callers waiting; that scan starts after the in-flight one settles, so a change
+   * written before this call is reported by the time the returned promise resolves, and never twice.
    * The timer calls this method; tests call it directly.
+   * @returns resolves after the scan that covers this call; rejects with an error thrown by `onChange`.
    */
-  async pollOnce(): Promise<void> {
+  pollOnce(): Promise<void> {
+    if (this.running === undefined) return this.startScan()
+    const go = (): Promise<void> => this.startScan()
+    this.queued ??= this.running.then(go, go)
+    return this.queued
+  }
+
+  private startScan(): Promise<void> {
+    this.queued = undefined
+    // Cleared before the promise settles, so a queued follow-up always finds `running` empty.
+    this.running = this.scan().finally(() => { this.running = undefined })
+    return this.running
+  }
+
+  private async scan(): Promise<void> {
     let changed = false
     for (const group of [...this.retained.values()]) {
       for (const [path, previous] of [...group.paths]) {
