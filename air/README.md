@@ -10,6 +10,7 @@ New here? Start with [ONBOARDING.md](ONBOARDING.md); coding agents start with [A
 air/
   pnpm-workspace.yaml     separate pnpm workspace (bundles/*, packages/*)
   bundles/air/            @air/dsh-air-bundle: product defaults as a Cordis patch
+  bundles/air-desktop/    @air/dsh-air-desktop-bundle: layered after air in the desktop profile; keeps the two rows the desktop app needs at boot
   packages/convention-core/          shared discovery library for the convention plugins
   packages/skill-conventions/        skill provider: .claude/skills, project skill roots, ~/.air/skills
   packages/instruction-conventions/  .claude/CLAUDE.md, @path imports, .claude/rules
@@ -54,6 +55,37 @@ ollama create qwen3-8b-16k -f Modelfile
 For browser automation of the Web UI, start it with `pnpm dsh --profile air --patch apps/web/tests/pin-browse-picker.overlay.yml`; "Add workspace" then opens an in-page folder picker instead of a native dialog.
 
 The bundle disables the upstream rows that send data to, or depend on accounts with, the upstream vendor's services, and makes a local Ollama model the default. See [bundles/air/cordis.patch.yml](bundles/air/cordis.patch.yml).
+
+## Desktop app
+
+The AIR bundle runs inside upstream's existing Electron desktop app (profile `desktop`); AIR does not ship its own shell. The window shows the AIR preset, the local Ollama model, and the composer, with no account wall. Steps for a teammate, from the repository root:
+
+```sh
+pnpm install && pnpm run build           # root build; the desktop app launches from these outputs
+pnpm -C air install && pnpm -C air run build
+pnpm -C air run desktop:setup            # makes the desktop profile carry the AIR bundles; safe to run again
+pnpm -C air run desktop                  # upstream's development launcher
+```
+
+`desktop:setup` works on the harness home the development launcher uses: `$DSH_HOME` if set, otherwise `apps/desktop/.desktop-build/development/home` inside the checkout (the development launcher never uses `~/.dsh`). It adds two `link:` dependencies and two names to `dsh.profile.bundles` in the profile's `package.json`, runs `pnpm install` in the profile directory, writes the Ollama route from `examples/ollama.profile.cordis.patch.yml` when the profile patch is absent or empty (otherwise it prints what to add), and adds `OLLAMA_API_KEY=ollama` to `$DSH_HOME/.env` when the variable is absent. Every file it changes is first copied to `<name>.bak-<timestamp>`, and it prints each change. It refuses, changing nothing, when the profile's `package.json` is not a profile manifest it understands. Create the model `qwen3-8b-16k` first, as described under [The `air` profile](#the-air-profile).
+
+Why a script: upstream refuses `dsh plugin add` for the `desktop` profile, because the app manages that profile; the app keeps a `package.json` edited this way across restarts. Why a second bundle: the AIR bundle turns off `deepseek-account` and `account-controller`, and the desktop app reads the account state over the account Remote namespace while it starts; without them the window shows "desktop welcome: Web request failed". The desktop variant bundle turns those two rows back on and nothing else. Signed out they answer from the local credential store and contact no vendor service; none of the AIR default paths sign in.
+
+First launch: the launcher downloads and builds a Node, pnpm, and Python runtime payload (about 128 MB downloaded, about 455 MB on disk under `apps/desktop/.desktop-build`, which git ignores). Later launches reuse it. The app creates a default workspace under the system Documents folder (`<Documents>/deepseek-harness/default-workspace` on Linux); to move it, set `documentsDirectory` in the profile patch:
+
+```yaml
+- id: workspace-controller
+  config:
+    documentsDirectory: /absolute/path/to/a/folder
+```
+
+Known limits:
+
+- On Linux this is a development launch from source, not an installed app: no installer, no menu entry, and the checkout must stay in place.
+- The window keeps upstream's name and icon (placeholder branding is in [BRANDING.md](BRANDING.md)).
+- Upstream publishes no Linux installer; the tray and the updater were not tested on Linux.
+- The setup script and launch path were run on Fedora only; the Windows and macOS paths are untested by us.
+- The edit that lets the launcher accept Linux is listed in [UPSTREAM-DELTA.md](UPSTREAM-DELTA.md) with its re-check steps.
 
 ## Toolchain
 

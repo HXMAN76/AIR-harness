@@ -15,7 +15,9 @@
     "test": "vitest run && pnpm -r --no-bail --if-present run test",
     "smoke": "tsx scripts/smoke-profile.ts && tsx scripts/smoke-air-mcp.ts",
     "check:composition": "tsx scripts/check-air-composition.ts",
-    "demo": "tsx scripts/make-demo-project.ts"
+    "demo": "tsx scripts/make-demo-project.ts",
+    "desktop:setup": "tsx scripts/setup-desktop-profile.ts",
+    "desktop": "pnpm --dir .. run start:desktop"
   },
   "devDependencies": {
     "@stylistic/eslint-plugin": "^5.10.0",
