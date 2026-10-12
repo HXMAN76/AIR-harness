@@ -43,15 +43,53 @@ pnpm dsh --profile air --dump-config                  # inspect the composed tre
 pnpm dsh --profile air                                # boot the Web UI
 ```
 
-The example patch routes to the model `qwen3-8b-16k`, which does not exist until you create it. After `ollama pull qwen3:8b`, create it once from a Modelfile, because Ollama's default 4,096-token context truncates the agent's prompt silently:
+The example patch declares two variants of `qwen3:8b` and makes `qwen3-8b-32k` the default model. Neither exists until you create it. After `ollama pull qwen3:8b`, create both once from Modelfiles, because Ollama's default 4,096-token context truncates the agent's prompt silently:
 
 ```sh
+cat > Modelfile <<'EOF'
+FROM qwen3:8b
+PARAMETER num_ctx 32768
+EOF
+ollama create qwen3-8b-32k -f Modelfile
 cat > Modelfile <<'EOF'
 FROM qwen3:8b
 PARAMETER num_ctx 16384
 EOF
 ollama create qwen3-8b-16k -f Modelfile
 ```
+
+`qwen3-8b-32k` is the default because the fixed prompt plus the 4,096-token reply reserve leaves too little room on 16K. `qwen3-8b-16k` is faster (about 33 versus 15 tokens per second on an 8 GB GPU) and can be selected in the app. The bundle default in `bundles/air/cordis.patch.yml` is also `qwen3-8b-32k`, because plain `qwen3:8b` runs at a 4,096-token context and truncates.
+
+### Local model variants
+
+Each local model needs its own Ollama variant (a Modelfile with `FROM <base>` and `PARAMETER num_ctx <context>`), a model row in the profile patch whose `contextWindow` equals that `num_ctx`, and an entry in the compaction table in `scripts/gen-compaction-policies.ts`. The ids below have a compaction entry.
+
+| Variant id | Base model | Context |
+|---|---|---|
+| `qwen3-8b-32k` (default) | `qwen3:8b` | 32,768 |
+| `qwen3-8b-16k` | `qwen3:8b` | 16,384 |
+| `qwen35-4b-32k` | `qwen3.5:4b` | 32,768 |
+| `qwen35-9b-24k` | `qwen3.5:9b` | 24,576 |
+| `qwen25-7b-32k` | `qwen2.5:7b-instruct` | 32,768 |
+| `gemma4-e4b-32k` | `gemma4:e4b-it-qat` | 32,768 |
+| `granite42-8b-16k` | `granite4.2:8b` | 16,384 |
+| `granite42-3b-32k` | `granite4.2:3b` | 32,768 |
+| `llama31-8b-16k` | `llama3.1:8b` | 16,384 |
+
+Any other local model needs its own variant and, until compaction settings are derived from the model's window, an entry in that table to get compaction. Only `qwen3-8b-16k` and `qwen3-8b-32k` on the lean preset were run; the other rows use the same arithmetic.
+
+### Compaction on local models
+
+Conversation compaction (`@deepseek-ai/dsh-compaction-basic`) never ran on local models before 2026-10-12. Its default headroom of 65,536 tokens makes the threshold `min(window x thresholdRatio, window - reservedOutput - headroomTokens)` negative for 16K and 32K windows; that throws, is warned once, and compaction is skipped. Without compaction the provider library cut the reply budget (`max_tokens = min(maxTokens, window - estimate - 4096)`) to 1 token and replies were cut off.
+
+The `modelPolicies` block of `compaction-basic` now overrides `headroomTokens`, `retainTokens`, and `maxTokens` (the summary's output limit) per exact provider and model, in both presets. The values come from one table in `scripts/gen-compaction-policies.ts`, which writes the blocks between marker comments; `scripts/gen-preset-air-lean.ts` calls it, and `pnpm -C air run lint` checks both. As measured on the lean preset:
+
+- Compaction runs on the listed local models. The lean preset on 16K starts compaction at about 9,000 tokens, so replies are capped near 3,000 tokens, and history is pruned and summarised about every three turns when tool results are large. At 32K the threshold is 20,000 tokens and replies keep 4,096 tokens.
+- Once the threshold is crossed, a tool result over 8,192 characters is cut to its head and tail. The original stays in the session log.
+- After compaction the 8B model's summary loses early details; in the test it named the wrong first file.
+- The app shows no notice when compaction happens.
+- The full preset on a 16K window is not recommended: its fixed prompt is about 9,500 tokens and no threshold can both fit it and keep a full reply. The full-preset values and the 24K values were derived, not run.
+- Models not in the table get no compaction. Hosted models keep the upstream defaults, which suit large windows, and were not tested.
 
 The example patch turns thinking off for this model (`reasoning: off` on the route, `reasoningEfforts` mapping `off` to `none` and `medium` to `medium`, and `compat.supportsReasoningEffort: true`). With thinking on, Qwen 3 emitted a stray `/think` on short prompts and spent seconds reasoning; with the setting, one test showed short replies in 0.3 to 0.4 seconds instead of 2.6 to 4.4. Choose "medium" in the app's effort control to turn thinking on for a session.
 
@@ -74,7 +112,7 @@ pnpm -C air run desktop:setup            # makes the desktop profile carry the A
 pnpm -C air run desktop                  # upstream's development launcher
 ```
 
-`desktop:setup` works on the harness home the development launcher uses: `$DSH_HOME` if set, otherwise `apps/desktop/.desktop-build/development/home` inside the checkout (the development launcher never uses `~/.dsh`). It adds two `link:` dependencies and two names to `dsh.profile.bundles` in the profile's `package.json`, runs `pnpm install` in the profile directory, writes the Ollama route from `examples/ollama.profile.cordis.patch.yml` when the profile patch is absent or empty (otherwise it prints what to add), and adds `OLLAMA_API_KEY=ollama` to `$DSH_HOME/.env` when the variable is absent. Every file it changes is first copied to `<name>.bak-<timestamp>`, and it prints each change. It refuses, changing nothing, when the profile's `package.json` is not a profile manifest it understands. Create the model `qwen3-8b-16k` first, as described under [The `air` profile](#the-air-profile).
+`desktop:setup` works on the harness home the development launcher uses: `$DSH_HOME` if set, otherwise `apps/desktop/.desktop-build/development/home` inside the checkout (the development launcher never uses `~/.dsh`). It adds two `link:` dependencies and two names to `dsh.profile.bundles` in the profile's `package.json`, runs `pnpm install` in the profile directory, writes the Ollama route from `examples/ollama.profile.cordis.patch.yml` when the profile patch is absent or empty (otherwise it prints what to add), and adds `OLLAMA_API_KEY=ollama` to `$DSH_HOME/.env` when the variable is absent. Every file it changes is first copied to `<name>.bak-<timestamp>`, and it prints each change. It refuses, changing nothing, when the profile's `package.json` is not a profile manifest it understands. Create the models `qwen3-8b-32k` and `qwen3-8b-16k` first, as described under [The `air` profile](#the-air-profile).
 
 Why a script: upstream refuses `dsh plugin add` for the `desktop` profile, because the app manages that profile; the app keeps a `package.json` edited this way across restarts. Why a second bundle: the AIR bundle turns off `deepseek-account` and `account-controller`, and the desktop app reads the account state over the account Remote namespace while it starts; without them the window shows "desktop welcome: Web request failed". The desktop variant bundle turns those two rows back on and nothing else. Signed out they answer from the local credential store and contact no vendor service; none of the AIR default paths sign in.
 

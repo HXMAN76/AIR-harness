@@ -40,15 +40,34 @@ ollama pull qwen3:8b
 pnpm dsh --profile air              # opens the Web UI on http://127.0.0.1:3080
 ```
 
-Create the context-size variant once. Ollama's default 4,096-token context truncates the agent's prompt silently, so the profile uses this variant, which sets `num_ctx 16384`:
+Create the context-size variants once. Ollama's default 4,096-token context truncates the agent's prompt silently, so the profile uses two variants of `qwen3:8b`. `qwen3-8b-32k` (`num_ctx 32768`) is the default, because the fixed prompt plus the reply reserve leaves too little room on 16K. `qwen3-8b-16k` (`num_ctx 16384`) is about twice as fast (33 versus 15 tokens per second on an 8 GB GPU) and can be selected in the app:
 
 ```sh
+cat > Modelfile <<'EOF'
+FROM qwen3:8b
+PARAMETER num_ctx 32768
+EOF
+ollama create qwen3-8b-32k -f Modelfile
 cat > Modelfile <<'EOF'
 FROM qwen3:8b
 PARAMETER num_ctx 16384
 EOF
 ollama create qwen3-8b-16k -f Modelfile
 ```
+
+Other documented variants (create each the same way, with the base model and `num_ctx` from the table):
+
+| Variant id | Base model | Context |
+|---|---|---|
+| `qwen35-4b-32k` | `qwen3.5:4b` | 32,768 |
+| `qwen35-9b-24k` | `qwen3.5:9b` | 24,576 |
+| `qwen25-7b-32k` | `qwen2.5:7b-instruct` | 32,768 |
+| `gemma4-e4b-32k` | `gemma4:e4b-it-qat` | 32,768 |
+| `granite42-8b-16k` | `granite4.2:8b` | 16,384 |
+| `granite42-3b-32k` | `granite4.2:3b` | 32,768 |
+| `llama31-8b-16k` | `llama3.1:8b` | 16,384 |
+
+Any other local model needs its own variant and, until compaction settings are derived from the model's window, an entry in the compaction table in `air/scripts/gen-compaction-policies.ts` to get compaction. See the compaction section of [air/README.md](README.md).
 
 Known issue: Ollama's default context is 4,096 tokens, which silently truncates the agent's prompt. Until the bundle ships a check, start Ollama with a larger context (`OLLAMA_CONTEXT_LENGTH=16384`), see [research note 10](../research/notes/10-local-models-rig.md).
 

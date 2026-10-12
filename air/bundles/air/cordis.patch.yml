@@ -29,14 +29,15 @@
 - id: web-search-deepseek
   disabled: true
 
-# Default model for new Agents. The `ollama` route itself is declared in the
-# profile patch (see ../../examples/ollama.profile.cordis.patch.yml), because
+# Default model for new Agents: the 32K context variant of qwen3:8b. Plain
+# `qwen3:8b` runs at a 4,096-token context in Ollama and truncates the agent
+# prompt. The `ollama` route itself is declared in the profile patch (see ../../examples/ollama.profile.cordis.patch.yml), because
 # saving any provider in Settings → Models replaces the whole `llm-pi-ai`
 # config at the profile layer.
 - id: agent-default-model
   config:
     provider: ollama
-    model: qwen3:8b
+    model: qwen3-8b-32k
 
 # The AIR agent preset: the upstream `standard` plugin list
 # (packages/bundle/web-app/presets/standard.patch.yml) with the AIR convention
