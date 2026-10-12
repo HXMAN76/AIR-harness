@@ -40,6 +40,20 @@ function presetPlugins(file: string, rowId: string): Row[] {
   return plugins
 }
 
+/** Copy a value without any `modelPolicies` key, and without a config left empty by that removal. */
+function withoutPolicies(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(withoutPolicies)
+  if (!isRow(value)) return value
+  const entries: [string, unknown][] = []
+  for (const [key, item] of Object.entries(value)) {
+    if (key === 'modelPolicies') continue
+    const copy = withoutPolicies(item)
+    const emptied = isRow(item) && Object.keys(item).length > 0 && isRow(copy) && Object.keys(copy).length === 0
+    if (!emptied) entries.push([key, copy])
+  }
+  return Object.fromEntries(entries)
+}
+
 function isAirRow(row: Row): boolean {
   const id = row['id']
   return typeof id === 'string' && id.startsWith('air-')
@@ -54,7 +68,7 @@ describe('AIR bundle composition', () => {
       { id: 'air-skill-conventions', name: '@air/dsh-skill-conventions' },
     ])
     const expected = standard.map(row => (row['id'] === 'skill-filesystem' ? Object.assign({}, row, { config: { includeDefaultRoots: false } }) : row))
-    expect(air.filter(row => !isAirRow(row))).toEqual(expected)
+    expect(withoutPolicies(air.filter(row => !isAirRow(row)))).toEqual(expected)
   })
 
   it('places each AIR preset row directly after its upstream counterpart', () => {
@@ -73,7 +87,7 @@ describe('AIR bundle composition', () => {
     const lean = presetPlugins(airPatch, 'preset-air-lean')
     expect(REMOVED_ROW_IDS.every(id => full.some(row => row['id'] === id))).toBe(true)
     expect(lean.some(row => REMOVED_ROW_IDS.includes(String(row['id'])))).toBe(false)
-    expect(lean).toEqual(full.filter(row => !REMOVED_ROW_IDS.includes(String(row['id']))))
+    expect(withoutPolicies(lean)).toEqual(withoutPolicies(full.filter(row => !REMOVED_ROW_IDS.includes(String(row['id'])))))
   })
 
   it('keeps the generated lean block current', () => {

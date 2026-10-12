@@ -2,6 +2,7 @@
 import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
+import { applyPolicies } from './gen-compaction-policies.ts'
 
 /**
  * Plugin row ids that `preset-air` carries and `preset-air-lean` omits: schedule tools, the delegation group
@@ -47,7 +48,7 @@ export function presetAirEntries(patch: string): { id: string; lines: string[] }
 /**
  * Return the patch file text with the lean preset's generated plugin list rewritten.
  * @param patch - contents of the bundle patch file.
- * @returns the patch text whose generated block lists every preset-air plugin row except REMOVED_ROW_IDS.
+ * @returns the patch text whose generated block lists every preset-air plugin row except REMOVED_ROW_IDS, with policy blocks applied.
  */
 export function regenerate(patch: string): string {
   const entries = presetAirEntries(patch)
@@ -59,7 +60,9 @@ export function regenerate(patch: string): string {
   const end = lines.findIndex(line => line.trim() === END_MARKER)
   if (begin < 0 || end < begin) throw new Error('gen-preset-air-lean: generated block markers missing in the patch file')
   const pad = ' '.repeat(PLUGIN_INDENT)
-  return [...lines.slice(0, begin), `${pad}${BEGIN_MARKER}`, ...kept, `${pad}${END_MARKER}`, ...lines.slice(end + 1)].join('\n')
+  const joined = [...lines.slice(0, begin), `${pad}${BEGIN_MARKER}`, ...kept, `${pad}${END_MARKER}`, ...lines.slice(end + 1)].join('\n')
+  // The copied rows carry the full preset's policy block; applyPolicies gives the lean block its own values.
+  return applyPolicies(joined)
 }
 
 const patchFile = join(import.meta.dirname, '..', 'bundles', 'air', 'cordis.patch.yml')

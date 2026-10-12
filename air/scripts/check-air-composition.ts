@@ -65,6 +65,12 @@ function presetChecks(prefix: string, lean: string, full: string): readonly (rea
     ]),
   ]
 }
+/** Whether the text after a `dsh-compaction-basic` row carries the qwen3-8b-32k policy with the given headroom. */
+function hasPolicy(section: string, headroomTokens: number): boolean {
+  const basicAt = section.indexOf('dsh-compaction-basic')
+  const found = /model:\s*['"]?qwen3-8b-32k['"]?\s*\n\s*headroomTokens:\s*(\d+)/u.exec(basicAt < 0 ? '' : section.slice(basicAt))
+  return found?.[1] === String(headroomTokens)
+}
 const checks: readonly (readonly [string, boolean])[] = [
   ['one preset-air row', count(/id:\s*['"]?preset-air(?![-\w])/gu) === 1],
   ['skill conventions mounted in both presets', count(/@air\/dsh-skill-conventions/gu) === 2],
@@ -77,6 +83,8 @@ const checks: readonly (readonly [string, boolean])[] = [
   ['registry default is air-lean', registryAt >= 0 && /default:\s*['"]?air-lean\b/u.test(text.slice(registryAt, registryAt + 400))],
   ['skill-filesystem default roots off in both presets', count(/includeDefaultRoots:\s*false/gu) === 2],
   ['clock reading and reminder tools kept', presetText.includes('dsh-time-context') && presetText.includes('dsh-tool-schedule')],
+  ['full preset has the qwen3-8b-32k compaction policy (headroom 6672)', hasPolicy(presetText, 6672)],
+  ['lean preset has its own qwen3-8b-32k compaction policy (headroom 8672)', hasPolicy(leanText, 8672)],
   ...presetChecks('', leanText, presetText),
 ]
 let failed = false
@@ -111,6 +119,8 @@ const desktopChecks: readonly (readonly [string, boolean])[] = [
   ['desktop: preset-air present once', presetRows === 1],
   ['desktop: preset-air-lean present once', desktopDump.stdout.match(/id:\s*['"]?preset-air-lean\b/gu)?.length === 1],
   ['desktop: registry default is air-lean', /default:\s*['"]?air-lean\b/u.test(desktopDump.stdout)],
+  ['desktop: full preset has the qwen3-8b-32k compaction policy', hasPolicy(desktopFull, 6672)],
+  ['desktop: lean preset has its own qwen3-8b-32k compaction policy', hasPolicy(desktopLean, 8672)],
   ...presetChecks('desktop: ', desktopLean, desktopFull),
 ]
 for (const [label, passed] of desktopChecks) {
