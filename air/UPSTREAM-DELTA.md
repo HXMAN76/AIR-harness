@@ -24,7 +24,21 @@ Every file AIR changes outside `air/` and `research/`, with the reason. Upstream
 | `packages/client/ui-chat/src/client/contract/turn-process.ts` | `'compaction'` joins `TURN_PROCESS_INDEPENDENT_KIND_LIST` (one line) | Keeps the compaction row outside the collapsed "Completed in Ns" disclosure of the turn, so it renders at the top level of the turn's visible content |
 | `packages/client/ui-chat/tests/process-groups.client.spec.ts` | Two tests: a compaction node between two tool calls stays its own row and out of both groups; the independent-kind set holds `compaction` | Asserts the new placement |
 
-Candidates not yet made (research.md and the plans): streaming methods on the speech-to-text Service Definition; more Claude Code hook events in `hooks-claude-code`; product-name surfaces that no plugin slot or configuration can replace. The desktop app is AIR-owned under `air/apps/` (plan 07), so upstream's `apps/desktop` needs no edits; plan 07 adds one workflow file, `.github/workflows/air-desktop.yml`.
+Candidates not yet made (research.md and the plans): streaming methods on the speech-to-text Service Definition; more Claude Code hook events in `hooks-claude-code`; product-name surfaces that no plugin slot or configuration can replace (the places in `apps/desktop` are listed in [BRANDING.md](BRANDING.md)). The desktop app is upstream's `apps/desktop`; the AIR bundles run inside it, and the superseded plan 07 would have added one workflow file, `.github/workflows/air-desktop.yml`, which does not exist.
+
+## Re-check after each upstream sync
+
+Checked against the release tag `dsh-v0.2.1-alpha.2`: the 23 files changed outside `air/` and `research/` are exactly the files in the table above.
+
+| Area | Files | Re-check |
+|---|---|---|
+| Pointer and ignore files | `.claude/rules/air.md`, `.graphifyignore` | Confirm the files still exist; nothing to run |
+| CI | `.github/workflows/air.yml` | Open the workflow and confirm the install, build, and AIR steps still match the root scripts; never change workflow settings |
+| Repository gates | `scripts/translation-pairing.manifest.json`, `scripts/gen-cordis-catalog.ts`, `docs/config-catalog.md`, `docs/config-catalog.zh.md` | `pnpm run test:docs`; run `pnpm run gen-config-catalog` after the mcp-client re-check |
+| MCP client review hook | `packages/mcp/mcp-client/**` | Details below; MCP client tests, then the `@air/dsh-mcp-trust` and `@air/dsh-mcp-conventions` tests |
+| Linux development target | `apps/desktop/scripts/*`, `apps/desktop/tests/desktop-build-paths.spec.ts` | Details below; desktop build-path tests |
+| Compaction row | `packages/client/ui-chat/**` | Details below; chat UI tests and a rebuild |
+| AIR generated files | not an upstream edit | `pnpm -C air run gen:lean`, `pnpm -C air run gen:policies`, `pnpm -C air run lint`, and `pnpm -C air exec vitest run scripts/tests/preset-air-drift.spec.ts` |
 
 Merge-conflict exposure of the mcp-client edit is `syncTools` (the phase-1 loop and the swap) and `connectGeneration` (the instruction block). At each upstream sync, re-apply by hand if they conflict, rerun `pnpm exec vitest run packages/mcp/mcp-client/tests --coverage --coverage.include='packages/mcp/mcp-client/src/**/*.ts'`, run `pnpm run gen-config-catalog`, and rerun the `@air/dsh-mcp-trust` and `@air/dsh-mcp-conventions` tests. A provider whose `review` throws or rejects blocks every tool of the reviewed server.
 

@@ -16,15 +16,17 @@ Read in this order:
 
 ## Current state
 
-Research and plans 00–07 are done and were revised on 2026-10-08 for upstream `0.2.1-alpha.1` (the fork is now at `0.2.1-alpha.2`, merged 2026-10-09; see the 2026-10-09 section of `plans/README.md`), native-Windows teammates, and the owner's decisions (the roadmap has the revision status and what was run); the owner started the build on 2026-10-09. Executed so far, on Fedora only: plan 00 (workspace toolchain, lint config, profile smoke, CI job) on branch `air/feat/00-workspace-foundation`, and plan 01 (file conventions: skills, instructions, `.mcp.json`, commands, the `air` preset) on branch `air/feat/01-file-conventions`, stacked on the first, and plan 02 (MCP trust) on branch `air/feat/02-mcp-trust`. Each plan file starts with an execution record. On 2026-10-09 pull request 2 (plan 01) passed the AIR CI job on Linux and Windows and the manual checks with the local model; details are in the plan file. Do not execute a later plan until the owner says to start it.
+Plans 00, 01, and 02 are executed and merged. The product runs as the AIR bundle inside upstream's Electron desktop app (profile `desktop`, plus `bundles/air-desktop`), which is the primary surface; the Web UI (profile `air`) must keep working; headless (upstream's headless profile plus `bundles/air-headless`) is for evaluation and scripted runs. A separate AIR Electron shell (plan 07 as written) was dropped, and macOS is out of scope. Follow-up work is done too: the `air-lean` preset, per-model compaction policies, chronological compaction summaries, a visible compaction row, preset selection by model, and an effort pick that applies to one session. Plans 03, 04, 05, and 06 are written but not executed; do not execute a later plan until the owner says to. Plan 07 needs a rewrite around upstream's desktop app.
 
-What exists and works: five `@air/dsh-*` packages under [packages](packages) (plan 01), and the `air` bundle ([bundles/air](bundles/air)), which loads them, turns off upstream-vendor uploads, accounts, and telemetry and makes a local Ollama model the default; and an `air` profile created by the commands in [README.md](README.md).
+Checked by hand on Fedora only ([CHECKS.md](CHECKS.md)). Nobody has run anything on native Windows; the Windows CI leg is the only signal. There is no installer on any OS.
 
-The headless profile (scripted and evaluation runs, one task per invocation) uses the separate bundle [bundles/air-headless](bundles/air-headless) instead of the `air` bundle; see the Headless profile section of [README.md](README.md).
+What exists: ten `@air/dsh-*` packages under [packages](packages) and five bundles under [bundles](bundles) (`air`, `air-desktop`, `air-headless`, `air-mcp`, `mcp-servers`), described in [README.md](README.md#layout-of-the-air-workspace).
 
-Plan 02 adds the packages `mcp-trust` (`@air/dsh-mcp-trust`) and `mcp-trust-cli` under [packages](packages), and the `air-mcp` profile bundle ([bundles/air-mcp](bundles/air-mcp)). The `air` bundle reviews project MCP servers in enforce mode.
+Generated files: the `preset-air-lean` plugin list comes from `scripts/gen-preset-air-lean.ts` (`pnpm -C air run gen:lean`), and the compaction `modelPolicies` blocks come from `scripts/gen-compaction-policies.ts` (`gen:policies`). Edit the sources, not the generated blocks; `pnpm -C air run lint` fails when they are stale.
 
-Since 2026-10-12 the product runs in upstream's desktop app on Linux from source (`pnpm -C air run desktop:setup`, then `pnpm -C air run desktop`), the desktop app is the primary surface, and the features of plans 01 and 02 were checked there.
+In-tree edits outside `air/`, all listed in [UPSTREAM-DELTA.md](UPSTREAM-DELTA.md) with re-check steps: the MCP client review hook (`packages/mcp/mcp-client`), the Linux development target (`apps/desktop/scripts`), and two lines in `packages/client/ui-chat` that make the compaction row visible. The CI workflow file and small repository-gate adjustments are also listed there.
+
+CI: the fork's own `air` job (Linux and Windows) is the signal for AIR work. Upstream's `CI` workflow leaves a red "all checks passed" mark that is expected; ignore it. Never edit, disable, or change settings of workflows.
 
 ## Rules
 
@@ -33,7 +35,7 @@ Since 2026-10-12 the product runs in upstream's desktop app on Linux from source
 - **In-tree review hook.** Plan 02 edits upstream's MCP client in `packages/mcp/mcp-client` (the review hook, listed in [UPSTREAM-DELTA.md](UPSTREAM-DELTA.md)). After every upstream sync, follow the re-check steps for it in that file.
 - **No custom session event types.** An out-of-tree plugin cannot write event types that older builds may skip; an unknown type makes a session unresumable. Model-visible input enters as injected user messages with an AIR source kind, or as tool results; audit data goes to files under `$DSH_HOME/air/`.
 - **Security is enforced, not advised.** Markdown instructions shape model behavior; pinning, permission rules, approval, and the sandbox enforce.
-- **Product form.** The product is delivered as the AIR bundle running in upstream's desktop app (`apps/desktop`, profile `desktop`, plus `air/bundles/air-desktop`) and in the Web UI; desktop is primary; in-tree edits under `apps/desktop` are allowed when unavoidable and must be listed in `UPSTREAM-DELTA.md`; macOS is out of scope; scripts must run on native Windows and Linux (Node or tsx, not bash).
+- **Product form.** The product is delivered as the AIR bundle running in upstream's desktop app (`apps/desktop`, profile `desktop`, plus `air/bundles/air-desktop`) and in the Web UI, and headless serves evaluation; desktop is primary; in-tree edits under `apps/desktop` are allowed when unavoidable and must be listed in `UPSTREAM-DELTA.md`; macOS is out of scope; scripts must run on native Windows and Linux (Node or tsx, not bash).
 - **Permissions.** Product defaults are upstream's permission presets; AIR adds only the `sudo` guard, gating of MCP tool calls, and saved rules (plan 03 as amended in the roadmap).
 - **Placeholders.** The product name and the desktop identifiers are on hold; use the placeholders in [BRANDING.md](BRANDING.md).
 - **Local first.** The default model route is local Ollama. Do not add a dependency on a hosted service to a default code path.
@@ -43,7 +45,7 @@ Since 2026-10-12 the product runs in upstream's desktop app on Linux from source
 
 ## Finding code
 
-A graphify knowledge graph speeds up navigation of the 331 upstream packages. It is not committed (about 180 MB); build it once per checkout:
+A graphify knowledge graph speeds up navigation of the upstream packages. It is not committed (about 180 MB); build it once per checkout:
 
 ```sh
 graphify update .          # AST-only, no API cost; writes graphify-out/
@@ -65,4 +67,4 @@ graphify update .
 pnpm dsh --profile air --dump-config > /dev/null     # stderr must show no unmatched patch targets
 ```
 
-Then read new guides under `docs/upgrade-guide/`, bump AIR peer ranges if the minor version changed, and note relevant upstream changes in `research/research.md` section 2b.
+Then re-run the re-checks that [UPSTREAM-DELTA.md](UPSTREAM-DELTA.md) lists: regenerate the lean preset and policies (`pnpm -C air run gen:lean`, `gen:policies`) and run `pnpm -C air run lint`; the desktop build-path tests; the MCP client tests; and the chat UI tests. Then read new guides under `docs/upgrade-guide/`, bump AIR peer ranges if the minor version changed, and note relevant upstream changes in `research/research.md` section 2b.
