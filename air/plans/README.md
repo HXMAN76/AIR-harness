@@ -23,7 +23,7 @@ This page orders the work, names each plan, and lists what is still unplanned. T
 | 04 | [Memory core](2026-09-30-04-memory-core.md): Markdown store with git history, FTS5 + vector index, embedding seam, four memory tools, pinned core | Written (auto-recall, priors, extraction, consolidation deferred to follow-up plans) | 00; 01 Task 9 when wiring into `preset-air` | [spike 04](spikes/04-memory-context-permissions.md) §1–5 |
 | 05 | [Evaluation pilot](2026-09-30-05-eval-pilot.md): eval bundle and uv project, session-log metrics, RQ1 five-server mini-corpus, token/latency table, LongMemEval 10-question smoke | Written (code run in a scratch copy: 40 tests pass) | 00; 02 for the shared digest golden file | [spike 06](spikes/06-evaluation.md) |
 | 06 | [AgentDojo banking pilot](2026-10-03-06-agentdojo-pilot.md): native AgentDojo pipeline vs the undefended harness, MCP bridge, eval-only approval answerer, route as a parameter, off-device token count | Written (code run in a scratch copy on the local route: 52 tests pass, both arms ran on 5 episodes each; hosted route not run) | 00; 05 Tasks 1–4 | [spike 06](spikes/06-evaluation.md) §1 |
-| 07 | [Desktop shell](2026-10-03-07-desktop-shell.md): AIR-owned Electron app for Windows and Linux (staging script, Host entry, main process, close/tray policy, hotkey, packaging, updates, CI) | Written (plan code typechecked and 111 unit tests run in a scratch copy; staging and Host boot verified on Fedora; Windows and packaging not run) | 00 | [research note 09](../../research/notes/09-desktop-cross-os.md), [research note 13](../../research/notes/13-desktop-shell-practice.md) |
+| 07 | [Desktop shell](2026-10-03-07-desktop-shell.md): AIR-owned Electron app for Windows and Linux (staging script, Host entry, main process, close/tray policy, hotkey, packaging, updates, CI) | Superseded by the 2026-10-12 owner decision; needs rewriting around upstream's `apps/desktop` (plan code typechecked and 111 unit tests run in a scratch copy; staging and Host boot verified on Fedora; Windows and packaging not run) | 00 | [research note 09](../../research/notes/09-desktop-cross-os.md), [research note 13](../../research/notes/13-desktop-shell-practice.md) |
 
 ## Cross-plan obligations
 
@@ -83,6 +83,8 @@ Each item gets its own plan after the plans above land. The spike section that a
 - **Release path:** how users install AIR (clone plus scripts now; npm packages for the `@air/*` bundle later), version pinning to upstream tags, release notes.
 - **Upstream sync routine:** a script wrapping fetch, fast-forward `master`, merge into `air/main`, install, clean, build, `graphify update`, smoke, and a reminder to read `docs/upgrade-guide/`.
 - **Fork CI hygiene:** decide which inherited upstream workflows to disable in the fork (they need upstream secrets and runners).
+- **Context budget on local models:** each request is about 8,500 tokens before any conversation, 52 to 54 percent of the 16,384-token context of the default model `qwen3-8b-16k`, which leaves little room for long conversations and needs the default context size re-decided. One reply in a 7-turn session was cut off after 1 second with "Output token limit reached"; it did not repeat in a new session, and whether the context budget caused it is not established.
+- **Thinking switch leak:** one reply ended with the stray text "/think", which suggests the thinking switch for Qwen 3 models leaks into the output.
 
 ## Owner decisions (2026-10-02)
 
@@ -106,6 +108,8 @@ Each item gets its own plan after the plans above land. The spike section that a
 | Windows signing order | First release unsigned, then apply to SignPath Foundation | SignPath requires a published release and names SignPath Foundation as publisher. |
 | Desktop release gate | No release until identifiers are final | Plan 07's brand file carries `identifiersFinal: false`; packaging for release fails until the owner sets the final identifiers and flips it. Start at login moved out of phase 1. |
 | Sequencing | No implementation yet; research in depth first | Plans 00–05 stay unexecuted until the owner starts the build. |
+| Desktop delivery (2026-10-12) | Run the AIR bundle inside upstream's desktop app; no separate Electron shell | Plan 07 as written is superseded and must be rewritten around upstream's `apps/desktop`: in-tree edits there are accepted and listed in `UPSTREAM-DELTA.md`; packaging targets and the release gate on final identifiers carry over. |
+| Surfaces (2026-10-12) | Desktop is the primary surface; the Web UI must keep working | Every feature is checked in the desktop app first and in the Web UI second; headless is for evaluation only. |
 
 ## Changes the 2026-10-02 research requires in the written plans
 

@@ -87,6 +87,42 @@ Known limits:
 - The setup script and launch path were run on Fedora only; the Windows and macOS paths are untested by us.
 - The edit that lets the launcher accept Linux is listed in [UPSTREAM-DELTA.md](UPSTREAM-DELTA.md) with its re-check steps.
 
+### Checked on 2026-10-12
+
+Setup: Fedora 44, Wayland session, upstream's desktop app run from source with the AIR bundle and `air/bundles/air-desktop`, model `qwen3-8b-16k`, a demo project as the default workspace, driven by `air/scripts/desktop-drive.mjs`.
+
+What passed:
+
+- The app starts with no failed or pending rows, and the window is usable with no sign-in wall.
+- The AIR preset and the local model are shown.
+- A plain prompt got a reply in 35 seconds at about 30 tokens per second.
+- `.claude/CLAUDE.md` with its `@notes.md` import reached the model.
+- `/mcp` listed the project server as not approved, and `/mcp approve demo` started it.
+- `/mcp-trust status` showed it unpinned.
+- Asking the model to use the server's tool raised the approval prompt; after "Reject" the tool stayed unavailable.
+- `list_mcp_resources` for the declined server was denied.
+- `/mcp-trust diff demo` showed the tool's description, its input, and the exact pin command.
+- The pin command pinned one tool, and status then showed approved.
+- The tool call then returned `echo: mango`.
+- `/issue 42` sent "Summarise issue 42 in one sentence." to the model, confirmed in the Trajectory view.
+- "Use the hello skill to greet Sam." called the `skill` tool with name `hello`, and the model answered "Hello Sam!".
+
+What is open or not covered:
+
+- Once, in a session of 7 turns, a reply was cut off after 1 second with "Output token limit reached". It did not repeat in a new session, and the cause is not known.
+- Each request to the model is about 8,500 tokens before any conversation, which is 52 to 54 percent of the 16,384-token context of the default model. Little room is left for a long conversation, and the default context size needs to be re-decided with this figure. Whether this caused the cut-off is not established.
+- One reply ended with the stray text "/think", which suggests the thinking switch for Qwen 3 models leaks into the output.
+- Not covered: path-scoped rules, revoke, a pinned server that later changes its tools, tray, menus, updater, and anything on Windows or macOS.
+
+### Driving the app in a test
+
+`air/scripts/desktop-drive.mjs` is a manual test aid that drives a running desktop app through Electron's renderer debugging port; it is not part of the product. Start the app with `DSH_DESKTOP_RENDERER_DEBUG_PORT` set, and set `AIR_DESKTOP_DEBUG_PORT` to the same value when it is not the default 9222. Run `node air/scripts/desktop-drive.mjs` with no arguments to list its subcommands.
+
+```sh
+node air/scripts/desktop-drive.mjs title
+node air/scripts/desktop-drive.mjs send "/mcp-trust status"
+```
+
 ## Toolchain
 
 Run the root build first; AIR packages link to its `lib/` outputs.
