@@ -174,6 +174,14 @@ Local-model tuning, checked the same day (default model `qwen3-8b-32k`, Ollama b
 - E8: with whole-file reads of about 11,000 tokens each, prompts fell from 18,200 to 11,607, from 22,649 to 13,905, from 20,567 to 13,599 (through a summary request limited to 2,048 output tokens), and from 24,564 to 15,844; every other request kept `max_tokens` 4096, and "Output token limit reached" never appeared.
 - E9: the composer's model menu has an effort control; "Medium" sent `reasoning_effort: "medium"`, and the reply was 391 in 26 seconds.
 
+### Follow-up fixes, checked 2026-10-12
+
+- F1: after the fixes the app starts with no failed, pending, or invalid-compaction lines in the log; the composer is shown, and a new session shows "AIR Lean", `qwen3-8b-32k`, and effort Off.
+- F2: choosing effort "Medium" sent `reasoning_effort: "medium"` (reply 391) and left no `reasoningEffort` key in the profile's `agent-default-model` row; a new session showed effort Off and sent `reasoning_effort: "none"`.
+- F3: choosing `qwen3-8b-16k` wrote `model: qwen3-8b-16k` as the default without a `reasoningEffort` key; choosing `qwen3-8b-32k` again returned the default.
+- F4: over 11 file-read messages two summary requests (2,048 output tokens) were recorded; the last summary instruction contained "Chronological Log" and "First request", and the summary (957 tokens) listed f1.txt to f8.txt in order. "Which file did you read first?" was answered "f1.txt", and the ordered list of read files was right for all 10 files. The "Context compacted" row was at the top level with the "Completed in Ns" disclosures collapsed, and expanding it showed the summary with its log. No "Output token limit" message appeared and every other request kept `max_tokens` 4096.
+- F5: the headless profile steps above created a profile under an empty `DSH_HOME`, and one task from a project with `.claude/CLAUDE.md` created `notes.md` whose first line was `# AIR`.
+
 ### Driving the app in a test
 
 `air/scripts/desktop-drive.mjs` is a manual test aid that drives a running desktop app through Electron's renderer debugging port; it is not part of the product. Start the app with `DSH_DESKTOP_RENDERER_DEBUG_PORT` set, and set `AIR_DESKTOP_DEBUG_PORT` to the same value when it is not the default 9222. Run `node air/scripts/desktop-drive.mjs` with no arguments to list its subcommands.
