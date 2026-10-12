@@ -9,6 +9,7 @@ import { ProcessState } from '../src/client/conversation-nodes/process-groups.ts
 import { processActivity } from '../src/client/conversation-nodes/process-activity.ts'
 import { ConversationGroupStore } from '../../ui-conversation/src/client/conversation/group-store.ts'
 import type { ProcessGroupData } from '../src/client/contract/process-groups.ts'
+import { TURN_PROCESS_INDEPENDENT_KINDS } from '../src/client/contract/turn-process.ts'
 
 const turn: TurnLocation = {
   turn: 1, status: 'open', steps: [], end: undefined,
@@ -537,6 +538,26 @@ describe('Definition-owned Chat process groups', () => {
     h.builder.apply({ upserts: [{ ...completed, data: { ...completed.data, status: 'settled' } }], timeline })
     expect(h.commit()).toBeNull()
     expect(source.getSnapshot()).toBe(closed)
+  })
+
+  it('keeps the compaction row outside the collapsed Turn-process disclosure', () => {
+    expect(TURN_PROCESS_INDEPENDENT_KINDS.has('compaction')).toBe(true)
+  })
+
+  it('keeps a compaction row out of the tool groups it falls between', () => {
+    const compaction: ChatNode<'compaction'> = {
+      key: 'compaction', id: 'compaction', kind: 'compaction', target: 'chat', anchorSeq: 3,
+      location: { kind: 'turn', turn }, visibility: 'visible',
+      data: { kind: 'compaction', seq: 3, time: 3, summary: 'earlier files f1 to f3', summaryEventSeq: 2, shadowedItemCount: 4, shadowedTokenCount: 900 },
+    }
+    const h = harness([tool('a', 2), compaction, tool('b', 4)])
+    expect(h.store.entries.map(entry => entry.kind)).toEqual(['group', 'node', 'group'])
+    const middle = h.store.entries[1]
+    expect(middle?.kind === 'node' ? middle.key : undefined).toBe('compaction')
+    for (const entry of h.store.entries) {
+      if (entry.kind !== 'group') continue
+      expect(h.store.groupSource(entry.key).getSnapshot()?.members.map(member => member.key)).not.toContain('compaction')
+    }
   })
 
   it('keeps a no-Turn row between groups and repairs membership on replacement', () => {
