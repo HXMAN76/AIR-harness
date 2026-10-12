@@ -20,6 +20,8 @@ Research and plans 00–07 are done and were revised on 2026-10-08 for upstream 
 
 What exists and works: five `@air/dsh-*` packages under [packages](packages) (plan 01), and the `air` bundle ([bundles/air](bundles/air)), which loads them, turns off upstream-vendor uploads, accounts, and telemetry and makes a local Ollama model the default; and an `air` profile created by the commands in [README.md](README.md).
 
+The headless profile (scripted and evaluation runs, one task per invocation) uses the separate bundle [bundles/air-headless](bundles/air-headless) instead of the `air` bundle; see the Headless profile section of [README.md](README.md).
+
 Plan 02 adds the packages `mcp-trust` (`@air/dsh-mcp-trust`) and `mcp-trust-cli` under [packages](packages), and the `air-mcp` profile bundle ([bundles/air-mcp](bundles/air-mcp)). The `air` bundle reviews project MCP servers in enforce mode.
 
 Since 2026-10-12 the product runs in upstream's desktop app on Linux from source (`pnpm -C air run desktop:setup`, then `pnpm -C air run desktop`), the desktop app is the primary surface, and the features of plans 01 and 02 were checked there.

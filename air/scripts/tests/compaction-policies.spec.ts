@@ -7,6 +7,8 @@ import {
   MODEL_WINDOWS,
   RESERVED_OUTPUT_TOKENS,
   WINDOW_TARGETS,
+  BEGIN_MARKER,
+  applyHeadlessPolicies,
   applyPolicies,
   policiesFor,
   type PolicyPreset,
@@ -110,5 +112,29 @@ describe('compaction policies for local models', () => {
     expect(applyPolicies(regenerate(patchText))).toBe(patchText)
     expect(regenerate(applyPolicies(patchText))).toBe(patchText)
     expect(writtenPolicies(regenerate(patchText), 'preset-air-lean')).toEqual(policiesFor('lean'))
+  })
+})
+
+describe('compaction policies in the headless bundle', () => {
+  const headlessText = readFileSync(join(import.meta.dirname, '..', '..', 'bundles', 'air-headless', 'cordis.patch.yml'), 'utf8')
+
+  it('writes the lean table values into the compaction-basic row', () => {
+    const parsed: unknown = parse(headlessText, { customTags: [jsTag] })
+    const rows = Array.isArray(parsed) ? parsed.filter(isRecord) : []
+    const config = rows.find(row => row['id'] === 'compaction-basic')?.['config']
+    const policies = isRecord(config) && Array.isArray(config['modelPolicies']) ? config['modelPolicies'] : []
+    expect(policies).toEqual(policiesFor('lean'))
+  })
+
+  it('detects a stale block, rewrites it back, and leaves a current file unchanged', () => {
+    const stale = headlessText.replace('headroomTokens: 8672', 'headroomTokens: 1')
+    expect(stale).not.toBe(headlessText)
+    expect(applyHeadlessPolicies(stale)).toBe(headlessText)
+    expect(applyHeadlessPolicies(headlessText)).toBe(headlessText)
+  })
+
+  it('rejects a file with no marker pair or an unterminated block', () => {
+    expect(() => applyHeadlessPolicies('- id: compaction-basic\n')).toThrow('exactly one policy marker pair')
+    expect(() => applyHeadlessPolicies(`${BEGIN_MARKER}\n`)).toThrow('no end marker')
   })
 })

@@ -1,0 +1,23 @@
+{
+  "name": "@air/dsh-air-headless-bundle",
+  "description": "AIR product bundle for upstream's headless profile: local-first defaults, AIR file conventions, MCP trust, and the lean tool set",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "files": [
+    "cordis.patch.yml"
+  ],
+  "dependencies": {
+    "@air/dsh-command-conventions": "workspace:*",
+    "@air/dsh-instruction-conventions": "workspace:*",
+    "@air/dsh-mcp-conventions": "workspace:*",
+    "@air/dsh-mcp-trust": "workspace:*",
+    "@air/dsh-skill-conventions": "workspace:*"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}

@@ -1,5 +1,6 @@
 /**
- * Writes the `modelPolicies` block of compaction-basic into both AIR presets of air/bundles/air/cordis.patch.yml.
+ * Writes the `modelPolicies` block of compaction-basic into both AIR presets of air/bundles/air/cordis.patch.yml and, with
+ * lean values, into the `compaction-basic` row of air/bundles/air-headless/cordis.patch.yml.
  *
  * The single source is the table below: window class and preset to compaction targets, and local model id to window class.
  * The block sits between marker comments inside the `compaction-basic` row of `preset-air` (full values) and of
@@ -153,18 +154,52 @@ export function applyPolicies(patch: string): string {
   return out.join('\n')
 }
 
-const patchFile = join(import.meta.dirname, '..', 'bundles', 'air', 'cordis.patch.yml')
+/**
+ * Rewrite the single policy block of the headless bundle patch, which carries the lean tool set and so the lean values.
+ * @param patch - contents of the headless bundle patch file; it holds exactly one marker pair.
+ * @returns the patch text with the block between the markers holding the lean values.
+ */
+export function applyHeadlessPolicies(patch: string): string {
+  const out: string[] = []
+  let skipping = false
+  let seen = 0
+  for (const line of patch.split('\n')) {
+    if (skipping) {
+      if (line.trim() === END_MARKER) {
+        skipping = false
+        out.push(line)
+      }
+      continue
+    }
+    out.push(line)
+    if (line.trim() !== BEGIN_MARKER) continue
+    seen += 1
+    out.push(...renderBlock('lean', line.slice(0, line.length - line.trimStart().length)))
+    skipping = true
+  }
+  if (skipping) throw new Error('gen-compaction-policies: headless policy block has no end marker')
+  if (seen !== 1) throw new Error('gen-compaction-policies: the headless bundle needs exactly one policy marker pair')
+  return out.join('\n')
+}
+
+const bundles = join(import.meta.dirname, '..', 'bundles')
+const targets: readonly { file: string; apply: (text: string) => string }[] = [
+  { file: join(bundles, 'air', 'cordis.patch.yml'), apply: applyPolicies },
+  { file: join(bundles, 'air-headless', 'cordis.patch.yml'), apply: applyHeadlessPolicies },
+]
 
 function main(argv: readonly string[]): number {
-  const current = readFileSync(patchFile, 'utf8')
-  const next = applyPolicies(current)
-  if (argv.includes('--check')) {
-    if (next === current) return 0
-    console.error('gen-compaction-policies: policy blocks are stale; run `pnpm -C air run gen:policies`')
-    return 1
+  let status = 0
+  for (const { file, apply } of targets) {
+    const current = readFileSync(file, 'utf8')
+    const next = apply(current)
+    if (next === current) continue
+    if (argv.includes('--check')) {
+      console.error(`gen-compaction-policies: policy blocks in ${file} are stale; run \`pnpm -C air run gen:policies\``)
+      status = 1
+    } else writeFileSync(file, next)
   }
-  if (next !== current) writeFileSync(patchFile, next)
-  return 0
+  return status
 }
 
 if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href) process.exitCode = main(process.argv.slice(2))

@@ -65,6 +65,24 @@ importers:
 
   bundles/air-desktop: {}
 
+  bundles/air-headless:
+    dependencies:
+      '@air/dsh-command-conventions':
+        specifier: workspace:*
+        version: link:../../packages/command-conventions
+      '@air/dsh-instruction-conventions':
+        specifier: workspace:*
+        version: link:../../packages/instruction-conventions
+      '@air/dsh-mcp-conventions':
+        specifier: workspace:*
+        version: link:../../packages/mcp-conventions
+      '@air/dsh-mcp-trust':
+        specifier: workspace:*
+        version: link:../../packages/mcp-trust
+      '@air/dsh-skill-conventions':
+        specifier: workspace:*
+        version: link:../../packages/skill-conventions
+
   bundles/air-mcp:
     dependencies:
       '@air/dsh-mcp-trust-cli':

@@ -11,6 +11,7 @@ air/
   pnpm-workspace.yaml     separate pnpm workspace (bundles/*, packages/*)
   bundles/air/            @air/dsh-air-bundle: product defaults as a Cordis patch
   bundles/air-desktop/    @air/dsh-air-desktop-bundle: layered after air in the desktop profile; keeps the two rows the desktop app needs at boot
+  bundles/air-headless/   @air/dsh-air-headless-bundle: the AIR defaults and plugins for a profile made from the headless template (scripted runs)
   packages/convention-core/          shared discovery library for the convention plugins
   packages/skill-conventions/        skill provider: .claude/skills, project skill roots, ~/.air/skills
   packages/instruction-conventions/  .claude/CLAUDE.md, @path imports, .claude/rules
@@ -223,6 +224,32 @@ Project MCP servers from `.mcp.json` start only after `/mcp approve <server>`; r
 The `air` bundle loads the MCP trust plugin and sets `reviewTools: true` on the MCP conventions row, so every server imported from a project's `.mcp.json` waits for the reviewer and registers only tool definitions that match a reviewed lockfile (`$DSH_HOME/air/mcp-lock.json`). The shipped mode is `enforce`: a server with no pin registers nothing until you approve it. The `air-mcp` command-line profile lists `air/bundles/mcp-servers`, which holds the same trust row, so both profiles share one lockfile and one audit directory (`$DSH_HOME/air/mcp-audit`). Every mcp-client row must declare `inject: [mcpToolReview]`; see [examples/mcp-filesystem.profile.cordis.patch.yml](examples/mcp-filesystem.profile.cordis.patch.yml).
 
 The first turn after a server appears asks once whether to approve it; allowing it saves the pin. Inside a session, `/mcp-trust` shows status and diffs and pins a changed surface. To read the definitions first, or to approve from a terminal, run `pnpm dsh --profile air-mcp diff <server>`, then `pin <server>`; `verify --all` is the CI check and `revoke <server>` removes approvals. Details: [packages/mcp-trust/README.md](packages/mcp-trust/README.md) and [packages/mcp-trust-cli/README.md](packages/mcp-trust-cli/README.md). `pnpm -C air run smoke` boots the `air` profile with the trust row and then composes the `air-mcp` profile and checks its command exit codes, all under an isolated harness home.
+
+## Headless profile
+
+The headless profile runs one task per command-line invocation: evaluations and scripted runs, no window and no server. Upstream's `headless` template composes the agent directly from its base bundle and has no agent-preset registry, so the `air` bundle cannot apply to it: three of its patch targets (`account-controller`, `ui-settings-account`, `agent-preset-registry`) do not exist there, and `preset-air` would wait forever for the `agentPresets` service. The separate bundle `bundles/air-headless` is added INSTEAD of `bundles/air`. Create the profile and run a task (Windows PowerShell and Linux use the same commands apart from the copy command):
+
+```sh
+pnpm dsh --profile air-headless --from-default-profile headless --dump-config
+pnpm dsh plugin --profile air-headless add "$PWD/air/bundles/air-headless"
+cp air/examples/ollama.profile.cordis.patch.yml ~/.dsh/profiles/air-headless/cordis.patch.yml    # PowerShell: Copy-Item
+echo OLLAMA_API_KEY=ollama >> ~/.dsh/.env                                                         # once
+pnpm dsh --profile air-headless "Create notes.md with one line saying the project started today."
+pnpm dsh --profile air-headless --json "task"                                                    # newline-delimited events
+```
+
+Run from the repository root with a source checkout: the source launcher resolves workspace imports through the root `tsconfig.json`, and the agent works in the launcher's current directory. To work in another project, set `TSX_TSCONFIG_PATH` to the root `tsconfig.json`, change into that project, and call `node --import <repo>/node_modules/tsx/dist/esm/index.mjs <repo>/apps/cli/src/bin.ts --profile air-headless "task"` (checked on Linux). The permission mode is upstream's default (Workspace Write); this bundle does not change it.
+
+What differs from the Web and desktop composition:
+
+- The plugins are rows of the composition itself, not entries of an agent preset: instruction conventions, skill conventions, command conventions, MCP conventions, and MCP trust. The one-shot agent therefore gets `.claude/CLAUDE.md`, `.claude/rules`, `.claude/skills`, and `.claude/commands` exactly as the `air` preset does.
+- The lean tool set is the default, as in the `air-lean` preset: the goal command and tool, the subagent tools, and the workflow tools are disabled (a test checks the list against `scripts/gen-preset-air-lean.ts`). The headless composition has no schedule tool and no clock plugin. To get the full set, set `disabled: false` on those rows in the profile's `cordis.patch.yml`.
+- The default model is the local `qwen3-8b-32k` row, set the same way as in the `air` bundle. Headless has no model option: change `agent-default-model` in the profile patch to run another model. The compaction `modelPolicies` use the lean values and come from the same table, `scripts/gen-compaction-policies.ts`, which writes this bundle's block as well; there is no preset switching by context window.
+- The vendor-upload, telemetry, account, and DeepSeek web-search rows are disabled, the same set the `air` bundle disables, minus the Web-only rows.
+
+MCP in a headless run: nobody can answer the first-use approval prompt, so a project `.mcp.json` server with no pin stays blocked and registers no tools. Pre-pin it before the run: `pnpm dsh --profile air-mcp pin <server>` writes `$DSH_HOME/air/mcp-lock.json`, which the headless profile shares, and the server's approval is stored in `$DSH_HOME/air/mcp-approvals.json`. An evaluation seeds both files, or runs the `air-mcp` command line once, before the first task. A server whose tool definitions change after pinning is rejected, not asked about.
+
+Known limits: no agent presets and no preset switching; no schedule tool; no interactive follow-up; the `--session-id` resume path refuses sessions recorded under an agent preset (a Web or desktop session cannot be continued here). `pnpm -C air run check:composition` composes the profile and checks every row; `pnpm -C air run smoke` boots one task against an unreachable model route and fails on any failed or pending row.
 
 ## Quality bar
 
