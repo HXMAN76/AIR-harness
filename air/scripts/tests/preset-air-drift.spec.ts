@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { parse } from 'yaml'
+import { REMOVED_ROW_IDS, regenerate } from '../gen-preset-air-lean.ts'
 
 const airDir = join(import.meta.dirname, '..', '..')
 const bundleDir = join(airDir, 'bundles', 'air')
@@ -39,6 +40,20 @@ function presetPlugins(file: string, rowId: string): Row[] {
   return plugins
 }
 
+/** Copy a value without any `modelPolicies` key, and without a config left empty by that removal. */
+function withoutPolicies(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(withoutPolicies)
+  if (!isRow(value)) return value
+  const entries: [string, unknown][] = []
+  for (const [key, item] of Object.entries(value)) {
+    if (key === 'modelPolicies') continue
+    const copy = withoutPolicies(item)
+    const emptied = isRow(item) && Object.keys(item).length > 0 && isRow(copy) && Object.keys(copy).length === 0
+    if (!emptied) entries.push([key, copy])
+  }
+  return Object.fromEntries(entries)
+}
+
 function isAirRow(row: Row): boolean {
   const id = row['id']
   return typeof id === 'string' && id.startsWith('air-')
@@ -53,7 +68,7 @@ describe('AIR bundle composition', () => {
       { id: 'air-skill-conventions', name: '@air/dsh-skill-conventions' },
     ])
     const expected = standard.map(row => (row['id'] === 'skill-filesystem' ? Object.assign({}, row, { config: { includeDefaultRoots: false } }) : row))
-    expect(air.filter(row => !isAirRow(row))).toEqual(expected)
+    expect(withoutPolicies(air.filter(row => !isAirRow(row)))).toEqual(expected)
   })
 
   it('places each AIR preset row directly after its upstream counterpart', () => {
@@ -67,13 +82,36 @@ describe('AIR bundle composition', () => {
     expect(ids).toEqual(expect.arrayContaining(['time-context', 'tool-schedule']))
   })
 
-  it('makes the AIR preset the default and mounts the host rows', () => {
-    expect(patches(airPatch)).toContainEqual({ id: 'agent-preset-registry', config: { default: 'air' } })
+  it('keeps preset-air-lean equal to preset-air minus exactly the declared removed rows', () => {
+    const full = presetPlugins(airPatch, 'preset-air')
+    const lean = presetPlugins(airPatch, 'preset-air-lean')
+    expect(REMOVED_ROW_IDS.every(id => full.some(row => row['id'] === id))).toBe(true)
+    expect(lean.some(row => REMOVED_ROW_IDS.includes(String(row['id'])))).toBe(false)
+    expect(withoutPolicies(lean)).toEqual(withoutPolicies(full.filter(row => !REMOVED_ROW_IDS.includes(String(row['id'])))))
+  })
+
+  it('keeps the generated lean block current', () => {
+    const text = readFileSync(airPatch, 'utf8')
+    expect(regenerate(text)).toBe(text)
+  })
+
+  it('lists the lean preset first and the full preset second', () => {
+    const order = (rowId: string): unknown => {
+      const config = insertedRows(airPatch).find(row => row['id'] === rowId)?.['config']
+      return isRow(config) ? config['order'] : undefined
+    }
+    expect(order('preset-air-lean')).toBe(-1)
+    expect(order('preset-air')).toBe(0)
+  })
+
+  it('makes the lean AIR preset the default and mounts the host rows', () => {
+    expect(patches(airPatch)).toContainEqual({ id: 'agent-preset-registry', config: { default: 'air-lean' } })
     const hostRows = insertedRows(airPatch).filter(isAirRow)
     expect(hostRows.map(row => [row.id, row.name])).toEqual([
       ['air-mcp-conventions', '@air/dsh-mcp-conventions'],
       ['air-mcp-trust', '@air/dsh-mcp-trust'],
       ['air-command-conventions', '@air/dsh-command-conventions'],
+      ['air-preset-by-model', '@air/dsh-preset-by-model'],
     ])
   })
 
@@ -81,7 +119,7 @@ describe('AIR bundle composition', () => {
     const manifest: unknown = JSON.parse(readFileSync(join(bundleDir, 'package.json'), 'utf8'))
     const dependencies = isRow(manifest) && isRow(manifest['dependencies']) ? manifest['dependencies'] : {}
     const rowPackages = [...readFileSync(airPatch, 'utf8').matchAll(/name: '(@air\/[^']+)'/gu)].map(match => match[1])
-    expect(rowPackages).toHaveLength(5)
+    expect(rowPackages).toHaveLength(8)
     for (const packageName of rowPackages) expect(dependencies).toHaveProperty([String(packageName)], 'workspace:*')
   })
 })

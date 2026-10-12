@@ -1,0 +1,27 @@
+# AIR desktop variant. List this bundle AFTER @air/dsh-air-bundle in the
+# desktop profile's `dsh.profile.bundles`; later layers win per row id.
+#
+# Upstream's desktop app reads the account state over the account Remote
+# namespace while it starts (apps/desktop/src/welcome-backend.ts `read` calls
+# `account.state()`, which calls `account/getState`). The AIR bundle disables the
+# rows that serve that namespace, so the app shows "desktop welcome: Web request
+# failed" and never reaches the composer. Two rows come back, and only these:
+#
+# - account-controller serves `account/getState`, `account/watch`, and
+#   `account/watchExpiry`; it injects `deepseekAccount`.
+# - deepseek-account provides `deepseekAccount`. Signed out (no stored grant) it
+#   answers `getState` from the local credential store and makes no network
+#   request. Requests to the vendor's platform happen only after the user starts
+#   sign-in, or while holding a stored grant (profile, balance, bonus, sign-out
+#   revocation). AIR never stores a grant, so none of those paths run.
+#
+# Left disabled (the AIR bundle's setting stands): llm-deepseek-account (the
+# vendor inference route), ui-settings-account (the account settings page; a
+# desktop launch without it reaches the composer), web-search-deepseek, and the
+# session log, package inventory, and telemetry uploads.
+
+- id: deepseek-account
+  disabled: false
+
+- id: account-controller
+  disabled: false

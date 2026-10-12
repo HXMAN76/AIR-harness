@@ -10,12 +10,16 @@
   "scripts": {
     "build": "pnpm -r --if-present run build",
     "typecheck": "pnpm -r --if-present run typecheck && tsc -p scripts/tsconfig.json",
-    "lint": "tsx scripts/gen-oxlintrc.ts --check && oxlint --config oxlint.air.json --type-aware --no-error-on-unmatched-pattern packages apps scripts",
+    "lint": "tsx scripts/gen-oxlintrc.ts --check && tsx scripts/gen-preset-air-lean.ts --check && tsx scripts/gen-compaction-policies.ts --check && oxlint --config oxlint.air.json --type-aware --no-error-on-unmatched-pattern packages apps scripts",
     "lint:gen": "tsx scripts/gen-oxlintrc.ts",
+    "gen:lean": "tsx scripts/gen-preset-air-lean.ts",
+    "gen:policies": "tsx scripts/gen-compaction-policies.ts",
     "test": "vitest run && pnpm -r --no-bail --if-present run test",
     "smoke": "tsx scripts/smoke-profile.ts && tsx scripts/smoke-air-mcp.ts",
     "check:composition": "tsx scripts/check-air-composition.ts",
-    "demo": "tsx scripts/make-demo-project.ts"
+    "demo": "tsx scripts/make-demo-project.ts",
+    "desktop:setup": "tsx scripts/setup-desktop-profile.ts",
+    "desktop": "pnpm --dir .. run start:desktop"
   },
   "devDependencies": {
     "@stylistic/eslint-plugin": "^5.10.0",

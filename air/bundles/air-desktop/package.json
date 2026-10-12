@@ -1,0 +1,16 @@
+{
+  "name": "@air/dsh-air-desktop-bundle",
+  "description": "AIR desktop variant: keeps the account rows that upstream's desktop app needs at boot, layered after the AIR bundle",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "files": [
+    "cordis.patch.yml"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}

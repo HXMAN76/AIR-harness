@@ -22,6 +22,8 @@ What exists and works: five `@air/dsh-*` packages under [packages](packages) (pl
 
 Plan 02 adds the packages `mcp-trust` (`@air/dsh-mcp-trust`) and `mcp-trust-cli` under [packages](packages), and the `air-mcp` profile bundle ([bundles/air-mcp](bundles/air-mcp)). The `air` bundle reviews project MCP servers in enforce mode.
 
+Since 2026-10-12 the product runs in upstream's desktop app on Linux from source (`pnpm -C air run desktop:setup`, then `pnpm -C air run desktop`), the desktop app is the primary surface, and the features of plans 01 and 02 were checked there.
+
 ## Rules
 
 - **Stay out of tree.** AIR code goes in `air/` as `@air/dsh-*` packages loaded by the `air` bundle. Do not edit upstream files unless a plan says the edit is unavoidable; list every such edit in [UPSTREAM-DELTA.md](UPSTREAM-DELTA.md).
@@ -29,7 +31,7 @@ Plan 02 adds the packages `mcp-trust` (`@air/dsh-mcp-trust`) and `mcp-trust-cli`
 - **In-tree review hook.** Plan 02 edits upstream's MCP client in `packages/mcp/mcp-client` (the review hook, listed in [UPSTREAM-DELTA.md](UPSTREAM-DELTA.md)). After every upstream sync, follow the re-check steps for it in that file.
 - **No custom session event types.** An out-of-tree plugin cannot write event types that older builds may skip; an unknown type makes a session unresumable. Model-visible input enters as injected user messages with an AIR source kind, or as tool results; audit data goes to files under `$DSH_HOME/air/`.
 - **Security is enforced, not advised.** Markdown instructions shape model behavior; pinning, permission rules, approval, and the sandbox enforce.
-- **Product form.** A desktop app for Windows and Linux (Fedora first), built as an AIR-owned Electron shell under `air/apps/` (plan 07); upstream's `apps/desktop` is not modified. macOS is out of scope. Scripts must run on native Windows and Linux: write them in Node or tsx, not bash.
+- **Product form.** The product is delivered as the AIR bundle running in upstream's desktop app (`apps/desktop`, profile `desktop`, plus `air/bundles/air-desktop`) and in the Web UI; desktop is primary; in-tree edits under `apps/desktop` are allowed when unavoidable and must be listed in `UPSTREAM-DELTA.md`; macOS is out of scope; scripts must run on native Windows and Linux (Node or tsx, not bash).
 - **Permissions.** Product defaults are upstream's permission presets; AIR adds only the `sudo` guard, gating of MCP tool calls, and saved rules (plan 03 as amended in the roadmap).
 - **Placeholders.** The product name and the desktop identifiers are on hold; use the placeholders in [BRANDING.md](BRANDING.md).
 - **Local first.** The default model route is local Ollama. Do not add a dependency on a hosted service to a default code path.
