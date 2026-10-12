@@ -55,4 +55,30 @@ for (const [label, passed] of checks) {
   if (!passed) failed = true
 }
 if (failed) fail('see FAILED lines above; if the dump quotes names differently, adjust the patterns and keep the same eight checks')
+
+// The desktop profile layers the desktop variant after the AIR bundle; the account rows it needs must be back, the rest stay off.
+const desktopProfile = 'air-desktop-check'
+dsh(['--profile', desktopProfile, '--from-default-profile', 'web', '--dump-config'])
+dsh(['plugin', '--profile', desktopProfile, 'add', join(repoRoot, 'air', 'bundles', 'air')])
+dsh(['plugin', '--profile', desktopProfile, 'add', join(repoRoot, 'air', 'bundles', 'air-desktop')])
+const desktopDump = dsh(['--profile', desktopProfile, '--dump-config'])
+if (LAUNCHER_PROBLEM.test(desktopDump.stderr)) fail('problems while composing the desktop variant:', desktopDump.stderr)
+/** Read the `disabled` flag the dump prints for a top-level row; undefined when the row has none. */
+function rowDisabled(id: string): boolean | undefined {
+  const found = new RegExp(`^- id:\\s*['"]?${id}['"]?\\n(?:  [^\\n]*\\n)*?  disabled:\\s*(true|false)`, 'mu').exec(desktopDump.stdout)
+  return found === null ? undefined : found[1] === 'true'
+}
+const presetRows = desktopDump.stdout.match(/id:\s*['"]?preset-air\b/gu)?.length ?? 0
+const desktopChecks: readonly (readonly [string, boolean])[] = [
+  ['desktop: deepseek-account enabled', rowDisabled('deepseek-account') === false],
+  ['desktop: account-controller enabled', rowDisabled('account-controller') === false],
+  ['desktop: llm-deepseek-account disabled', rowDisabled('llm-deepseek-account') === true],
+  ['desktop: ui-settings-account disabled', rowDisabled('ui-settings-account') === true],
+  ['desktop: preset-air present once', presetRows === 1],
+]
+for (const [label, passed] of desktopChecks) {
+  console.log(`${passed ? 'ok' : 'FAILED'}: ${label}`)
+  if (!passed) failed = true
+}
+if (failed) fail('see FAILED lines above')
 console.log(`composition: ok (${home})`)

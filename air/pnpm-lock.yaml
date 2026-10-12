@@ -60,6 +60,8 @@ importers:
         specifier: workspace:*
         version: link:../../packages/skill-conventions
 
+  bundles/air-desktop: {}
+
   bundles/air-mcp:
     dependencies:
       '@air/dsh-mcp-trust-cli':
