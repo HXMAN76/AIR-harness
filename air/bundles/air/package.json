@@ -13,6 +13,7 @@
     "@air/dsh-instruction-conventions": "workspace:*",
     "@air/dsh-mcp-conventions": "workspace:*",
     "@air/dsh-mcp-trust": "workspace:*",
+    "@air/dsh-preset-by-model": "workspace:*",
     "@air/dsh-skill-conventions": "workspace:*"
   },
   "dsh": {

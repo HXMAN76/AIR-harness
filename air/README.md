@@ -16,6 +16,7 @@ air/
   packages/instruction-conventions/  .claude/CLAUDE.md, @path imports, .claude/rules
   packages/mcp-conventions/          .mcp.json servers per Agent, with approval (/mcp)
   packages/command-conventions/      .claude/commands with $ARGUMENTS
+  packages/preset-by-model/          picks air-lean or air from the selected model's context window
   apps/                   AIR desktop app and its Host entry (plan 07; not built yet)
   plans/                  roadmap, implementation plans, and API spikes
   examples/               profile-patch examples, e.g. the local Ollama route
@@ -56,7 +57,7 @@ The example patch turns thinking off for this model (`reasoning: off` on the rou
 
 ### Cloud models
 
-A user can add an API key and select a hosted model. Hosted models have large context windows, so the full `air` preset is the appropriate choice there. The preset is chosen per session in the composer and does not change automatically when the model changes; automatic selection by model is not implemented.
+A user can add an API key and select a hosted model. Hosted models have large context windows, so the full `air` preset is the appropriate choice there. The `air-preset-by-model` plugin chooses it automatically: a new session, and a blank session whose model is changed in the composer, gets `air-lean` for a model whose context window is below 65,536 tokens and `air` otherwise. A preset the user picks in the composer, a default set in Settings, or a preset requested at session creation always wins, and nothing changes once the first message is sent. When the window of a model is unknown the default stays. See [packages/preset-by-model](packages/preset-by-model/README.md) for the rules and limits.
 
 For browser automation of the Web UI, start it with `pnpm dsh --profile air --patch apps/web/tests/pin-browse-picker.overlay.yml`; "Add workspace" then opens an in-page folder picker instead of a native dialog.
 

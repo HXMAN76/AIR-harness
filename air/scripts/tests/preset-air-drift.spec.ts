@@ -97,6 +97,7 @@ describe('AIR bundle composition', () => {
       ['air-mcp-conventions', '@air/dsh-mcp-conventions'],
       ['air-mcp-trust', '@air/dsh-mcp-trust'],
       ['air-command-conventions', '@air/dsh-command-conventions'],
+      ['air-preset-by-model', '@air/dsh-preset-by-model'],
     ])
   })
 
@@ -104,7 +105,7 @@ describe('AIR bundle composition', () => {
     const manifest: unknown = JSON.parse(readFileSync(join(bundleDir, 'package.json'), 'utf8'))
     const dependencies = isRow(manifest) && isRow(manifest['dependencies']) ? manifest['dependencies'] : {}
     const rowPackages = [...readFileSync(airPatch, 'utf8').matchAll(/name: '(@air\/[^']+)'/gu)].map(match => match[1])
-    expect(rowPackages).toHaveLength(7)
+    expect(rowPackages).toHaveLength(8)
     for (const packageName of rowPackages) expect(dependencies).toHaveProperty([String(packageName)], 'workspace:*')
   })
 })

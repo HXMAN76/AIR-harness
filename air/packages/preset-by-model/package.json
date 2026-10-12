@@ -1,0 +1,56 @@
+{
+  "name": "@air/dsh-preset-by-model",
+  "description": "Chooses the agent preset of a new session from the selected model's context window",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "main": "lib/index.js",
+  "types": "lib/types/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/types/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib/index.js",
+    "lib/types/**/*.d.ts"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json && tsdown",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@air/dsh-convention-core": "workspace:*",
+    "@deepseek-ai/schemastery": "link:../../../vendor/schemastery"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.4",
+    "@deepseek-ai/dsh-agent": "^0.2.0-rc.1",
+    "@deepseek-ai/dsh-agent-default-model": "^0.2.0-rc.1",
+    "@deepseek-ai/dsh-agent-preset-registry": "^0.2.0-rc.1",
+    "@deepseek-ai/dsh-api-session-controller": "^0.2.0-rc.1",
+    "@deepseek-ai/dsh-llm": "^0.2.0-rc.1",
+    "@deepseek-ai/dsh-session": "^0.2.0-rc.1"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "link:../../../vendor/cordis",
+    "@deepseek-ai/cordis-plugin-group": "link:../../../vendor/group",
+    "@deepseek-ai/cordis-plugin-include": "link:../../../vendor/include",
+    "@deepseek-ai/cordis-plugin-loader": "link:../../../vendor/loader",
+    "@deepseek-ai/dsh-agent": "link:../../../packages/core/agent",
+    "@deepseek-ai/dsh-agent-default-model": "link:../../../packages/core/agent-default-model",
+    "@deepseek-ai/dsh-agent-loop": "link:../../../packages/core/agent-loop",
+    "@deepseek-ai/dsh-agent-preset": "link:../../../packages/preset/agent-preset",
+    "@deepseek-ai/dsh-agent-preset-registry": "link:../../../packages/preset/agent-preset-registry",
+    "@deepseek-ai/dsh-api-session-controller": "link:../../../packages/api/session-controller",
+    "@deepseek-ai/dsh-llm": "link:../../../packages/llm/llm",
+    "@deepseek-ai/dsh-session": "link:../../../packages/core/session",
+    "@deepseek-ai/dsh-session-projection": "link:../../../packages/session/session-projection",
+    "@deepseek-ai/dsh-system-prompt": "link:../../../packages/core/system-prompt",
+    "@deepseek-ai/dsh-tools": "link:../../../packages/core/tools"
+  }
+}

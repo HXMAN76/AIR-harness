@@ -71,6 +71,8 @@ const checks: readonly (readonly [string, boolean])[] = [
   ['instruction conventions mounted in both presets', count(/@air\/dsh-instruction-conventions/gu) === 2],
   ['mcp conventions mounted once', count(/@air\/dsh-mcp-conventions/gu) === 1],
   ['command conventions mounted once', count(/@air\/dsh-command-conventions/gu) === 1],
+  ['preset by model mounted once, with the lean and full preset ids', count(/@air\/dsh-preset-by-model/gu) === 1
+    && /smallPreset:\s*['"]?air-lean\b/u.test(text) && /largePreset:\s*['"]?air['"]?\s*$/mu.test(text)],
   ['one preset-air-lean row', count(/id:\s*['"]?preset-air-lean\b/gu) === 1],
   ['registry default is air-lean', registryAt >= 0 && /default:\s*['"]?air-lean\b/u.test(text.slice(registryAt, registryAt + 400))],
   ['skill-filesystem default roots off in both presets', count(/includeDefaultRoots:\s*false/gu) === 2],
@@ -82,7 +84,7 @@ for (const [label, passed] of checks) {
   console.log(`${passed ? 'ok' : 'FAILED'}: ${label}`)
   if (!passed) failed = true
 }
-if (failed) fail('see FAILED lines above; if the dump quotes names differently, adjust the patterns and keep the same eight checks')
+if (failed) fail('see FAILED lines above; if the dump quotes names differently, adjust the patterns and keep the same checks')
 
 // The desktop profile layers the desktop variant after the AIR bundle; the account rows it needs must be back, the rest stay off.
 const desktopProfile = 'air-desktop-check'

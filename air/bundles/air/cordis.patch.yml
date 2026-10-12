@@ -330,6 +330,15 @@
         enrollOnApproval: true
     - id: air-command-conventions
       name: '@air/dsh-command-conventions'
+    # Picks air-lean or air for a new session from the selected model's context window. It needs the
+    # `agent-preset-registry` row below only as a service, so row order does not matter.
+    - id: air-preset-by-model
+      name: '@air/dsh-preset-by-model'
+      config:
+        enabled: true
+        smallWindowTokens: 65536
+        smallPreset: air-lean
+        largePreset: air
 
 # New sessions use the lean AIR preset; the full one stays selectable. The registry row's only non-volatile Config
 # field is `default`, so replacing its config loses nothing.
