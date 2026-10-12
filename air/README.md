@@ -18,6 +18,7 @@ air/
   packages/mcp-conventions/          .mcp.json servers per Agent, with approval (/mcp)
   packages/command-conventions/      .claude/commands with $ARGUMENTS
   packages/preset-by-model/          picks air-lean or air from the selected model's context window
+  packages/compaction-log/           compaction engine whose summaries keep a numbered chronological log and the first request
   packages/effort-session-only/      keeps a reasoning-effort pick in the session instead of saving it as the default
   apps/                   AIR desktop app and its Host entry (plan 07; not built yet)
   plans/                  roadmap, implementation plans, and API spikes
@@ -88,7 +89,7 @@ The `modelPolicies` block of `compaction-basic` now overrides `headroomTokens`, 
 
 - Compaction runs on the listed local models. The lean preset on 16K starts compaction at about 9,000 tokens, so replies are capped near 3,000 tokens, and history is pruned and summarised about every three turns when tool results are large. At 32K the threshold is 20,000 tokens and replies keep 4,096 tokens.
 - Once the threshold is crossed, a tool result over 8,192 characters is cut to its head and tail. The original stays in the session log.
-- After compaction the 8B model's summary loses early details; in the test it named the wrong first file.
+- After compaction the 8B model's summary loses early details; in the test it named the wrong first file. The compaction rows therefore run `@air/dsh-compaction-log` (same row id `compaction-basic`, same policies), which appends one section to the summary instruction: a numbered Chronological Log of every user request and tool call in order, carried forward from earlier summaries and capped at `logMaxEntries` (default 60, oldest merged), plus a verbatim First request line cut to `firstRequestMaxChars` (default 300). A replay of a saved summary request listed all four files in order. Summaries are longer by the log, about 160 tokens in that case.
 - The app shows no notice when compaction happens.
 - The full preset on a 16K window is not recommended: its fixed prompt is about 9,500 tokens and no threshold can both fit it and keep a full reply. The full-preset values and the 24K values were derived, not run.
 - Models not in the table get no compaction. Hosted models keep the upstream defaults, which suit large windows, and were not tested.

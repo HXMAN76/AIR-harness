@@ -118,10 +118,11 @@ describe('compaction policies for local models', () => {
 describe('compaction policies in the headless bundle', () => {
   const headlessText = readFileSync(join(import.meta.dirname, '..', '..', 'bundles', 'air-headless', 'cordis.patch.yml'), 'utf8')
 
-  it('writes the lean table values into the compaction-basic row', () => {
+  it('writes the lean table values into the air-compaction-log row', () => {
     const parsed: unknown = parse(headlessText, { customTags: [jsTag] })
-    const rows = Array.isArray(parsed) ? parsed.filter(isRecord) : []
-    const config = rows.find(row => row['id'] === 'compaction-basic')?.['config']
+    const patches = Array.isArray(parsed) ? parsed.filter(isRecord) : []
+    const rows = patches.flatMap(patch => (Array.isArray(patch['insert']) ? patch['insert'].filter(isRecord) : []))
+    const config = rows.find(row => row['id'] === 'air-compaction-log')?.['config']
     const policies = isRecord(config) && Array.isArray(config['modelPolicies']) ? config['modelPolicies'] : []
     expect(policies).toEqual(policiesFor('lean'))
   })

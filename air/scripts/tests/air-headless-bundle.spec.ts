@@ -62,10 +62,11 @@ describe('air-headless bundle', () => {
     // The headless composition has no schedule tool, so the lean row set minus tool-schedule must all be disabled.
     expect(expected.length).toBeGreaterThan(0)
     for (const id of expected) expect(disabled).toContain(id)
-    // Nothing else of the lean set may be disabled beyond the vendor-account rows listed in the bundle comment.
+    // Nothing else of the lean set may be disabled beyond the vendor-account rows and the replaced compaction row.
     const vendorRows = [
       'session-log-deepseek', 'plugin-package-inventory-deepseek', 'session-telemetry-otel',
       'deepseek-account', 'llm-deepseek-account', 'web-search-deepseek',
+      'compaction-basic',
     ]
     expect([...disabled].sort()).toEqual([...expected, ...vendorRows].sort())
   })
@@ -78,6 +79,14 @@ describe('air-headless bundle', () => {
     expect(trust(join(airDir, 'bundles', 'air', 'cordis.patch.yml'))).toEqual(shared)
   })
 
+  it('turns the stock compaction row off and inserts the log engine with the lean policies', () => {
+    expect(patches(headlessPatch).find(patch => patch['id'] === 'compaction-basic')).toEqual({ id: 'compaction-basic', disabled: true })
+    const row = insertedRows(headlessPatch).find(candidate => candidate['id'] === 'air-compaction-log')
+    expect(row?.['name']).toBe('@air/dsh-compaction-log')
+    const config = row?.['config']
+    expect(isRow(config) && Array.isArray(config['modelPolicies']) && config['modelPolicies'].length > 0).toBe(true)
+  })
+
   it('sets the same default model as the air bundle', () => {
     const model = (file: string): unknown => patches(file).find(patch => patch['id'] === 'agent-default-model')?.['config']
     expect(model(headlessPatch)).toEqual(model(join(airDir, 'bundles', 'air', 'cordis.patch.yml')))
@@ -88,8 +97,8 @@ describe('air-headless bundle', () => {
     const dependencies = isRow(manifest) && isRow(manifest['dependencies']) ? manifest['dependencies'] : {}
     const rowPackages = [...readFileSync(headlessPatch, 'utf8').matchAll(/name: '(@air\/[^']+)'/gu)].map(match => String(match[1]))
     expect(rowPackages.sort()).toEqual([
-      '@air/dsh-command-conventions', '@air/dsh-instruction-conventions', '@air/dsh-mcp-conventions',
-      '@air/dsh-mcp-trust', '@air/dsh-skill-conventions',
+      '@air/dsh-command-conventions', '@air/dsh-compaction-log', '@air/dsh-instruction-conventions',
+      '@air/dsh-mcp-conventions', '@air/dsh-mcp-trust', '@air/dsh-skill-conventions',
     ])
     for (const packageName of rowPackages) expect(dependencies).toHaveProperty([packageName], 'workspace:*')
   })

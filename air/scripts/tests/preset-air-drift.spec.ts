@@ -54,6 +54,16 @@ function withoutPolicies(value: unknown): unknown {
   return Object.fromEntries(entries)
 }
 
+/** The upstream compaction group with its `compaction-basic` member running AIR's compaction-log engine. */
+function replaceCompactionEngine(group: Row): Row {
+  const members = group['config']
+  if (!Array.isArray(members)) throw new Error('compaction group has no member list')
+  const replaced = members.map((member: unknown) => (isRow(member) && member['id'] === 'compaction-basic'
+    ? Object.assign({}, member, { name: '@air/dsh-compaction-log' })
+    : member))
+  return Object.assign({}, group, { config: replaced })
+}
+
 function isAirRow(row: Row): boolean {
   const id = row['id']
   return typeof id === 'string' && id.startsWith('air-')
@@ -67,7 +77,13 @@ describe('AIR bundle composition', () => {
       { id: 'air-instruction-conventions', name: '@air/dsh-instruction-conventions', config: { maxBytes: 32768 } },
       { id: 'air-skill-conventions', name: '@air/dsh-skill-conventions' },
     ])
-    const expected = standard.map(row => (row['id'] === 'skill-filesystem' ? Object.assign({}, row, { config: { includeDefaultRoots: false } }) : row))
+    // Declared changes: user skill roots off; the compaction row keeps its id and config and runs AIR's engine,
+    // which only extends the summary instruction.
+    const expected = standard.map((row) => {
+      if (row['id'] === 'skill-filesystem') return Object.assign({}, row, { config: { includeDefaultRoots: false } })
+      if (row['id'] === 'compaction') return replaceCompactionEngine(row)
+      return row
+    })
     expect(withoutPolicies(air.filter(row => !isAirRow(row)))).toEqual(expected)
   })
 
@@ -120,7 +136,7 @@ describe('AIR bundle composition', () => {
     const manifest: unknown = JSON.parse(readFileSync(join(bundleDir, 'package.json'), 'utf8'))
     const dependencies = isRow(manifest) && isRow(manifest['dependencies']) ? manifest['dependencies'] : {}
     const rowPackages = [...readFileSync(airPatch, 'utf8').matchAll(/name: '(@air\/[^']+)'/gu)].map(match => match[1])
-    expect(rowPackages).toHaveLength(9)
+    expect(rowPackages).toHaveLength(11)
     for (const packageName of rowPackages) expect(dependencies).toHaveProperty([String(packageName)], 'workspace:*')
   })
 })

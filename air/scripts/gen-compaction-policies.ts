@@ -1,6 +1,6 @@
 /**
  * Writes the `modelPolicies` block of compaction-basic into both AIR presets of air/bundles/air/cordis.patch.yml and, with
- * lean values, into the `compaction-basic` row of air/bundles/air-headless/cordis.patch.yml.
+ * lean values, into the `air-compaction-log` row of air/bundles/air-headless/cordis.patch.yml.
  *
  * The single source is the table below: window class and preset to compaction targets, and local model id to window class.
  * The block sits between marker comments inside the `compaction-basic` row of `preset-air` (full values) and of
