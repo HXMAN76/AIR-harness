@@ -48,6 +48,7 @@ This page orders the work, names each plan, and lists what is still unplanned. T
 - **Plan 03 imports from plan 01:** the Claude-to-dsh tool-name table exported by `@air/dsh-convention-core`.
 - **Plan 02 carried upstream changes:** the review hook in `packages/mcp/mcp-client` and the regenerated cordis catalog docs go into [../UPSTREAM-DELTA.md](../UPSTREAM-DELTA.md).
 - **From executing plan 02 to plans 03 and 07:** MCP tool calls are already gated by the trust guard for unpinned or changed servers, so plan 03's per-call ask applies on top of it and should offer a per-server trust level to avoid asking twice; the lock key and `reviewKey` identify a server definition, and plan 03's rules for MCP tools should use the same identity; plan 07's desktop shell should surface `/mcp-trust status` information.
+- **Before plan 05:** the AIR bundle does not fully apply to the headless profile. Three patch targets are missing (`account-controller`, `ui-settings-account`, `agent-preset-registry`), and `preset-air` stays pending on `agentPresets`, so the convention plugins are inactive in headless runs. Plan 05's evaluation runs headless and must fix or work around this first.
 - **Plan sizes:** plans 01 and 02 are long (about 6,000 lines each) because every step carries full code. Execute them task by task with a fresh worker per task; the code in them has not been compiled, so the first failing step of each task is where assumptions get corrected.
 
 ## Phase-1 review cut
@@ -76,7 +77,7 @@ Each item gets its own plan after the plans above land. The spike section that a
 ## Cross-cutting work not yet covered by any plan
 
 - **First-run experience:** check Ollama is running, pull `qwen3:8b` and `nomic-embed-text` with consent, write the profile patch; today this is the manual README procedure. The context-size variant `qwen3-8b-16k` (see the Modelfile step in [air/README.md](../README.md)) is currently a manual step and is the first thing first-run setup must automate.
-- **Local-model quality:** tool-calling reliability of 7–8B models (fake tool calls, derailing on long catalogs); decide whether to port AIR's fake-tool-call guard ([research note 02](../../research/notes/02-air-extraction.md) §2.8) after measuring in the pilot.
+- **Local-model quality:** tool-calling reliability of 7–8B models (fake tool calls, derailing on long catalogs); decide whether to port AIR's fake-tool-call guard ([research note 02](../../research/notes/02-air-extraction.md) §2.8) after measuring in the pilot. Measured on 2026-10-10 (research note 10 section 12): no fake tool calls appeared in 160 raw runs, so porting the fake-tool-call guard is not justified by this evidence. The `write` tool's escalation arguments cost local models an extra step.
 - **Safety documentation:** an AIR `SAFETY.md` with the threat model, what the sandbox does not cover (network, MCP children), and the privacy statement for local data.
 - **Data lifecycle:** session retention and deletion, memory export, backup of `$DSH_HOME/air/`.
 - **Release path:** how users install AIR (clone plus scripts now; npm packages for the `@air/*` bundle later), version pinning to upstream tags, release notes.

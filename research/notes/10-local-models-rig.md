@@ -13,6 +13,8 @@ Labels used throughout: **MEASURED** means run on this machine on 2026-10-02 wit
 5. **Evaluation is feasible locally for one model at one repeat, not for the full matrix.** A full AgentDojo v1.2.2 harness arm is estimated at 2.6–8 h on `qwen2.5:7b-instruct`; the 13-run plan of spike 06 would be 34–104 h (ESTIMATE). Run the local model on the full benchmark once per main arm and keep repeats and ablations on a cheap hosted model.
 6. **The NPU and the iGPU are not worth a dependency.** The kernel driver is loaded here, but the LLM runtime for the NPU is unpackaged on Fedora and uses closed binaries. Treat it as an optional later experiment.
 
+Section 12 records two measurement runs from 2026-10-10. Its results supersede the shortlist ranking in section 3.5 where they differ.
+
 ## 2. The machine
 
 MEASURED 2026-10-02 (`nvidia-smi`, `lscpu`, `free -g`, `ollama --version`, `journalctl -u ollama`, `lsmod`, `cat /sys/firmware/acpi/platform_profile`):
@@ -100,6 +102,8 @@ Mixture-of-experts models are the only larger models worth running here, because
 1. Reuse the loaded default model with thinking off and a small `max_tokens`. With prefix reuse a follow-up call costs 0.4 s (MEASURED), and no second model has to share the 8 GB.
 2. `qwen2.5:7b-instruct` as the local LongMemEval judge during development (no thinking tokens, so `max_tokens 10` is safe; spike 06 §4.5).
 3. `granite4.2:3b` (2.2 GB) or `qwen3.5:4b` (3.4 GB) only if a separate router is required; it must run on CPU or it evicts or splits the main model.
+
+The measured results in section 12 changed this ranking. `qwen2.5:7b-instruct` is no longer the recommended long-context fallback, because it was the least reliable model on multi-step tasks in the harness run. `qwen3:8b` stays the agent choice, and its context size is the open decision.
 
 ## 4. Probe results (MEASURED 2026-10-02)
 
@@ -221,6 +225,8 @@ Three obligations follow from the probes:
 2. **Sampling comes from the model's Modelfile because the harness sends no temperature.** `qwen3:8b` carries `temperature 0.6, top_k 20, top_p 0.95, repeat_penalty 1` (MEASURED, `ollama show`); `qwen2.5:7b-instruct` and `llama3.1:8b` carry none and use Ollama's defaults. Evaluation variants with temperature 0 and a fixed seed are already planned in the pilot (Task 4).
 3. **Declare reasoning efforts for `qwen3`** so thinking can be disabled per step; note 08 §1.4 says hand-declared models need explicit `reasoningEfforts`. Whether the `openai-completions` route forwards `reasoning_effort` to Ollama was not verified here.
 
+The measured results in section 12 changed this recommendation. The `qwen3-8b-16k` route stays first, but the `qwen2.5:7b-instruct` route is no longer recommended as a fallback for agent steps, and the context size of `qwen3:8b` remains open.
+
 ## 6. Embeddings and reranking
 
 | Model | Ollama tag, size | Dimensions | Context | Licence | Notes |
@@ -324,3 +330,105 @@ AgentDojo needs no LLM judge; it scores environment state.
 - Measure two-slot throughput for `qwen2.5:7b-instruct` before using `OLLAMA_NUM_PARALLEL=2` in any reported run.
 - Read BFCL v4 rows for the shortlisted small models from the live leaderboard.
 - Verify the Gemma 4 and Qwen 3.5 licences on their model cards before either becomes a default.
+- Re-run both measurements (sections 12.1 and 12.2) from scripts kept in the repository, before citing them in the thesis.
+- Measure longer multi-step tasks; the harness run covered ten small tasks only.
+- Decide the default context size for `qwen3:8b` (16k, 24k or 32k).
+
+## 12. Measured results (2026-10-10)
+
+The scripts and raw result files for both runs were kept in a temporary directory. That directory was lost when the machine restarted on 2026-10-12. The figures below are the summaries reported at the time. They cannot be reproduced from stored data, so re-measure them with scripts kept in the repository before citing them in the thesis.
+
+Hardware: Ryzen AI 9 HX 370, 30 GiB RAM, RTX 4060 Laptop 8 GiB, Fedora, Ollama 0.32.7.
+
+### 12.1 Run 1: raw Ollama API
+
+Run 1 took about 19 minutes and had no failed requests. It used the native `/api/chat` endpoint with the context size passed per request as `num_ctx`, and temperature 0. The system prompt measured 5,523 tokens; the target was about 7,000. The harness itself sends about 7,500 tokens, so real speeds are slightly lower. Thinking was off for models that can switch it. Each configuration had one warm-up and two measured requests.
+
+Generation speed in tokens per second, and share of the model on the GPU, at four context sizes:
+
+| Model | 8k | 16k | 24k | 32k | GPU share at 8k / 16k / 24k / 32k |
+|---|---|---|---|---|---|
+| `qwen3:8b` | 40 | 33 | 21 | 15 | 100 / 90 / 76 / 67 % |
+| `qwen3.5:9b` | 41 | 39 | 40 | 33 | 100 / 100 / 100 / 87 % |
+| `qwen3.5:4b` | 68 | 68 | 68 | 68 | 100 % at every size |
+| `granite4.2:8b` | 36 | 27 | 16 | 13 | 100 / 85 / 72 / 63 % |
+| `granite4.2:3b` | 79 | 79 | 79 | 79 | 100 % at every size |
+| `gemma4:e4b-it-qat` | 65 | 65 | 65 | 65 | 100 % at every size |
+| `llama3.1:8b` | 43 | 42 | 30 | 23 | 100 / 100 / 82 / 74 % |
+| `qwen2.5:7b-instruct` | 48 | 48 | 48 | 48 | 100 % at every size (4.8 to 6.0 GiB) |
+
+The reported memory of 2.9 GiB at every context size for `gemma4:e4b-it-qat`, a 5.7 GiB model, looks wrong and is not trusted.
+
+Uncached prompt speed was about 1,200 to 2,300 tokens/s for the 8B and 9B models, and 2,800 to 3,700 tokens/s for the small models. Load time was 2 to 7 seconds.
+
+Thinking cost at 16k with a 600-token output limit:
+
+| Model | Time | Result |
+|---|---|---|
+| `qwen3:8b` | 12.8 s | 1,225 characters of thinking, 850 characters of answer |
+| `qwen3.5:9b` | 15.3 s | Used the whole limit thinking; no answer returned |
+| `qwen3.5:4b` | 9.1 s | Used the whole limit thinking; no answer returned |
+
+Tool calling at 16k with thinking off. Ten cases were run twice: eight needed one specific tool with correct arguments, and two needed no tool.
+
+| Model | Passes out of 20 | Mean seconds per case |
+|---|---|---|
+| `qwen2.5:7b-instruct` | 20 | 1.0 |
+| `qwen3.5:4b` | 20 | 1.35 |
+| `qwen3:8b` | 20 | 1.4 |
+| `gemma4:e4b-it-qat` | 19 | 3.8 |
+| `qwen3.5:9b` | 18 | 2.4 |
+| `granite4.2:8b` | 18 | 6.5 |
+| `granite4.2:3b` | 18 | 2.4 |
+| `llama3.1:8b` | 16 | 1.1 |
+
+No model wrote a tool call as plain text in 160 runs. `llama3.1:8b` and `qwen3.5:9b` called `echo` for an arithmetic question. Both Granite models returned nothing for the reminder case.
+
+Embeddings, 64 short sentences, mean of three runs:
+
+| Model | Dimensions | Sentences/s | Memory | Cosine similarity, related pair / unrelated pair |
+|---|---|---|---|---|
+| `nomic-embed-text` | 768 | 282 | 0.3 GiB | 0.79 / 0.34 |
+| `embeddinggemma` | 768 | 199 | 0.6 GiB | 0.75 / 0.28 |
+| `qwen3-embedding:0.6b` | 1,024 | 89 | 2.2 GiB | 0.71 / 0.35 |
+
+### 12.2 Run 2: inside the harness
+
+Run 2 took 68 minutes for 80 runs and had no timeouts. It used the default `headless` profile, the AIR bundle, and a per-run patch that selects the model. The mode was Workspace Write. Each task ran in a fresh scratch directory. Ten small tasks ran twice per model, scored automatically by string match and by the files left on disk. Thinking was left at the harness default: the three Qwen 3 family models emitted thinking in every run, and `qwen2.5` has no thinking mode.
+
+The AIR bundle only partly applies to the headless profile. Three patch targets are missing there (`account-controller`, `ui-settings-account`, `agent-preset-registry`), and the `preset-air` row stays pending while it waits for the `agentPresets` service. The instruction and skill convention plugins were therefore not active, and the "follow project instructions" task could not be scored. The results below cover the other nine tasks, 18 runs per model.
+
+| Model | Passed | Mean s | Median s | Model steps per run | Tokens per run |
+|---|---|---|---|---|---|
+| `qwen3-8b-16k` | 17 of 18 | 65 | 53 | 2.8 | 25,600 |
+| `qwen35-4b-32k` | 15 of 18 | 58 | 61 | 4 | 39,500 |
+| `qwen35-9b-24k` | 15 of 18 | 66 | 71 | 2.8 | 25,900 |
+| `qwen25-7b-32k` | 12 of 18 | 14 | 10 | 2.9 | 25,000 |
+
+Failures and misses by model:
+
+- `qwen3-8b-16k`: the one failure was a correct answer ("could not be found") that the scoring pattern missed.
+- `qwen35-4b-32k`: two failures were correct answers that the scoring pattern missed, so 16 of 18 on a lenient reading.
+- `qwen35-9b-24k`: set the wrong port in a JSON edit twice, and once answered 401 for 17 times 23.
+- `qwen25-7b-32k`: wrote a stray file when no tool was needed, and failed the multi-step write task both times.
+
+Two observations about the harness:
+
+- Upstream's `write` tool has optional escalation arguments (`justification`, `sandbox_permissions`). Models often send `justification` alone, get "invalid escalation: justification is only valid together with sandbox_permissions", and spend an extra step retrying.
+- Headless boot reports one entry that did not activate (`preset-air`).
+
+Context variants that exist in the owner's Ollama, each being the base model with `num_ctx` set: `qwen3-8b-16k`, `qwen3-8b-32k`, `qwen25-7b-32k`, `qwen35-4b-32k`, and `qwen35-9b-24k`.
+
+### 12.3 Conclusion
+
+The raw API test and the harness test disagree. `qwen2.5:7b-instruct` was the fastest and most precise at single tool calls, but the least reliable on multi-step tasks in the harness. It is not recommended as the default despite its speed.
+
+`qwen3:8b` remains the recommended agent model on this machine. The open choice is its context size, a trade between speed and room:
+
+- 16k: about 33 tokens/s, 90% on GPU.
+- 24k: about 21 tokens/s, 76% on GPU.
+- 32k: about 15 tokens/s, 67% on GPU.
+
+`nomic-embed-text` stays the embedder.
+
+Limits: ten small tasks, two runs each, one machine, and string-match scoring. Nothing here measures long or multi-file work.

@@ -112,6 +112,8 @@ for m in qwen3.5:9b qwen3.5:4b granite4.2:8b granite4.2:3b gemma4:e4b-it-qat qwe
 | `qwen3-embedding:0.6b` | 0.6 GB | Candidate embedding upgrade (1,024 dims) |
 | `embeddinggemma` | 0.6 GB | Candidate small embedder |
 
+The candidates were measured on 2026-10-10 (research note 10 section 12). `qwen3:8b` with a context variant remains the recommended agent model, and `qwen2.5:7b-instruct` is faster but less reliable on multi-step tasks.
+
 Optional large models that run split across CPU and GPU (about 32 GB more; pull only with disk and bandwidth to spare):
 
 ```sh
