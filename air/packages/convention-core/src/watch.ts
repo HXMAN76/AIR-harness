@@ -48,7 +48,8 @@ async function fingerprint(path: string): Promise<Fingerprint> {
 /**
  * Watches the paths of a bounded number of project groups with one timer. A path that does not exist
  * yet is reported when it appears. The timer does not keep the process alive, and each poll costs one
- * `stat` per retained path.
+ * `stat` per retained path. One edit can be reported more than once, for example when a poll sees a file
+ * before its write completes; callers must treat `onChange` as idempotent invalidation.
  */
 export class PollWatcher {
   private readonly retained = new Map<string, Group>()
