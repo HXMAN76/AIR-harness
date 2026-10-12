@@ -37,6 +37,7 @@ function prepareCli({ platform, arch }: DesktopTarget): void {
   cpSync(join(import.meta.dirname, 'node-bin'), join(RUNTIME_ROOT, 'bin'), { recursive: true })
   chmodSync(join(RUNTIME_ROOT, 'bin', 'node'), 0o755)
   const cli = join(RUNTIME_ROOT, 'cli')
+  if (platform === 'linux') throw new Error('desktop runtime: packaging for linux is not supported')
   prepareDesktopCli(cli, platform)
   if (platform === 'darwin') {
     const minimumVersion = execFileSync('/usr/libexec/PlistBuddy', [
