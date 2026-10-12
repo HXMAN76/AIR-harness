@@ -159,6 +159,18 @@ What is open or not covered:
 - One reply ended with the stray text "/think", which suggests the thinking switch for Qwen 3 models leaks into the output.
 - Not covered: path-scoped rules, revoke, a pinned server that later changes its tools, tray, menus, updater, and anything on Windows or macOS.
 
+Local-model tuning, checked the same day (default model `qwen3-8b-32k`, Ollama behind a recording proxy):
+
+- E1: the app starts with no failed, pending, or invalid-compaction lines in the log, and the composer is shown.
+- E2: a new session shows preset "AIR Lean" and model `qwen3-8b-32k`.
+- E3: the reply was exactly "still here" with no `/think`, in 8 seconds; the request carried `reasoning_effort: "none"`.
+- E4: the lean request had 19 tools and 4,426 prompt tokens, with none of the schedule, goal, delegation, or workflow tools; the full preset's earlier capture had 36 tools and 8,113 prompt tokens.
+- E5: choosing "AIR" by hand sent 32 tools and 7,686 prompt tokens, and the page showed "AIR".
+- E6: on a blank session, choosing a model with a 200,000-token window changed the preset to "AIR" within 1 second, and choosing `qwen3-8b-32k` again changed it back to "AIR Lean", with no reload.
+- E7: a preset picked by hand stayed "AIR" after the model changed to `qwen3-8b-16k`.
+- E8: with whole-file reads of about 11,000 tokens each, prompts fell from 18,200 to 11,607, from 22,649 to 13,905, from 20,567 to 13,599 (through a summary request limited to 2,048 output tokens), and from 24,564 to 15,844; every other request kept `max_tokens` 4096, and "Output token limit reached" never appeared.
+- E9: the composer's model menu has an effort control; "Medium" sent `reasoning_effort: "medium"`, and the reply was 391 in 26 seconds.
+
 ### Driving the app in a test
 
 `air/scripts/desktop-drive.mjs` is a manual test aid that drives a running desktop app through Electron's renderer debugging port; it is not part of the product. Start the app with `DSH_DESKTOP_RENDERER_DEBUG_PORT` set, and set `AIR_DESKTOP_DEBUG_PORT` to the same value when it is not the default 9222. Run `node air/scripts/desktop-drive.mjs` with no arguments to list its subcommands.
