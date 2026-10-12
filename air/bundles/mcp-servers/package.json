@@ -1,0 +1,27 @@
+{
+  "name": "@air/dsh-air-mcp-servers",
+  "description": "Shared MCP composition for AIR profiles: the trust row and reviewed mcp-client rows",
+  "version": "0.1.0",
+  "icon": "./icon.svg",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "exports": {
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./locale/*.json": "./locale/*.json",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "icon.svg",
+    "locale/*.json",
+    "cordis.patch.yml"
+  ],
+  "dependencies": {
+    "@air/dsh-mcp-trust": "workspace:*"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}

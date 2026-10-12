@@ -21,9 +21,10 @@ describe('deriveAirOxlintConfig', () => {
     ])
   })
 
-  it('keeps top-level fields other than overrides and ignorePatterns', () => {
+  it('drops options because oxlint accepts it only in the root configuration and keeps other top-level fields', () => {
     const derived = deriveAirOxlintConfig({ options: { typeAware: true }, categories: { correctness: 'off' }, overrides: [] })
-    expect(derived.options).toEqual({ typeAware: true })
+    expect(derived.options).toBeUndefined()
+    expect('options' in derived).toBe(false)
     expect(derived.categories).toEqual({ correctness: 'off' })
     expect(derived.overrides).toEqual([])
   })

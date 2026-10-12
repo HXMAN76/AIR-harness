@@ -14,7 +14,7 @@
 
 import { createHash } from 'node:crypto'
 import { isDeepStrictEqual } from 'node:util'
-import { specTypeSchemas, type Client, type ImageContent } from '@modelcontextprotocol/client'
+import { specTypeSchemas, type Client, type ImageContent, type ListToolsResult, type Tool } from '@modelcontextprotocol/client'
 import type { Context } from '@deepseek-ai/cordis'
 import { isImageAdmissionError } from '@deepseek-ai/dsh-attachment'
 import type { AttachmentStore, ImageAttachmentRef, ImageMediaType, SaveImageAttachment } from '@deepseek-ai/dsh-attachment'
@@ -23,13 +23,25 @@ import type { ToolDefinition, ToolExecution, ToolExecutionResult } from '@deepse
 import { assertSupportedJsonSchema } from '@deepseek-ai/dsh-tools'
 import type { JsonSchemaNode } from '@deepseek-ai/dsh-tools'
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
+import type { McpToolReviewVerdict } from './review.ts'
 
 /** Resolved options relevant to tool bridging. */
 export interface ToolBridgeOptions {
   /** Whether a registry conflict is contained or rejects this synchronization. */
   registrationFailure: 'contain' | 'throw'
   serverName: string
+  /** Opaque server-definition identity forwarded to the reviewer. */
+  reviewKey?: string
   toolCallTimeoutMs: number
+  /** Raw instructions of the generation being synchronized; reviewed together with its tools. */
+  instructions?: string
+  /**
+   * Publish the reviewed instructions during the swap phase.
+   * @param text - raw instructions accepted for this generation; empty withdraws them.
+   */
+  publishInstructions?(text: string): void
+  /** Queue a re-sync of the live generation on a reviewer's request. */
+  resync?(): void
 }
 
 /** State for one sync generation: the current set of disposers keyed by public name. */
@@ -95,7 +107,8 @@ export function publicToolName(serverName: string, rawName: string): string {
  *    generation of `ToolDefinition`s under public names. Any failure here
  *    (network error or duplicate raw name) rejects
  *    and leaves the previous generation registered untouched.
- * 2. Swap: dispose the previous generation, register the new one. A registry
+ * 2. Swap: dispose the previous generation, publish the reviewed
+ *    instructions, register the new generation. A registry
  *    conflict here can only mean a foreign registration squats on this
  *    server's `mcp__<serverName>__` namespace — the partial generation is
  *    rolled back (zero tools from this server) and logged. Initial strict
@@ -116,18 +129,24 @@ export async function syncTools(
   opts: ToolBridgeOptions,
   previous: ToolDisposers,
 ): Promise<ToolDisposers> {
-  // Phase 1: fetch and build the next generation without touching the registry.
+  // Phase 1: fetch, review, and build the next generation without touching the registry.
   const definitions = new Map<string, ToolDefinition>()
-  const response = client.getServerCapabilities()?.tools === undefined
+  const response: ListToolsResult = client.getServerCapabilities()?.tools === undefined
     ? { tools: [] }
     : await client.listTools(undefined, { cacheMode: 'refresh' })
+  const seen = new Set<string>()
   for (const tool of response.tools) {
     const publicName = publicToolName(opts.serverName, tool.name)
-    if (definitions.has(publicName)) {
+    if (seen.has(publicName)) {
       throw new Error(
         `mcp-client(${opts.serverName}): server listed tool "${tool.name}" more than once — invalid tool list`,
       )
     }
+    seen.add(publicName)
+  }
+  const reviewed = await reviewGeneration(ctx, opts, response)
+  for (const tool of reviewed.tools) {
+    const publicName = publicToolName(opts.serverName, tool.name)
     definitions.set(publicName, createMcpToolDefinition(ctx, {
       name: publicName,
       rawName: tool.name,
@@ -144,6 +163,7 @@ export async function syncTools(
 
   // Phase 2: swap generations.
   for (const dispose of previous.values()) dispose()
+  opts.publishInstructions?.(reviewed.instructions)
   const disposers: ToolDisposers = new Map()
   try {
     for (const [publicName, definition] of definitions) {
@@ -159,6 +179,39 @@ export async function syncTools(
     return new Map()
   }
   return disposers
+}
+
+/**
+ * Offer one fetched generation to the optional reviewer. Without a reviewer
+ * the generation passes unchanged; a reviewer failure is a rejection, so the
+ * generation registers no tools and publishes no instructions.
+ */
+async function reviewGeneration(
+  ctx: Context,
+  opts: ToolBridgeOptions,
+  response: ListToolsResult,
+): Promise<McpToolReviewVerdict> {
+  const instructions = opts.instructions ?? ''
+  const reviewer = ctx.get('mcpToolReview')
+  if (reviewer === undefined) return { tools: response.tools, instructions }
+  const ttlMs = response['ttlMs']
+  try {
+    return await reviewer.review({
+      serverName: opts.serverName,
+      ...opts.reviewKey === undefined ? {} : { reviewKey: opts.reviewKey },
+      tools: response.tools.map((definition: Tool) => ({
+        rawName: definition.name,
+        publicName: publicToolName(opts.serverName, definition.name),
+        definition,
+      })),
+      instructions,
+      ...typeof ttlMs === 'number' ? { ttlMs } : {},
+      resync: () => { opts.resync?.() },
+    })
+  } catch (error) {
+    ctx.logger.error(`mcp-client(${opts.serverName}): tool review failed, no tools registered: ${String(error)}`)
+    return { tools: [], instructions: '' }
+  }
 }
 
 /** Fields read from canonical content, including policy-owned value replacements. */

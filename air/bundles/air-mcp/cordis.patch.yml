@@ -1,0 +1,38 @@
+# air-mcp profile bundle. The launcher creates custom profiles only from
+# shipped templates, so the profile starts from `headless`; this patch turns
+# off the two headless rows and inserts the MCP trust command line instead.
+# The profile also lists the shared servers bundle (a later step of the plan),
+# which holds the trust row and the reviewed mcp-client rows shared with the
+# `air` profile.
+
+- id: headless-startup
+  disabled: true
+
+- id: headless-runner
+  disabled: true
+
+# Rows of dsh-base that send data to DeepSeek services or need a DeepSeek
+# account. This profile runs no agent, but the rows still start at boot, so they
+# are turned off here exactly as in the `air` bundle.
+- id: session-log-deepseek
+  disabled: true
+
+- id: plugin-package-inventory-deepseek
+  disabled: true
+
+- id: session-telemetry-otel
+  disabled: true
+
+- id: deepseek-account
+  disabled: true
+
+- id: llm-deepseek-account
+  disabled: true
+
+- id: web-search-deepseek
+  disabled: true
+
+- insert:
+    # Parses list | pin | diff | verify | revoke and exits with the command's code.
+    - id: air-mcp-trust-cli
+      name: '@air/dsh-mcp-trust-cli'

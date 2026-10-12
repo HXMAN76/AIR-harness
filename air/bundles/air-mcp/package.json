@@ -1,0 +1,27 @@
+{
+  "name": "@air/dsh-air-mcp-bundle",
+  "description": "air-mcp profile bundle: the MCP trust command line over dsh-base",
+  "version": "0.1.0",
+  "icon": "./icon.svg",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "exports": {
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./locale/*.json": "./locale/*.json",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "icon.svg",
+    "locale/*.json",
+    "cordis.patch.yml"
+  ],
+  "dependencies": {
+    "@air/dsh-mcp-trust-cli": "workspace:*"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}

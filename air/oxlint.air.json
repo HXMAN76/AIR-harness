@@ -4,10 +4,6 @@
   "categories": {
     "correctness": "off"
   },
-  "options": {
-    "reportUnusedDisableDirectives": "warn",
-    "typeAware": true
-  },
   "env": {
     "builtin": true
   },

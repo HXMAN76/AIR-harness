@@ -64,7 +64,7 @@ pnpm install && pnpm run build        # repository root
 pnpm -C air install                   # AIR workspace (pnpm 11.7.0, lockfile committed)
 pnpm -C air run build                 # every AIR package
 pnpm -C air run typecheck
-pnpm -C air run lint                  # fails if air/.oxlintrc.json is stale; regenerate with lint:gen
+pnpm -C air run lint                  # fails if air/oxlint.air.json is stale; regenerate with lint:gen
 pnpm -C air run test
 pnpm -C air run smoke                 # isolated DSH_HOME: compose and boot the AIR bundle
 ```
@@ -88,6 +88,12 @@ User-level folders written for other agents (`~/.agents/skills`, `~/.claude/skil
 and copy the `preset-air` row from the bundle patch into the same file with `includeUserRoots: true` added to the `air-skill-conventions` and `air-instruction-conventions` configs (a patch replaces a row's whole `config`, so the full plugin list must be repeated).
 
 Project MCP servers from `.mcp.json` start only after `/mcp approve <server>`; run it before the first message of a session. Approvals are stored in `$DSH_HOME/air/mcp-approvals.json`.
+
+## MCP trust
+
+The `air` bundle loads the MCP trust plugin and sets `reviewTools: true` on the MCP conventions row, so every server imported from a project's `.mcp.json` waits for the reviewer and registers only tool definitions that match a reviewed lockfile (`$DSH_HOME/air/mcp-lock.json`). The shipped mode is `enforce`: a server with no pin registers nothing until you approve it. The `air-mcp` command-line profile lists `air/bundles/mcp-servers`, which holds the same trust row, so both profiles share one lockfile and one audit directory (`$DSH_HOME/air/mcp-audit`). Every mcp-client row must declare `inject: [mcpToolReview]`; see [examples/mcp-filesystem.profile.cordis.patch.yml](examples/mcp-filesystem.profile.cordis.patch.yml).
+
+The first turn after a server appears asks once whether to approve it; allowing it saves the pin. Inside a session, `/mcp-trust` shows status and diffs and pins a changed surface. To read the definitions first, or to approve from a terminal, run `pnpm dsh --profile air-mcp diff <server>`, then `pin <server>`; `verify --all` is the CI check and `revoke <server>` removes approvals. Details: [packages/mcp-trust/README.md](packages/mcp-trust/README.md) and [packages/mcp-trust-cli/README.md](packages/mcp-trust-cli/README.md). `pnpm -C air run smoke` boots the `air` profile with the trust row and then composes the `air-mcp` profile and checks its command exit codes, all under an isolated harness home.
 
 ## Quality bar
 

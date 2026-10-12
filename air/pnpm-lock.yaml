@@ -53,9 +53,24 @@ importers:
       '@air/dsh-mcp-conventions':
         specifier: workspace:*
         version: link:../../packages/mcp-conventions
+      '@air/dsh-mcp-trust':
+        specifier: workspace:*
+        version: link:../../packages/mcp-trust
       '@air/dsh-skill-conventions':
         specifier: workspace:*
         version: link:../../packages/skill-conventions
+
+  bundles/air-mcp:
+    dependencies:
+      '@air/dsh-mcp-trust-cli':
+        specifier: workspace:*
+        version: link:../../packages/mcp-trust-cli
+
+  bundles/mcp-servers:
+    dependencies:
+      '@air/dsh-mcp-trust':
+        specifier: workspace:*
+        version: link:../../packages/mcp-trust
 
   packages/command-conventions:
     dependencies:
@@ -233,6 +248,86 @@ importers:
       '@deepseek-ai/dsh-working-directory':
         specifier: link:../../../packages/session/working-directory
         version: link:../../../packages/session/working-directory
+
+  packages/mcp-trust:
+    dependencies:
+      '@deepseek-ai/schemastery':
+        specifier: link:../../../vendor/schemastery
+        version: link:../../../vendor/schemastery
+      canonicalize:
+        specifier: 5.1.0
+        version: 5.1.0
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: link:../../../vendor/cordis
+        version: link:../../../vendor/cordis
+      '@deepseek-ai/cordis-plugin-include':
+        specifier: link:../../../vendor/include
+        version: link:../../../vendor/include
+      '@deepseek-ai/cordis-plugin-loader':
+        specifier: link:../../../vendor/loader
+        version: link:../../../vendor/loader
+      '@deepseek-ai/dsh-agent':
+        specifier: link:../../../packages/core/agent
+        version: link:../../../packages/core/agent
+      '@deepseek-ai/dsh-agent-loop-testkit':
+        specifier: link:../../../packages/test-support/agent-loop-testkit
+        version: link:../../../packages/test-support/agent-loop-testkit
+      '@deepseek-ai/dsh-atomic-write':
+        specifier: link:../../../packages/util/atomic-write
+        version: link:../../../packages/util/atomic-write
+      '@deepseek-ai/dsh-commands':
+        specifier: link:../../../packages/interaction/commands
+        version: link:../../../packages/interaction/commands
+      '@deepseek-ai/dsh-llm':
+        specifier: link:../../../packages/llm/llm
+        version: link:../../../packages/llm/llm
+      '@deepseek-ai/dsh-mcp-client':
+        specifier: link:../../../packages/mcp/mcp-client
+        version: link:../../../packages/mcp/mcp-client
+      '@deepseek-ai/dsh-session':
+        specifier: link:../../../packages/core/session
+        version: link:../../../packages/core/session
+      '@deepseek-ai/dsh-system-prompt':
+        specifier: link:../../../packages/core/system-prompt
+        version: link:../../../packages/core/system-prompt
+      '@deepseek-ai/dsh-tools':
+        specifier: link:../../../packages/core/tools
+        version: link:../../../packages/core/tools
+      '@deepseek-ai/dsh-user-approval':
+        specifier: link:../../../packages/interaction/user-approval
+        version: link:../../../packages/interaction/user-approval
+      '@modelcontextprotocol/server':
+        specifier: 2.0.0
+        version: 2.0.0
+      '@types/js-yaml':
+        specifier: ^4.0.9
+        version: 4.0.9
+      js-yaml:
+        specifier: ^4.2.0
+        version: 4.3.2
+
+  packages/mcp-trust-cli:
+    dependencies:
+      '@air/dsh-mcp-trust':
+        specifier: workspace:*
+        version: link:../mcp-trust
+      commander:
+        specifier: ^15.0.0
+        version: 15.0.0
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: link:../../../vendor/cordis
+        version: link:../../../vendor/cordis
+      '@deepseek-ai/cordis-plugin-include':
+        specifier: link:../../../vendor/include
+        version: link:../../../vendor/include
+      '@deepseek-ai/cordis-plugin-loader':
+        specifier: link:../../../vendor/loader
+        version: link:../../../vendor/loader
+      '@deepseek-ai/dsh-cmdline':
+        specifier: link:../../../packages/boot/cmdline
+        version: link:../../../packages/boot/cmdline
 
   packages/skill-conventions:
     dependencies:
@@ -454,6 +549,14 @@ packages:
 
   '@jridgewell/trace-mapping@0.3.31':
     resolution: {integrity: sha512-zzNR+SdQSDJzc8joaeP8QQoCQr8NuYx2dIIytl1QeBEZHJ9uW6hebsrYgbz8hJwUQao3TWCMtmfV8Nu1twOLAw==}
+
+  '@modelcontextprotocol/core@2.0.0':
+    resolution: {integrity: sha512-pJCEwGG7Lfr/+PQp9ZTwKXNeO5wzbfKL7H3MYpCorM4oFBoQrdjnBgEoqG+RjhsvS1FKrDbKux+M1HhlnGWqcA==}
+    engines: {node: '>=20'}
+
+  '@modelcontextprotocol/server@2.0.0':
+    resolution: {integrity: sha512-YhHWdHfpFMQfd0prsEnxKeS3Qz3ytIGmsS0sth4KDjnacIT7hxk6hXHkJ9KysxlkvTM+WZAtQbbcUhdoP4Hvtw==}
+    engines: {node: '>=20'}
 
   '@oxc-project/types@0.153.0':
     resolution: {integrity: sha512-jSNrRIyvPVLL5E1z/tS5zLAprosGz/FuI1PWwEOz59j3E4TTTzSpqKb/RDGqJhhW0QHYISGXxq582wGx6T11Tw==}
@@ -733,6 +836,9 @@ packages:
   '@types/estree@1.0.9':
     resolution: {integrity: sha512-GhdPgy1el4/ImP05X05Uw4cw2/M93BCUmnEvWZNStlCzEKME4Fkk+YpoA5OiHNQmoS7Cafb8Xa3Pya8m1Qrzeg==}
 
+  '@types/js-yaml@4.0.9':
+    resolution: {integrity: sha512-k4MGaQl5TGo/iipqb2UDG2UwjXziSWkh0uysQelTlJpX1qGlpUZYm8PnO4DxG1qBomtJUdYJ6qR6xdIah10JLg==}
+
   '@types/node@22.20.5':
     resolution: {integrity: sha512-U2+DNr+wSjpsTS/wZGYHq7GcwfuSmKiKvoPvK22zwTlRhU91yOniN4qRR5KhIjvif7ysw/dz/hKmfDH0Ris4aA==}
 
@@ -930,6 +1036,9 @@ packages:
     resolution: {integrity: sha512-9k3v7xcHwgdO/DruxGIg4HtjvlAZlcnsX/mzqUb1t3NkYnl9kK2UJ+Gq0io+vQf7iT//BD/HB/NBkUR1LWxoeA==}
     engines: {node: '>=14'}
 
+  argparse@2.0.1:
+    resolution: {integrity: sha512-8+9WqebbFzpX9OR+Wa6O29asIogeRMzcGtAINdpMHHyAg10f05aSFVBbcEqGf/PXw1EjAZ+q2/bEBg3DvurK3Q==}
+
   assertion-error@2.0.1:
     resolution: {integrity: sha512-Izi8RQcffqCeNVgFigKli1ssklIbpHnCYc6AknXGYoB6grJqyeby7jv12JUQgmTAnIDnbck1uxksT4dzN3PWBA==}
     engines: {node: '>=12'}
@@ -957,9 +1066,18 @@ packages:
     resolution: {integrity: sha512-tixWYgm5ZoOD+3g6UTea91eow5z6AAHaho3g0V9CNSNb45gM8SmflpAc+GRd1InC4AqN/07Unrgp56Y94N9hJQ==}
     engines: {node: '>=20.19.0'}
 
+  canonicalize@5.1.0:
+    resolution: {integrity: sha512-bab9+WefZljqQ8jT0qRwVmTyzAUU63K97QIQD3agynIBrb6sa5M2eAy8Hv8K3p4V9+ONVYZKtGYl4Dg+/5Gumw==}
+    engines: {node: '>=22'}
+    hasBin: true
+
   chai@6.3.0:
     resolution: {integrity: sha512-XWAtwJ6OHO+tj0EKCs0Y2UamnyOxseZWltU4x2U2wh8g4AigdjwvtUjvLP2tqkA/avxHEtzxNaqGq/YGNwckKg==}
     engines: {node: '>=18'}
+
+  commander@15.0.0:
+    resolution: {integrity: sha512-z67u4ZhzCL/Tydu1lJARtEZYWbWaN7oYLHbsuzocr6y4N6WZAagG3RQ4FW61V1/0+jImpj293XfrcYnd1qxtPg==}
+    engines: {node: '>=22.12.0'}
 
   convert-source-map@2.0.0:
     resolution: {integrity: sha512-Kvp459HrV2FEJ1CAsi1Ku+MY3kasH19TFykTz2xWmMeq6bk2NU3XXvfJ+Q61m0xktWwt+1HSYf3JZsTms3aRJg==}
@@ -1073,6 +1191,10 @@ packages:
 
   js-tokens@10.0.0:
     resolution: {integrity: sha512-lM/UBzQmfJRo9ABXbPWemivdCW8V2G8FHaHdypQaIy523snUjog0W71ayWXTjiR+ixeMyVHN2XcpnTd/liPg/Q==}
+
+  js-yaml@4.3.2:
+    resolution: {integrity: sha512-SFNOvSJ+Dgf/9An904Yx+CgSlIPCkIpao4qo51lpee25TIRejdH3rhR4EZMGoNx3/TP3O+wzWuiTFl4sqbltzA==}
+    hasBin: true
 
   jsx-ast-utils-x@0.1.0:
     resolution: {integrity: sha512-eQQBjBnsVtGacsG9uJNB8qOr3yA8rga4wAaGG1qRcBzSIvfhERLrWxMAM1hp5fcS6Abo8M4+bUBTekYR0qTPQw==}
@@ -1454,6 +1576,9 @@ packages:
   yuku-parser@0.8.7:
     resolution: {integrity: sha512-vRD9nwt4L3aYpxNqeSC4WqLv58xrXef0Ong1Mc45CTXTIpvLafx7JO05sczmQZwdLEZvywrLOGdNC5+Rp5N1BQ==}
 
+  zod@4.6.5:
+    resolution: {integrity: sha512-v5l/aFXZQeai4awLbOpSoHecE9UiMrnfx75tEXLjNonXVARxQ5mOeipTjROUchszUNCqnE+hqAMujRsRHsut2Q==}
+
 snapshots:
 
   '@babel/helper-string-parser@7.29.7': {}
@@ -1563,6 +1688,15 @@ snapshots:
     dependencies:
       '@jridgewell/resolve-uri': 3.1.2
       '@jridgewell/sourcemap-codec': 1.6.0
+
+  '@modelcontextprotocol/core@2.0.0':
+    dependencies:
+      zod: 4.6.5
+
+  '@modelcontextprotocol/server@2.0.0':
+    dependencies:
+      '@modelcontextprotocol/core': 2.0.0
+      zod: 4.6.5
 
   '@oxc-project/types@0.153.0': {}
 
@@ -1714,6 +1848,8 @@ snapshots:
 
   '@types/estree@1.0.9': {}
 
+  '@types/js-yaml@4.0.9': {}
+
   '@types/node@22.20.5':
     dependencies:
       undici-types: 6.21.0
@@ -1859,6 +1995,8 @@ snapshots:
 
   ansis@4.4.0: {}
 
+  argparse@2.0.1: {}
+
   assertion-error@2.0.1: {}
 
   ast-v8-to-istanbul@1.0.7:
@@ -1879,7 +2017,11 @@ snapshots:
 
   cac@7.0.0: {}
 
+  canonicalize@5.1.0: {}
+
   chai@6.3.0: {}
+
+  commander@15.0.0: {}
 
   convert-source-map@2.0.0: {}
 
@@ -1994,6 +2136,10 @@ snapshots:
       istanbul-lib-report: 3.0.1
 
   js-tokens@10.0.0: {}
+
+  js-yaml@4.3.2:
+    dependencies:
+      argparse: 2.0.1
 
   jsx-ast-utils-x@0.1.0: {}
 
@@ -2340,3 +2486,5 @@ snapshots:
       '@yuku-parser/binding-linux-x64-musl': 0.8.7
       '@yuku-parser/binding-win32-arm64': 0.8.7
       '@yuku-parser/binding-win32-x64': 0.8.7
+
+  zod@4.6.5: {}

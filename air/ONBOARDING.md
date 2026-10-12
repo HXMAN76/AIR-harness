@@ -78,6 +78,10 @@ If you use Claude Code, Codex, or a similar tool in this repository:
 - Agent memory is per machine and is not shared. When you or your agent learn something the team needs (a decision, a pitfall, a measured number), put it in the repository: a decision in `plans/README.md`, a finding in the relevant research note or spike, a pitfall in the relevant plan.
 - Execute plans task by task and commit after each task, as the plans describe.
 
+### Project MCP servers in the running app
+
+Project MCP servers in `.mcp.json` need `/mcp approve <server>` before they run. After that, approve the server's tool list either at the prompt on the first message, or with `/mcp-trust diff <server>` followed by the `/mcp-trust pin` command that it prints. `/mcp-trust status` shows the state of every server.
+
 ## 5. Team workflow
 
 - **Branches.** `master` mirrors upstream; never commit to it. Branch from `air/main` (`feat/<topic>`, `docs/<topic>`), open a pull request into `air/main`, and get one teammate's review.

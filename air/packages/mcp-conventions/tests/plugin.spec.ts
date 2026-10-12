@@ -790,10 +790,47 @@ describe('reviewTools', () => {
   it('starts the server once the MCP tool reviewer exists', async () => {
     const { root, approvalsFile } = await world(demo)
     const { ctx } = await mount(approvalsFile, 15_000, { reviewTools: true })
-    ctx.provide(REVIEW_SERVICE, {})
+    ctx.provide(REVIEW_SERVICE, {
+      review: (request: { tools: readonly { definition: unknown }[]; instructions: string }) =>
+        Promise.resolve({ tools: request.tools.map(entry => entry.definition), instructions: request.instructions }),
+    })
     const agent = await live(ctx, root)
     expect(await command(ctx, agent, '/mcp approve demo')).toEqual({ kind: 'success', text: 'Approved and started "demo".' })
     expect(toolNames(ctx, agent)).toEqual(['mcp__demo__echo'])
+  })
+
+  it('identifies the mounted server to the reviewer by its approval key', async () => {
+    const { root, approvalsFile } = await world(demo)
+    const { ctx } = await mount(approvalsFile, 15_000, { reviewTools: true })
+    const requests: { reviewKey?: string }[] = []
+    ctx.provide(REVIEW_SERVICE, {
+      review: (request: { reviewKey?: string; tools: readonly { definition: unknown }[]; instructions: string }) => {
+        requests.push(request)
+        return Promise.resolve({ tools: request.tools.map(entry => entry.definition), instructions: request.instructions })
+      },
+    })
+    const agent = await live(ctx, root)
+    expect((await command(ctx, agent, '/mcp approve demo')).kind).toBe('success')
+    const { servers } = parseMcpJson(JSON.stringify(demo), { file: join(root, '.mcp.json'), cwd: root, env: process.env })
+    const key = approvalKey(root, servers[0]!)
+    expect(key).toMatch(/^[0-9a-f]{64}$/)
+    expect(requests.map(request => request.reviewKey)).toEqual([key])
+  })
+
+  it('sends no reviewKey to a reviewer when reviewTools is false', async () => {
+    const { root, approvalsFile } = await world(demo)
+    const { ctx } = await mount(approvalsFile, 15_000)
+    const requests: object[] = []
+    ctx.provide(REVIEW_SERVICE, {
+      review: (request: { tools: readonly { definition: unknown }[]; instructions: string }) => {
+        requests.push(request)
+        return Promise.resolve({ tools: request.tools.map(entry => entry.definition), instructions: request.instructions })
+      },
+    })
+    const agent = await live(ctx, root)
+    expect((await command(ctx, agent, '/mcp approve demo')).kind).toBe('success')
+    expect(requests).toHaveLength(1)
+    expect(Object.hasOwn(requests[0]!, 'reviewKey')).toBe(false)
   })
 
   it('does not wait for a reviewer by default', async () => {

@@ -70,9 +70,10 @@ describe('AIR bundle composition', () => {
   it('makes the AIR preset the default and mounts the host rows', () => {
     expect(patches(airPatch)).toContainEqual({ id: 'agent-preset-registry', config: { default: 'air' } })
     const hostRows = insertedRows(airPatch).filter(isAirRow)
-    expect(hostRows).toEqual([
-      { id: 'air-mcp-conventions', name: '@air/dsh-mcp-conventions' },
-      { id: 'air-command-conventions', name: '@air/dsh-command-conventions' },
+    expect(hostRows.map(row => [row.id, row.name])).toEqual([
+      ['air-mcp-conventions', '@air/dsh-mcp-conventions'],
+      ['air-mcp-trust', '@air/dsh-mcp-trust'],
+      ['air-command-conventions', '@air/dsh-command-conventions'],
     ])
   })
 
@@ -80,7 +81,7 @@ describe('AIR bundle composition', () => {
     const manifest: unknown = JSON.parse(readFileSync(join(bundleDir, 'package.json'), 'utf8'))
     const dependencies = isRow(manifest) && isRow(manifest['dependencies']) ? manifest['dependencies'] : {}
     const rowPackages = [...readFileSync(airPatch, 'utf8').matchAll(/name: '(@air\/[^']+)'/gu)].map(match => match[1])
-    expect(rowPackages).toHaveLength(4)
+    expect(rowPackages).toHaveLength(5)
     for (const packageName of rowPackages) expect(dependencies).toHaveProperty([String(packageName)], 'workspace:*')
   })
 })

@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "MCP tool trust",
+    "description": "Pins MCP tool definitions to a reviewed lockfile and blocks tools that changed"
+  }
+}

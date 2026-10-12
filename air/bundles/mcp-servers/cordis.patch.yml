@@ -1,0 +1,51 @@
+# Shared MCP composition, listed by the `air-mcp` command-line profile. The
+# `air` bundle carries the identical trust row (checked by
+# air/packages/mcp-trust/tests/bundle.spec.ts), so both profiles read one
+# lockfile and write one audit directory under the harness home.
+#
+# Rule (checked by bundle.spec.ts): every mcp-client row in an AIR patch
+# declares `inject: [mcpToolReview]`. The row then stays pending until the
+# trust plugin exists, so no tool definition can reach a model unreviewed.
+
+# Base-layer rows that send data to DeepSeek services or need a DeepSeek
+# account. The `air` bundle disables them too; repeating them here keeps the
+# `air-mcp` profile, which does not list the `air` bundle, from contacting
+# those services. Web-only rows stay in the `air` bundle.
+- id: session-log-deepseek
+  disabled: true
+
+- id: deepseek-account
+  disabled: true
+
+- id: llm-deepseek-account
+  disabled: true
+
+- id: web-search-deepseek
+  disabled: true
+
+- insert:
+    - id: air-mcp-trust
+      name: '@air/dsh-mcp-trust'
+      config:
+        # One file for every profile under this harness home. Point it at a
+        # path inside a repository to review pins as diffs.
+        lockfile: !!js dshHomePath('air', 'mcp-lock.json')
+        auditDir: !!js dshHomePath('air', 'mcp-audit')
+        defaults:
+          mode: enforce
+          onAdded: withhold
+          onChanged: reject-generation
+          onRemoved: accept
+          instructions: pin
+        denyUnreviewedMcpTools: true
+        maxPromptsPerServer: 2
+        minReverifyMs: 60000
+        maxReverifyMs: 86400000
+        lockWaitMs: 2000
+        watchDebounceMs: 200
+        # Named in every prompt and denial. Replace it where the profile is
+        # launched differently (a packaged app, for example).
+        cliCommand: pnpm dsh --profile air-mcp
+        # First use: approving a server that has no lock entry saves the pin.
+        # A server whose pinned surface changed is never pinned by a prompt.
+        enrollOnApproval: true

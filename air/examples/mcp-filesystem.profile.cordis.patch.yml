@@ -1,0 +1,16 @@
+# Example profile patch: one reviewed MCP server. Copy the row into
+# $DSH_HOME/profiles/<profile>/cordis.patch.yml of a profile that loads the
+# trust row (the `air` bundle does) and can resolve @deepseek-ai/dsh-mcp-client.
+#
+# `inject: [mcpToolReview]` is required on every mcp-client row. The launch
+# arguments name an exact package version, because the lockfile pins the tool
+# definitions and not the code that serves them.
+- insert:
+    - id: mcp-files
+      name: '@deepseek-ai/dsh-mcp-client'
+      inject: [mcpToolReview]
+      config:
+        transport: stdio
+        serverName: files
+        command: npx
+        args: ['-y', '@modelcontextprotocol/server-filesystem@2026.7.10', '.']
