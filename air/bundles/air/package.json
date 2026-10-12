@@ -10,6 +10,7 @@
   ],
   "dependencies": {
     "@air/dsh-command-conventions": "workspace:*",
+    "@air/dsh-effort-session-only": "workspace:*",
     "@air/dsh-instruction-conventions": "workspace:*",
     "@air/dsh-mcp-conventions": "workspace:*",
     "@air/dsh-mcp-trust": "workspace:*",

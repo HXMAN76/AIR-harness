@@ -79,6 +79,7 @@ const checks: readonly (readonly [string, boolean])[] = [
   ['command conventions mounted once', count(/@air\/dsh-command-conventions/gu) === 1],
   ['preset by model mounted once, with the lean and full preset ids', count(/@air\/dsh-preset-by-model/gu) === 1
     && /smallPreset:\s*['"]?air-lean\b/u.test(text) && /largePreset:\s*['"]?air['"]?\s*$/mu.test(text)],
+  ['effort pick kept in the session, mounted once', count(/@air\/dsh-effort-session-only/gu) === 1],
   ['one preset-air-lean row', count(/id:\s*['"]?preset-air-lean\b/gu) === 1],
   ['registry default is air-lean', registryAt >= 0 && /default:\s*['"]?air-lean\b/u.test(text.slice(registryAt, registryAt + 400))],
   ['skill-filesystem default roots off in both presets', count(/includeDefaultRoots:\s*false/gu) === 2],

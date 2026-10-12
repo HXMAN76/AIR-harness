@@ -426,6 +426,12 @@
         smallWindowTokens: 65536
         smallPreset: air-lean
         largePreset: air
+    # Keeps a reasoning-effort pick in the session: picking a model still saves provider and model as the
+    # default, but the effort stays whatever the agent-default-model row (or the provider) says.
+    - id: air-effort-session-only
+      name: '@air/dsh-effort-session-only'
+      config:
+        enabled: true
 
 # New sessions use the lean AIR preset; the full one stays selectable. The registry row's only non-volatile Config
 # field is `default`, so replacing its config loses nothing.

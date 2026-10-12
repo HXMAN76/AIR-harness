@@ -18,6 +18,7 @@ air/
   packages/mcp-conventions/          .mcp.json servers per Agent, with approval (/mcp)
   packages/command-conventions/      .claude/commands with $ARGUMENTS
   packages/preset-by-model/          picks air-lean or air from the selected model's context window
+  packages/effort-session-only/      keeps a reasoning-effort pick in the session instead of saving it as the default
   apps/                   AIR desktop app and its Host entry (plan 07; not built yet)
   plans/                  roadmap, implementation plans, and API spikes
   examples/               profile-patch examples, e.g. the local Ollama route
@@ -92,7 +93,7 @@ The `modelPolicies` block of `compaction-basic` now overrides `headroomTokens`, 
 - The full preset on a 16K window is not recommended: its fixed prompt is about 9,500 tokens and no threshold can both fit it and keep a full reply. The full-preset values and the 24K values were derived, not run.
 - Models not in the table get no compaction. Hosted models keep the upstream defaults, which suit large windows, and were not tested.
 
-The example patch turns thinking off for this model (`reasoning: off` on the route, `reasoningEfforts` mapping `off` to `none` and `medium` to `medium`, and `compat.supportsReasoningEffort: true`). With thinking on, Qwen 3 emitted a stray `/think` on short prompts and spent seconds reasoning; with the setting, one test showed short replies in 0.3 to 0.4 seconds instead of 2.6 to 4.4. Choose "medium" in the app's effort control to turn thinking on for a session.
+The example patch turns thinking off for this model (`reasoning: off` on the route, `reasoningEfforts` mapping `off` to `none` and `medium` to `medium`, and `compat.supportsReasoningEffort: true`). With thinking on, Qwen 3 emitted a stray `/think` on short prompts and spent seconds reasoning; with the setting, one test showed short replies in 0.3 to 0.4 seconds instead of 2.6 to 4.4. Choose "medium" in the app's effort control to turn thinking on for a session. An effort pick applies to that session only: `@air/dsh-effort-session-only` saves the picked provider and model as the default, as upstream does, but keeps the effort configured in the `agent-default-model` row (or the provider's `reasoning` setting), so a one-off "medium" does not become the default of later sessions.
 
 ### Cloud models
 
