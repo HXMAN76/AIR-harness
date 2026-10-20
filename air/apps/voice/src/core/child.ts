@@ -1,6 +1,6 @@
 /** The part of a Node child process the voice app's children use; lets tests pass a fake. */
 export interface ChildLike {
-  readonly stdin: { write(chunk: string | Uint8Array): boolean; end(): void }
+  readonly stdin: { write(chunk: string | Uint8Array): boolean; end(): void; on(event: 'error', listener: (error: Error) => void): unknown }
   readonly stdout: { on(event: 'data', listener: (chunk: Buffer) => void): unknown }
   on(event: 'exit' | 'error', listener: (...args: unknown[]) => void): unknown
   kill(): boolean
@@ -21,4 +21,9 @@ export function lineReader(onLine: (line: string) => void): (chunk: Buffer) => v
     rest = parts.splice(-1, 1).join('')
     for (const part of parts) onLine(part.replace(/\r$/, ''))
   }
+}
+
+/** Ignore write errors on a child's stdin (EPIPE/EOF after it died); its exit handler reports the failure. */
+export function ignoreStdinErrors(child: ChildLike): void {
+  child.stdin.on('error', () => undefined)
 }

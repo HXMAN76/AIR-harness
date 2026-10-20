@@ -1,7 +1,7 @@
 /** Speaks text through a long-lived PowerShell child that drives Windows SAPI (`speaker.ps1`). */
 import { fileURLToPath } from 'node:url'
 import { nodeSpawn } from '../node-spawn.ts'
-import { lineReader, type ChildLike, type SpawnLike } from './child.ts'
+import { ignoreStdinErrors, lineReader, type ChildLike, type SpawnLike } from './child.ts'
 
 /** Default location of the SAPI script next to `src/core` (the Electron main passes its own path). */
 export const DEFAULT_SPEAKER_SCRIPT = fileURLToPath(new URL('../speaker.ps1', import.meta.url))
@@ -83,6 +83,7 @@ export class Speaker {
     this.starts++
     const child = this.spawnFn('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', this.scriptPath])
     this.child = child
+    ignoreStdinErrors(child)
     child.stdout.on('data', lineReader((line) => {
       this.onLine(line)
     }))

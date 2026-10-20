@@ -105,6 +105,13 @@ describe('Speaker', () => {
     await speaker.dispose()
   })
 
+  it('swallows stdin write errors', () => {
+    const fake = fakeSpawn()
+    const speaker = new Speaker(fake.spawn)
+    void speaker.speak('a').catch(() => undefined)
+    expect(() => fake.children[0]!.stdin.emit('error', new Error('write EPIPE'))).not.toThrow()
+  })
+
   it('dispose() before any speech does nothing', async () => {
     const fake = fakeSpawn()
     await new Speaker(fake.spawn).dispose()

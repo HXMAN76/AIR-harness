@@ -7,7 +7,7 @@ export class FakeChild extends EventEmitter {
   killed = false
   readonly stdout = new EventEmitter()
   readonly stderr = new EventEmitter()
-  readonly stdin = {
+  readonly stdin = Object.assign(new EventEmitter(), {
     write: (chunk: string | Buffer): boolean => {
       this.written.push(chunk)
       this.emit('stdin', chunk)
@@ -16,7 +16,7 @@ export class FakeChild extends EventEmitter {
     end: (): void => {
       this.ended = true
     },
-  }
+  })
 
   /** Text written to stdin, joined. */
   get text(): string {

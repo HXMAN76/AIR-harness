@@ -14,6 +14,10 @@ describe('matchWake', () => {
     ['Jervis: new conversation', { wake: true, command: 'new conversation' }],
     ['Jarvas, cancel', { wake: true, command: 'cancel' }],
     ['Travis open the browser', { wake: true, command: 'open the browser' }],
+    // Heard by SenseVoice from SAPI speech of "Jarvis" (2026-10-21).
+    ['Jrvis, openNotepad.', { wake: true, command: 'openNotepad' }],
+    ['Javis open notad', { wake: true, command: 'open notad' }],
+    ['Jvis.', { wake: true, command: '' }],
     ['jarvisville tickets', { wake: false, command: '' }],
     ['  ...  ', { wake: false, command: '' }],
   ])('%j', (transcript, expected) => {
@@ -35,6 +39,6 @@ describe('matchWake', () => {
   })
 
   it('ships the default phrases', () => {
-    expect(DEFAULT_WAKE_PHRASES).toEqual(['jarvis', 'hey jarvis', 'ok jarvis', 'jervis', 'jarvas', 'travis'])
+    expect(DEFAULT_WAKE_PHRASES).toEqual(['jarvis', 'hey jarvis', 'ok jarvis', 'jervis', 'jarvas', 'travis', 'javis', 'jrvis', 'jvis'])
   })
 })

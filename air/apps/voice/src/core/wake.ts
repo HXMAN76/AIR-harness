@@ -1,7 +1,10 @@
 /** Wake-phrase matching for speech transcripts. Pure; no state. */
 
-/** Phrases that start a command: "Jarvis" with its greetings and the ways SenseVoice mis-hears it. */
-export const DEFAULT_WAKE_PHRASES: readonly string[] = ['jarvis', 'hey jarvis', 'ok jarvis', 'jervis', 'jarvas', 'travis']
+/**
+ * Phrases that start a command: "Jarvis" with its greetings and the ways SenseVoice mis-hears it.
+ * javis, jrvis, and jvis are what SenseVoice returned for SAPI speech of "Jarvis" on 2026-10-21.
+ */
+export const DEFAULT_WAKE_PHRASES: readonly string[] = ['jarvis', 'hey jarvis', 'ok jarvis', 'jervis', 'jarvas', 'travis', 'javis', 'jrvis', 'jvis']
 
 /** Result of {@link matchWake}. */
 export interface WakeMatch {
