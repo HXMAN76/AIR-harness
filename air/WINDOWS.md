@@ -1,6 +1,6 @@
 # AIR on native Windows
 
-Nobody on this project has yet run these steps on a Windows machine. The commands below are derived from upstream's documentation, the project scripts, and the Windows job of the fork's CI. The first teammate to run them should record the result with the report template at the end of this page.
+These steps were run once on a Windows 11 machine on 2026-10-20, up to a first answered prompt in the desktop app; the result and the problems seen are in [CHECKS.md](CHECKS.md). The commands come from upstream's documentation, the project scripts, and the Windows job of the fork's CI. Record further runs with the report template at the end of this page.
 
 This guide uses PowerShell and no WSL. Upstream supports native Windows development and treats WSL 2 as optional ([docs/development.md](../docs/development.md), section "Windows and WSL 2"). Keep the checkout and all tools in one environment; do not mix a Windows checkout with WSL tools.
 
@@ -92,7 +92,7 @@ pnpm -C air run desktop:setup
 pnpm -C air run desktop
 ```
 
-`desktop:setup` is idempotent. It adds the AIR bundles to the desktop profile, writes the Ollama route patch when none exists, adds `OLLAMA_API_KEY=ollama` to the `.env` of the harness home, and backs up every file it changes as `<name>.bak-<timestamp>`. The first launch downloads and builds a Node, pnpm, and Python runtime payload (about 128 MB downloaded, about 455 MB on disk; measured on Linux). Upstream supports a Windows x64 target for the desktop app, so the development launch is expected to pick the Windows payload; this has not been run.
+`desktop:setup` is idempotent. It adds the AIR bundles to the desktop profile, writes the Ollama route patch when none exists, adds `OLLAMA_API_KEY=ollama` to the `.env` of the harness home, and backs up every file it changes as `<name>.bak-<timestamp>`. The first launch downloads and builds a Node, pnpm, and Python runtime payload (about 128 MB downloaded, about 455 MB on disk; measured on Linux). On Windows the launch picked the `win-x64` payload. The first launch on 2026-10-20 failed once with `EPERM, Permission denied` on `appsdesktop.desktop-build	argetswin-x64untimeprimary-runtime`; running `pnpm -C air run desktop` again succeeded.
 
 Where things live, derived from `air/scripts/setup-desktop-profile.ts` and `apps/desktop/scripts/dev.ts`:
 
