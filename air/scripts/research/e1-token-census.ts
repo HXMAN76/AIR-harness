@@ -211,7 +211,10 @@ export function normalize(raw: string, replacements: Readonly<Record<string, str
   for (const [pattern, placeholder] of DYNAMIC_TEXT) text = text.replace(pattern, placeholder)
   const entries = Object.entries(replacements).filter(([value]) => value !== '').sort(([a], [b]) => b.length - a.length)
   for (const [value, placeholder] of entries) {
-    const forms = new Set([value, value.replaceAll('\\', '/'), value.replaceAll('\\', '\\\\'), JSON.stringify(value).slice(1, -1)])
+    // The runtime-context message quotes paths as JSON strings, so the body escapes them twice.
+    const once = JSON.stringify(value).slice(1, -1)
+    const twice = JSON.stringify(once).slice(1, -1)
+    const forms = new Set([value, value.replaceAll('\\', '/'), once, twice])
     for (const form of forms) text = text.split(form).join(placeholder)
   }
   return text

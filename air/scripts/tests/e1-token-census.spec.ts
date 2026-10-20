@@ -69,6 +69,9 @@ describe('E1 request census', () => {
     const home = 'C:\\Temp\\air-e1-home-1'
     const text = JSON.stringify({ a: home, b: 'C:/Temp/air-e1-home-1/x', c: '/tmp/ws' })
     expect(normalize(text, { [home]: '<HOME>', '/tmp/ws': '<WS>' })).toBe(JSON.stringify({ a: '<HOME>', b: '<HOME>/x', c: '<WS>' }))
+    // A path quoted inside message text is escaped twice in the request body.
+    const nested = JSON.stringify({ content: `directory: ${JSON.stringify(home)}.` })
+    expect(normalize(nested, { [home]: '<HOME>' })).toBe(JSON.stringify({ content: 'directory: "<HOME>".' }))
   })
 
   it('hashes with SHA-256', () => {
