@@ -1,0 +1,12 @@
+{
+  "name": "@air/voice",
+  "description": "Wake-phrase voice companion for Windows that drives a dsh session through the SDK",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run --coverage"
+  }
+}
