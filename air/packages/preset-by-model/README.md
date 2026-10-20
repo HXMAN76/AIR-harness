@@ -39,7 +39,7 @@ The model sees no difference except the tool list and system prompt of the chose
 ## Known Limitations
 
 - Upstream does not record whether a preset came from the default or from the user. The plugin treats a creation-time preset equal to the registry default as "default applied". A caller that explicitly requests the default preset id is therefore handled as if it had not chosen one.
-- Picking in the composer the preset that is already shown sends nothing to the Host, so the plugin cannot see it as a choice, and a later model change can still switch the preset.
+- Picking in the composer the preset that is already shown sends nothing to the Host, so the plugin cannot see it as a choice, and a later model change can still switch the preset. Since `dsh-v0.2.1-rc.2` the same holds for a programmatic `agentPresets.select` of the preset the session already records and runs: upstream returns without logging `agent-preset/selected`.
 - Detection of the user's choice is kept in memory. A blank session that is resumed after a restart is not touched, whatever its history.
 - The window is the adapter's value for the model route. A local route that reports no window leaves the default in place.
 - A preset switch appends an `agent-preset/selected` event to the log of every large-model session, and a second one if the user then picks another model.

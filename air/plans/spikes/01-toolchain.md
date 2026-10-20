@@ -369,6 +369,8 @@ Findings:
 
 ## 3. Peer ranges and exemptions
 
+Note (2026-10-20, `dsh-v0.2.1-rc.2`): a package's own `engines.dsh` range now decides alone, and the peer rule below applies only when `engines.dsh` is absent; refusal records name `requirements` instead of `peers` (`docs/upgrade-guide/v0.2.1-alpha.3/plugin-engines-dsh/guide.md`). AIR packages declare no `engines.dsh`.
+
 Implementation: `packages/boot/app-boot/src/plugin-compatibility.ts`. Only peers named `@deepseek-ai/dsh` or `@deepseek-ai/dsh-*` are checked; `@deepseek-ai/cordis` is ignored; `workspace:^`, `workspace:~`, `workspace:*` mean "the running version"; any other non-semver string (for example `link:...`) is incompatible. Evaluated with `evaluatePluginCompatibility` against several runtime versions:
 
 | Peer range | 0.2.0-rc.1 | 0.2.0-rc.2 | 0.2.0 | 0.2.1 | 0.3.0-rc.1 |

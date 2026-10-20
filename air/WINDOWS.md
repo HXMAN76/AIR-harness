@@ -122,7 +122,7 @@ Add-Content "$HOME\.dsh\.env" "OLLAMA_API_KEY=ollama"
 pnpm dsh --profile air
 ```
 
-The Web UI opens on `http://127.0.0.1:3080`. This has not been run on Windows either.
+The Web UI opens on `http://127.0.0.1:3080`. This has not been run on Windows either. Run the first command only once: since `dsh-v0.2.1-rc.2`, `--from-default-profile` replaces an existing profile, which removes the added bundle and the copied patch.
 
 ## 10. Troubleshooting
 
