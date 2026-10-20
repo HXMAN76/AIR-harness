@@ -451,6 +451,22 @@ importers:
         specifier: link:../../../packages/boot/cmdline
         version: link:../../../packages/boot/cmdline
 
+  packages/memory-index:
+    dependencies:
+      '@air/dsh-memory-store':
+        specifier: workspace:*
+        version: link:../memory-store
+      '@deepseek-ai/schemastery':
+        specifier: link:../../../vendor/schemastery
+        version: link:../../../vendor/schemastery
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: link:../../../vendor/cordis
+        version: link:../../../vendor/cordis
+      '@deepseek-ai/dsh-home-paths':
+        specifier: link:../../../packages/util/home-paths
+        version: link:../../../packages/util/home-paths
+
   packages/memory-store:
     dependencies:
       '@deepseek-ai/schemastery':
