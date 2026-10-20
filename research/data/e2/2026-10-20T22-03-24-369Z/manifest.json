@@ -1,0 +1,39 @@
+{
+  "experiment": "e2-threshold-table",
+  "startedAt": "2026-10-20T22:03:24.369Z",
+  "gitBranch": "worktree-agent-aaf2fb12dbd863848",
+  "upstreamTag": "dsh-v0.2.1-rc.2",
+  "commitsSinceTag": 115,
+  "workingTreeDirty": false,
+  "os": {
+    "platform": "win32",
+    "release": "10.0.26200",
+    "version": "Windows 11 Home",
+    "arch": "x64"
+  },
+  "node": "v26.12.0",
+  "source": "packages/compaction/compaction-basic/src/config.ts (resolveConfig, resolveTargetPolicy, resolveCompactSpec)",
+  "airPolicySource": "air/bundles/air/cordis.patch.yml (preset-air and preset-air-lean compaction-basic rows)",
+  "provider": "ollama",
+  "windows": [
+    4096,
+    8192,
+    16384,
+    24576,
+    32768,
+    65536,
+    131072,
+    200000
+  ],
+  "reservedOutputTokens": 4096,
+  "fixedPromptTokens": null,
+  "upstreamDefaults": {
+    "thresholdRatio": 0.8,
+    "headroomTokens": 65536,
+    "retainRatio": 0.16,
+    "maxTokens": "headroomTokens"
+  },
+  "files": [
+    "thresholds.csv"
+  ]
+}
