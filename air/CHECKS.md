@@ -65,9 +65,7 @@ Passed after the merge:
 - `pnpm -C air install`, `build`, `typecheck`, `lint`, and `smoke` (all three smokes "ok").
 - AIR package tests: all ten packages pass, `preset-by-model` after its test change (28 tests).
 
-Failing, waiting for an owner decision:
-
-- `scripts/tests/preset-air-drift.spec.ts`: `preset-air` still sets `toolFilter` on its two sub-agent rows, which upstream's `standard` preset dropped and `dsh-tool-subagent` now rejects, and it lacks the disabled `tool-plugin-market` row.
+- `scripts/tests/preset-air-drift.spec.ts` failed until `preset-air` dropped `toolFilter` from its two sub-agent rows (upstream's `standard` preset dropped it and `dsh-tool-subagent` now rejects it) and gained the disabled `tool-plugin-market` row. After that change and `gen:lean`, the AIR root tests (74), lint, and the three smokes passed.
 
 Not run: the desktop app and the Web UI on the merged tree.
 

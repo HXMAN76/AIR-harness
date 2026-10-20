@@ -184,7 +184,7 @@ The merge of `dsh-v0.2.1-alpha.2` had no conflicts, the five plan 01 packages bu
 
 The merge of `dsh-v0.2.1-rc.2` is recorded in [research.md](../../research/research.md) section 2b (fifth sync). For the plans:
 
-- **Plans 01 and 02 (built):** `preset-air` must drop `toolFilter` from its two sub-agent rows and gain the disabled `tool-plugin-market` row of the upstream `standard` preset; the `toolFilter` removal waits for the owner decision below. `preset-by-model` was adjusted for the silent re-select.
+- **Plans 01 and 02 (built):** `preset-air` dropped `toolFilter` from its two sub-agent rows and gained the disabled `tool-plugin-market` row of the upstream `standard` preset (owner decision, 2026-10-20). `preset-by-model` was adjusted for the silent re-select.
 - **Plan 03:** permission rules for delegated work cannot rely on a per-child tool filter any more; a child's tools come from the preset it runs. Grep `toolFilter` and `persona` before writing the task that limits children.
 - **Plans 05 and 06:** the evaluation bundle's profile commands use `--from-default-profile`, which now resets an existing profile; run it once per fresh `DSH_HOME`, as the scripts already do.
 - **Plan 07 and spikes:** `spikes/02-file-conventions.md` still shows the old sub-agent `Config` with `persona` and `toolFilter`, and `spikes/01-toolchain.md` section 3 predates `engines.dsh`; both carry a dated note.
