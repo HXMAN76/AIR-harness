@@ -451,6 +451,40 @@ importers:
         specifier: link:../../../packages/boot/cmdline
         version: link:../../../packages/boot/cmdline
 
+  packages/memory-context:
+    dependencies:
+      '@air/dsh-memory-store':
+        specifier: workspace:*
+        version: link:../memory-store
+      '@deepseek-ai/schemastery':
+        specifier: link:../../../vendor/schemastery
+        version: link:../../../vendor/schemastery
+      zod:
+        specifier: 4.4.3
+        version: 4.4.3
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: link:../../../vendor/cordis
+        version: link:../../../vendor/cordis
+      '@deepseek-ai/dsh-agent':
+        specifier: link:../../../packages/core/agent
+        version: link:../../../packages/core/agent
+      '@deepseek-ai/dsh-agent-loop-testkit':
+        specifier: link:../../../packages/test-support/agent-loop-testkit
+        version: link:../../../packages/test-support/agent-loop-testkit
+      '@deepseek-ai/dsh-llm':
+        specifier: link:../../../packages/llm/llm
+        version: link:../../../packages/llm/llm
+      '@deepseek-ai/dsh-session':
+        specifier: link:../../../packages/core/session
+        version: link:../../../packages/core/session
+      '@deepseek-ai/dsh-session-projection':
+        specifier: link:../../../packages/session/session-projection
+        version: link:../../../packages/session/session-projection
+      '@deepseek-ai/dsh-time-context':
+        specifier: link:../../../packages/context/time-context
+        version: link:../../../packages/context/time-context
+
   packages/memory-index:
     dependencies:
       '@air/dsh-memory-store':
@@ -1988,7 +2022,7 @@ snapshots:
 
   '@modelcontextprotocol/core@2.0.0':
     dependencies:
-      zod: 4.6.5
+      zod: 4.4.3
 
   '@modelcontextprotocol/server@2.0.0':
     dependencies:
