@@ -3,7 +3,7 @@ import { execFile } from 'node:child_process'
 import { isAllowedTarget } from './whitelist.ts'
 
 /** Runs an executable with arguments and extra environment variables; rejects when it fails. */
-export type ExecLike = (file: string, args: string[], env: Record<string, string>) => Promise<void>
+export type ExecLike = (file: string, args: string[], env: Record<string, string>, timeoutMs?: number) => Promise<void>
 
 /** The variable that carries the target (or process names) into a script. */
 export const TARGET_ENV = 'AIR_OP_TARGET'
@@ -16,11 +16,12 @@ export const START_SCRIPT = `Start-Process -FilePath $env:${TARGET_ENV}`
  * @param file - executable.
  * @param args - arguments (passed as an argument vector, never through a shell).
  * @param env - variables added to the process environment.
+ * @param timeoutMs - kill the process after this long; default 15 seconds.
  * @returns resolves on exit code 0, rejects with the error otherwise.
  */
-export function nodeExec(file: string, args: string[], env: Record<string, string>): Promise<void> {
+export function nodeExec(file: string, args: string[], env: Record<string, string>, timeoutMs = 15_000): Promise<void> {
   return new Promise((resolve, reject) => {
-    execFile(file, args, { env: { ...process.env, ...env }, windowsHide: true, timeout: 15_000 }, (error) => {
+    execFile(file, args, { env: { ...process.env, ...env }, windowsHide: true, timeout: timeoutMs }, (error) => {
       if (error === null) resolve()
       else reject(new Error(`${file} failed: ${error.message}`))
     })
