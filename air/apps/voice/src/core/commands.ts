@@ -66,6 +66,16 @@ export function suggestionFor(text: string): string | null {
   return null
 }
 
+const GUI = /\b(?:click|scroll|type (?:into|in)|press the|select the|on (?:the )?screen|this window|the button|drag)\b|\bfill (?:out |in )?the form\b/i
+
+/**
+ * @param text - an ask text.
+ * @returns whether it needs GUI control (clicking, scrolling, typing into a window), which only the screen route can do.
+ */
+export function needsScreen(text: string): boolean {
+  return GUI.test(text)
+}
+
 const REMEMBER = /^(?:please )?(?:remember|note|don['’]?t forget)(?: that)? (.+)$/i
 const RECALL = /^(?:what do you remember about|do you remember) (.+)$/i
 

@@ -114,6 +114,7 @@ function startVoice(): void {
   })
 
   listener.start()
+  void controller.start()
   debug('voice agent started (listener, speaker, bridge, controller)')
 }
 

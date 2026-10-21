@@ -2,7 +2,7 @@
 import type { EventEmitter } from 'node:events'
 import type { Command } from './listener.ts'
 import type { Lang } from './frames.ts'
-import { CONFIRM_SEND, matchEmailCommand, parseVoiceCommand, rewriteForAgent, suggestionFor, type Route } from './commands.ts'
+import { CONFIRM_SEND, matchEmailCommand, parseVoiceCommand, rewriteForAgent, suggestionFor, needsScreen, type Route } from './commands.ts'
 import { REPLY_ON_SCREEN, hasTamilScript, toSpokenText } from './speech-text.ts'
 import { closeIntentForLabel, isCloseReference, matchOperatorIntent, runOperatorIntent, type OperatorIntent, type OperatorResult } from './operator.ts'
 
@@ -65,6 +65,9 @@ const ALLOW_PROMPT = 'Say yes to allow.'
 const CANCELLED = 'Cancelled.'
 const CLOUD_KEY_MISSING = 'The cloud key is not set.'
 const USING_CLOUD = 'Using the cloud model.'
+const USING_LOCAL = 'Using the local model.'
+const SCREEN_KEY_MISSING = 'Screen control needs the cloud key.'
+const SCREEN_ON = 'Screen mode on.'
 /** The model's reply carries this line on its own when a draft is ready and Send is not yet pressed. */
 const CONFIRM_SEND_LINE = new RegExp(`^\s*${CONFIRM_SEND}\s*$`, 'm')
 /** Sent to the same session after a spoken yes. */
@@ -173,6 +176,16 @@ export class VoiceController {
     })
 
     this.emit()
+  }
+
+  /**
+   * Choose the starting route and say which one: the cloud model when the cloud key is present, else the local one.
+   * Operator commands (open, close, time, news) never use a model either way.
+   */
+  async start(): Promise<void> {
+    const cloud = this.agent.setRoute('cloud')
+    this.emit()
+    await this.speak(cloud.ok ? USING_CLOUD : USING_LOCAL)
   }
 
   /**
@@ -436,6 +449,16 @@ export class VoiceController {
     if (browser && this.agent.route === 'local') {
       const switched = this.agent.setRoute('cloud')
       await this.speak(switched.ok ? USING_CLOUD : CLOUD_KEY_MISSING)
+      if (!switched.ok) {
+        this.phase = 'idle'
+        this.emit()
+        return
+      }
+    }
+    // Commands that need GUI control go to the screen route, which stays active until the user switches.
+    if (!followUp && !browser && this.agent.route !== 'screen' && needsScreen(text)) {
+      const switched = this.agent.setRoute('screen')
+      await this.speak(switched.ok ? SCREEN_ON : SCREEN_KEY_MISSING)
       if (!switched.ok) {
         this.phase = 'idle'
         this.emit()

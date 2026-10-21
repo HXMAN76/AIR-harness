@@ -1094,3 +1094,63 @@ describe('send token and voice approval', () => {
     expect(agent.asks).toEqual(['clean up'])
   })
 })
+
+describe('default route and screen route', () => {
+  beforeEach(() => { vi.useFakeTimers() })
+  afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks() })
+
+  it('starts on the cloud model when the key is present, and says so', async () => {
+    const { controller, agent, speaker, states } = await makeController()
+    await controller.start()
+    expect(agent.route).toBe('cloud')
+    expect(speaker.spoken).toEqual(['Using the cloud model.'])
+    expect(states.at(-1)).toMatchObject({ route: 'cloud' })
+  })
+
+  it('stays local without the key, and says so', async () => {
+    const { controller, agent, speaker } = await makeController()
+    agent.cloudKeyMissing = true
+    await controller.start()
+    expect(agent.route).toBe('local')
+    expect(speaker.spoken).toEqual(['Using the local model.'])
+  })
+
+  it('keeps operator commands model-free on the cloud default, and "use local" still switches', async () => {
+    const { controller, agent, speaker } = await makeController()
+    await controller.start()
+    await controller.handleSpoken({ text: 'what time is it' })
+    expect(agent.asks).toEqual([])
+    await controller.handleSpoken({ text: 'use local model' })
+    expect(agent.route).toBe('local')
+    expect(speaker.spoken.at(-1)).toBe('Using local model.')
+  })
+
+  it('sends a GUI command to the screen route, once', async () => {
+    const { controller, agent, speaker } = await makeController()
+    await controller.handleSpoken({ text: 'click the blue button' })
+    expect(agent.route).toBe('screen')
+    expect(agent.asks).toEqual(['click the blue button'])
+    expect(speaker.spoken[0]).toBe('Screen mode on.')
+    await controller.handleSpoken({ text: 'scroll down' })
+    expect(agent.routeChanges).toEqual(['screen'])
+  })
+
+  it('says screen control needs the key, and asks nothing, when the key is missing', async () => {
+    const { controller, agent, speaker, states } = await makeController()
+    agent.cloudKeyMissing = true
+    await controller.handleSpoken({ text: 'click the blue button' })
+    expect(speaker.spoken).toEqual(['Screen control needs the cloud key.'])
+    expect(agent.asks).toEqual([])
+    expect(agent.route).toBe('local')
+    expect(states.at(-1)).toMatchObject({ phase: 'idle' })
+  })
+
+  it('does not switch when a follow-up prompt happens to contain GUI words', async () => {
+    const { controller, agent } = await makeController()
+    agent.route = 'cloud'
+    agent.replies = [{ reply: 'x', tools: [], approval: { summary: 'click the button', digest: 'd' } }]
+    await controller.handleSpoken({ text: 'tell me what the date is' })
+    await controller.handleSpoken({ text: 'yes' })
+    expect(agent.routeChanges).toEqual([])
+  })
+})

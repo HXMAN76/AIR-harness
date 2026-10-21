@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { CONFIRM_SEND, matchEmailCommand, parseVoiceCommand, rewriteForAgent, suggestionFor } from '../src/core/commands.ts'
+import { CONFIRM_SEND, matchEmailCommand, parseVoiceCommand, rewriteForAgent, suggestionFor, needsScreen } from '../src/core/commands.ts'
 
 describe('parseVoiceCommand', () => {
   it.each([
@@ -115,5 +115,14 @@ describe('end and suggestions', () => {
   })
   it('leaves other replies alone', () => {
     expect(suggestionFor('open notepad')).toBeNull()
+  })
+})
+
+describe('needsScreen', () => {
+  it.each(['click the red button', 'scroll down', 'type into the search box', 'type in my name', 'press the OK button', 'select the second row', 'what is on the screen', 'what is on screen', 'close this window', 'fill the form', 'fill out the form', 'drag the file to the folder'])('%j needs the screen', (text) => {
+    expect(needsScreen(text)).toBe(true)
+  })
+  it.each(['what is two plus two', 'open notepad', 'tell me a joke', 'write a poem about a screen saver', 'typewriter history'])('%j does not', (text) => {
+    expect(needsScreen(text)).toBe(false)
   })
 })
