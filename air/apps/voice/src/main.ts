@@ -5,12 +5,14 @@ import { Listener } from './core/listener.ts'
 import { Speaker } from './core/speaker.ts'
 import { AgentBridge } from './core/agent.ts'
 import { VoiceController } from './core/controller.ts'
+import type { Route } from './core/commands.ts'
 import { voiceHome } from './core/home.ts'
 
 let mainWindow: BrowserWindow | undefined
 let listener: Listener | undefined
 let speaker: Speaker | undefined
 let agent: AgentBridge | undefined
+let controller: VoiceController | undefined
 
 const FRAME_SIZE = 1_600 // 100 ms at 16 kHz
 
@@ -25,6 +27,7 @@ function createWindow(): void {
       preload: join(__dirname, 'preload.cjs'),
       contextIsolation: true,
       nodeIntegration: false,
+      sandbox: true,
     },
   })
 
@@ -40,7 +43,7 @@ function startVoice(): void {
   listener = new Listener()
   speaker = new Speaker()
   agent = new AgentBridge({ dshHome: home, cwd: home })
-  new VoiceController({
+  controller = new VoiceController({
     listener,
     speaker,
     agent,
@@ -61,6 +64,14 @@ function setupIpc(): void {
         listener.push(frame)
       }
     }
+  })
+
+  ipcMain.on('setRoute', (_event, route: Route) => {
+    void controller?.setRoute(route)
+  })
+
+  ipcMain.on('setMemoryShare', (_event, on: boolean) => {
+    void controller?.setMemoryShare(on)
   })
 }
 

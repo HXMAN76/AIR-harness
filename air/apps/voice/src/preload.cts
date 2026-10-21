@@ -1,5 +1,5 @@
 /** Preload script: exposes IPC bridges to the renderer. */
-import { contextBridge, ipcRenderer } from 'electron'
+const { contextBridge, ipcRenderer } = require('electron')
 
 contextBridge.exposeInMainWorld('voiceAPI', {
   /** Send audio frames to the main process. */
@@ -8,6 +8,14 @@ contextBridge.exposeInMainWorld('voiceAPI', {
   },
   /** Listen for state updates from the main process. */
   onState: (callback: (state: unknown) => void) => {
-    ipcRenderer.on('state', (_event, state) => callback(state))
+    ipcRenderer.on('state', (_event: Electron.IpcRendererEvent, state: unknown) => callback(state))
+  },
+  /** Request a route change (local | cloud | screen). */
+  setRoute: (route: string) => {
+    ipcRenderer.send('setRoute', route)
+  },
+  /** Request a memory-share toggle change. */
+  setMemoryShare: (on: boolean) => {
+    ipcRenderer.send('setMemoryShare', on)
   },
 })

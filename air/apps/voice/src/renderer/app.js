@@ -123,5 +123,22 @@ if (window.voiceAPI) {
   window.voiceAPI.onState(updateUI)
 }
 
+// Wire route button clicks
+routeButtons.forEach(btn => {
+  btn.addEventListener('click', () => {
+    const route = btn.dataset.route
+    if (route && window.voiceAPI && window.voiceAPI.setRoute) {
+      window.voiceAPI.setRoute(route)
+    }
+  })
+})
+
+// Wire memory share checkbox clicks
+memoryShareCheckbox.addEventListener('change', () => {
+  if (window.voiceAPI && window.voiceAPI.setMemoryShare) {
+    window.voiceAPI.setMemoryShare(memoryShareCheckbox.checked)
+  }
+})
+
 // Start audio capture
 initAudio()

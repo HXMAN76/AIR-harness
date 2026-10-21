@@ -47,6 +47,10 @@ importers:
       '@deepseek-ai/dsh-sdk-client':
         specifier: link:../../../packages/sdk/client
         version: link:../../../packages/sdk/client
+    devDependencies:
+      electron:
+        specifier: link:../../../apps/desktop/node_modules/electron
+        version: link:../../../apps/desktop/node_modules/electron
 
   bundles/air:
     dependencies:

@@ -128,6 +128,22 @@ export class VoiceController {
     await this.handleCommand(match.command)
   }
 
+  /**
+   * Switch the active route from a UI click (not voice).
+   * Speaks the confirmation and returns to idle.
+   */
+  async setRoute(route: Route): Promise<void> {
+    await this.handleRoute(route)
+  }
+
+  /**
+   * Toggle memory sharing from a UI click (not voice).
+   */
+  async setMemoryShare(on: boolean): Promise<void> {
+    await this.agent.setMemoryShare(on)
+    this.emit()
+  }
+
   private async handleCommand(text: string): Promise<void> {
     const command = parseVoiceCommand(text)
     switch (command.kind) {

@@ -1,23 +1,13 @@
 /** Controller tests: fake clock, fake deps, full coverage of the state machine. */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { EventEmitter } from 'node:events'
 import type { Route } from '../src/core/commands.ts'
 
 // ── fakes ──────────────────────────────────────────────────────────────────
 
-interface SegmentHandler {
-  (seg: { text: string; durationMs: number }): void
-}
-
-class FakeListener {
-  private handlers: SegmentHandler[] = []
-  on(event: string, handler: SegmentHandler): void {
-    if (event === 'segment') this.handlers.push(handler)
-  }
-  off(event: string, handler: SegmentHandler): void {
-    if (event === 'segment') this.handlers = this.handlers.filter(h => h !== handler)
-  }
-  emit(text: string, durationMs = 500): void {
-    for (const h of this.handlers) h({ text, durationMs })
+class FakeListener extends EventEmitter {
+  pushSegment(text: string, durationMs = 500): void {
+    this.emit('segment', { text, durationMs })
   }
 }
 
@@ -390,7 +380,7 @@ describe('VoiceController', () => {
   it('listens for segments from the listener', async () => {
     const { listener, agent } = await makeController(clock)
 
-    listener.emit('Jarvis what time is it')
+    listener.pushSegment('Jarvis what time is it')
     // Give async handlers time to run
     await vi.advanceTimersByTimeAsync(100)
 
@@ -451,5 +441,26 @@ describe('VoiceController', () => {
 
     expect(speaker.spoken.some(s => s.includes('string error'))).toBe(true)
     expect(states.some(s => s.error === 'string error')).toBe(true)
+  })
+
+  // ── UI-initiated actions ────────────────────────────────────────────────
+
+  it('switches route via setRoute (UI click path)', async () => {
+    const { controller, agent, speaker } = await makeController(clock)
+
+    await controller.setRoute('cloud')
+
+    expect(agent.routeChanges).toContain('cloud')
+    expect(speaker.spoken).toContain('Using the cloud model.')
+  })
+
+  it('toggles memory share via setMemoryShare (UI click path)', async () => {
+    const { controller, agent, states } = await makeController(clock)
+
+    await controller.setMemoryShare(true)
+
+    expect(agent.memoryShares).toContain(true)
+    expect(agent.memoryShared).toBe(true)
+    expect(states.some(s => s.memoryShared)).toBe(true)
   })
 })
