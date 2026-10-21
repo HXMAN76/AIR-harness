@@ -211,6 +211,7 @@ From the command line, the `air-mcp` profile uses the bundle `bundles/mcp-server
 | `bundles/air-headless` | AIR defaults and plugins for a profile made from the headless template |
 | `bundles/air-mcp` | The `air-mcp` command-line profile |
 | `bundles/mcp-servers` | The MCP trust row shared by `air` and `air-mcp` |
+| `apps/voice` | Wake-phrase voice companion: Electron, Silero VAD, SenseVoice, Windows SAPI |
 | `scripts/` | Generators, smoke tests, `setup-desktop-profile.ts`, `desktop-drive.mjs` |
 | `examples/` | Profile-patch examples, such as the local Ollama route |
 | `plans/` | Roadmap, implementation plans, and API spikes |
@@ -252,6 +253,29 @@ Memory text is sent to the active model, so it is shared only with the model rou
 
 Back up or move notes with `pnpm -C air run memory:transfer export <file>` and `import <file>`. Rows: `air-memory-store`, `air-memory-index` (host), `air-tool-memory`, `air-memory-context` (inside the `air` preset). Forgetting a note does not remove text that already entered a session log; delete the session for that.
 
+## Voice agent (preview)
+
+A wake-phrase voice companion that captures the microphone, transcribes speech with Silero VAD and SenseVoice, sends commands to a dsh session through the SDK, and speaks the reply through Windows SAPI. The default route is local Ollama; cloud routes (Claude Haiku, Claude Sonnet with computer use) are opt-in.
+
+```powershell
+pnpm -C air/apps/voice install
+pnpm -C air/apps/voice build
+pnpm -C air run voice
+```
+
+Four voice commands are handled by the app itself (the model never sees them):
+
+| Command | Phrases |
+|---|---|
+| Switch route | "use the local model", "use the cloud model", "use the screen model" |
+| New conversation | "new conversation", "start a new conversation" |
+| Cancel | "cancel", "cancel that", "never mind" |
+| Memory sharing | "share memory with the cloud", "stop sharing memory" |
+
+Anything else after the wake phrase ("Jarvis" and common mis-hearings) is sent to the agent. The model's reply is spoken aloud and shown in the transcript pane.
+
+Windows only; requires SAPI voices and microphone permissions. Details, setup for cloud routes, and troubleshooting: [apps/voice/README.md](apps/voice/README.md).
+
 ## Known limitations
 
 - No person has run any of this on native Windows; the desktop app has never been launched on Windows by this project. macOS is out of scope.
@@ -264,6 +288,7 @@ Back up or move notes with `pnpm -C air run memory:transfer export <file>` and `
 - Models not listed in the variants table get no compaction until they have a table entry.
 - One reply in one 7-turn session was cut off with "Output token limit reached" (before the compaction fixes); it did not repeat and its cause is not known.
 - Headless: no presets, no schedule tool, no answerable MCP prompt, no resume of preset sessions.
+- The voice agent is a Windows-only preview: wake matching is text-based (no trained wake-word model), the cloud and screen routes are untested by a person, and nobody can answer an approval prompt by voice.
 - Not covered by any check: path-scoped rules, `revoke` in the app, a pinned server that later changes its tools, and the benchmark raw data from 2026-10-10, which was lost (the figures are summaries).
 
 ## Where to read more

@@ -73,6 +73,30 @@ Not run: the desktop app and the Web UI on the merged tree.
 
 The fork's `air` workflow runs on Linux and Windows: root install and build, AIR install, build, typecheck, lint, tests, the repository text gates, and the profile smokes. This is the only Windows signal so far. The Windows leg found the failures listed in the troubleshooting table of [WINDOWS.md](WINDOWS.md).
 
+## 2026-10-21: voice agent automated checks
+
+Environment: Windows 11 Home, branch `air/feat/voice-agent-track-a`, worktree build.
+
+| Command | Result |
+|---|---|
+| `pnpm -C air run typecheck` | Passed (all 11 packages) |
+| `pnpm -C air run lint` | Passed (generated-file checks and oxlint clean) |
+| `pnpm -C air run test` | Passed (all packages; voice app 9 files, 115 tests, 100% coverage) |
+| `pnpm -C air/apps/voice test` | Passed (9 files, 115 tests, 100% statements, branches, functions, lines) |
+| `pnpm run verify-concrete-terms` | Passed |
+| `pnpm run verify-repository-references` | Failed on `python/sdk/uv.lock:113` (pre-existing commit hash in a lockfile; not from the voice agent work) |
+
+## 2026-10-21: voice agent manual scenarios
+
+Environment: Windows 11 Home. These scenarios require the Electron app running with a live microphone and speakers, which is not available in this environment.
+
+| # | Scenario | Result | Time to first spoken word | Error text |
+|---|---|---|---|---|
+| 1 | Open Notepad and write a todo list (spoken reply) | NOT RUN — requires Windows desktop with audio | — | — |
+| 2 | Search weather in Chennai (spoken web summary) | NOT RUN — requires Windows desktop with audio | — | — |
+| 3 | Remember a preference, recall it in a new session | NOT RUN — requires Windows desktop with audio | — | — |
+| 4 | Switch model routes by voice or toggle | NOT RUN — requires Windows desktop with audio | — | — |
+
 ## Not checked
 
 - Native Windows by a person: any step.

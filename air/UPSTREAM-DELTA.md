@@ -28,6 +28,10 @@ Every file AIR changes outside `air/` and `research/`, with the reason. Upstream
 
 Candidates not yet made (research.md and the plans): streaming methods on the speech-to-text Service Definition; more Claude Code hook events in `hooks-claude-code`; product-name surfaces that no plugin slot or configuration can replace (the places in `apps/desktop` are listed in [BRANDING.md](BRANDING.md)). The desktop app is upstream's `apps/desktop`; the AIR bundles run inside it, and the superseded plan 07 would have added one workflow file, `.github/workflows/air-desktop.yml`, which does not exist.
 
+## Voice agent (2026-10-21)
+
+The voice agent (`air/apps/voice`) is built entirely within the `air/` workspace. No upstream files outside `air/` and `research/` were changed for this feature. The voice profile patch (`air/apps/voice/profile/voice.cordis.patch.yml`) composes against upstream's `sdk` profile without any in-tree edit; the SDK client dependency is a `link:` reference to the root workspace's `packages/sdk/client`.
+
 ## Re-check after each upstream sync
 
 Checked against the release tag `dsh-v0.2.1-rc.2`: the 25 files changed outside `air/` and `research/` are exactly the files in the table above.
