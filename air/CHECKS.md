@@ -114,3 +114,7 @@ Browser rows moved to the screen patch, local route, "open notepad": first reque
 - The desktop app on Windows; an installer; tray, menus, and updater on Linux.
 - Hosted (cloud) models.
 - Benchmark raw data from 2026-10-10 was lost; the figures in the research notes are summaries.
+
+## 2026-10-21: voice wake word and English/Tamil recognisers
+
+Environment: Windows 11 Home, branch `air/feat/voice-agent-track-a`. Checks run: `pnpm -C air/apps/voice test` (13 files, 268 tests, 100% coverage of `src/core`), `pnpm -C air run lint` and `typecheck` (passed), `pnpm -C air/apps/voice run build` (passed; the built `lib/listener-worker.cjs` loads and switches to Tamil). Live (`AIR_VOICE_LIVE=1`, SAPI speech fed in real time, voices David and Zira): the keyword spotter woke on "Jarvis, open notepad." and "Jarvis, search weather in Chennai." in all four runs, with 0.10 to 0.28 s between the end of the spoken word and the wake event; the commands were "Open Notepad" and "Search weather in Chennai" (Zira once heard "Jana"); decode took 50 to 110 ms for 1 to 1.2 s of speech (real-time factor 0.05 to 0.09); speech without "Jarvis" produced no wake and no decode; worker start took about 2 s; the Tamil model loaded in about 330 ms on the first switch and decoded a silent clip. Not run: any real Tamil speech (no source), a microphone, the Electron app end to end, the `screen` route.
