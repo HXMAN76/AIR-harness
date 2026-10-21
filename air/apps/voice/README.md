@@ -77,7 +77,7 @@ After the wake phrase and the app commands, the controller tries the operator (`
 | open youtube, gmail, github, google, or a domain such as example.org (.com, .org, .in, .io) | opens the site over https |
 | search X, search for X, google X, look up X | Google results for X |
 | play X on youtube, search youtube for X | YouTube results for X |
-| close notepad, calculator, paint, settings, terminal, command prompt, edge, chrome, spotify, vs code | says "Say yes to confirm.", then stops that app's process (not File Explorer) once you say yes |
+| close notepad, calculator, paint, settings, terminal, command prompt, edge, chrome, spotify, vs code | closes that app's main window gracefully (an app with unsaved work shows its own save prompt; not File Explorer), no confirmation; "close it" / "close that" / "close the app" closes the last app AIR opened this session, or asks "Which app should I close?" |
 | volume up, volume down, mute | sends the media key (up and down press it five times) |
 | lock screen | says "Say yes to confirm.", then locks the PC once you say yes |
 | what time is it, what's the date | answered locally |

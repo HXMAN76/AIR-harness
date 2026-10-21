@@ -401,6 +401,18 @@ describe('WorkerEngine text mode', () => {
     expect(r.sent.filter(message => 'type' in message && message.type === 'command')).toEqual([])
   })
 
+  it('arm() in text mode takes the next segment as a command without a wake phrase, then times out', () => {
+    const r = textRig()
+    r.engine.arm()
+    say(r, 'read the news')
+    expect(r.sent.slice(1)).toMatchObject([{ type: 'command', text: 'read the news' }])
+    r.engine.arm()
+    frames(r.engine, NO_SPEECH_TIMEOUT_S * 10 + 2)
+    expect(r.sent.at(-1)).toEqual({ type: 'timeout' })
+    say(r, 'Jarvis open paint')
+    expect(r.sent.slice(-2)).toMatchObject([{ type: 'wake' }, { type: 'command', text: 'open paint' }])
+  })
+
   it('arm() captures one command without a wake word, and times out after six seconds', () => {
     const r = rig({ wake: 'kws' })
     r.recognizers[0]!.text = 'yes'

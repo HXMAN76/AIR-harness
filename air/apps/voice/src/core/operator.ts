@@ -63,6 +63,20 @@ function matchClose(name: string): OperatorIntent | null {
   return app === undefined || app.processes.length === 0 ? null : { kind: 'close', names: app.processes, label: app.label }
 }
 
+/** "close it", "close that", "close the app": a close with no app named. */
+export function isCloseReference(command: string): boolean {
+  return /^(?:close|quit|exit) (?:it|that|this|(?:the|that|this) (?:app|application|program|window))$/i.test(clean(command))
+}
+
+/**
+ * The close intent for an app AIR opened earlier.
+ * @param label - the label of an `open` intent.
+ * @returns the close intent, or null when the label is not a closable whitelisted app.
+ */
+export function closeIntentForLabel(label: string): OperatorIntent | null {
+  return matchClose(label.toLowerCase())
+}
+
 /**
  * Match a command (the text after the wake phrase) to a local action.
  * @param command - spoken command.
@@ -99,7 +113,8 @@ export function matchOperatorIntent(command: string): OperatorIntent | null {
   return null
 }
 
-const CLOSE_SCRIPT = `Stop-Process -Name ($env:${TARGET_ENV} -split ',') -ErrorAction Stop`
+/** Graceful close: ask each main window to close, so an app with unsaved work shows its own save prompt. */
+const CLOSE_SCRIPT = `Get-Process -Name ($env:${TARGET_ENV} -split ',') -ErrorAction Stop | ForEach-Object { $_.CloseMainWindow() | Out-Null }`
 const KEYS = '$s = New-Object -ComObject WScript.Shell; '
 const VOLUME_SCRIPTS = {
   up: `${KEYS}1..5 | ForEach-Object { $s.SendKeys([char]175) }`,

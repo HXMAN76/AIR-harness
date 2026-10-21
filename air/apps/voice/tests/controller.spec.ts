@@ -542,8 +542,8 @@ describe('VoiceController', () => {
       return { ...rig, intents }
     }
 
-    it('asks first for close and for lock, and does not run yet', async () => {
-      const closing = await ask('close notepad')
+    it('asks first for lock, and does not run yet', async () => {
+      const closing = await ask('lock the screen')
       expect(closing.speaker.spoken).toEqual(['Say yes to confirm.'])
       expect(closing.intents).toEqual([])
       expect(closing.listener.listens).toBe(1)
@@ -554,9 +554,9 @@ describe('VoiceController', () => {
     })
 
     it.each(['yes', 'Yes.', 'confirm', 'Yeah!'])('runs the command on %j without another wake', async (answer) => {
-      const { controller, speaker, intents, agent } = await ask('close notepad')
+      const { controller, speaker, intents, agent } = await ask('lock the screen')
       await controller.handleSpoken({ text: answer })
-      expect(intents).toMatchObject([{ kind: 'close', label: 'Notepad' }])
+      expect(intents).toMatchObject([{ kind: 'lock' }])
       expect(speaker.spoken).toEqual(['Say yes to confirm.', 'Closing Notepad.'])
       expect(agent.asks).toEqual([])
       await vi.advanceTimersByTimeAsync(10_000)
@@ -574,7 +574,7 @@ describe('VoiceController', () => {
     })
 
     it('cancels after six seconds of silence', async () => {
-      const { speaker, intents } = await ask('close notepad')
+      const { speaker, intents } = await ask('lock the screen')
       await vi.advanceTimersByTimeAsync(5_900)
       expect(speaker.spoken).toEqual(['Say yes to confirm.'])
       await vi.advanceTimersByTimeAsync(200)
@@ -583,13 +583,39 @@ describe('VoiceController', () => {
     })
 
     it('cancels when the listener times out, and a late yes does nothing special', async () => {
-      const { listener, speaker, intents } = await ask('close notepad')
+      const { listener, speaker, intents } = await ask('lock the screen')
       listener.emit('timeout')
       await vi.advanceTimersByTimeAsync(0)
       expect(speaker.spoken).toEqual(['Say yes to confirm.', 'Cancelled.'])
       await vi.advanceTimersByTimeAsync(10_000)
       expect(speaker.spoken).toHaveLength(2)
       expect(intents).toEqual([])
+    })
+
+    it('closes an app at once, without a confirmation', async () => {
+      const { speaker, intents } = await ask('close notepad')
+      expect(speaker.spoken).toEqual(['Closing Notepad.'])
+      expect(intents).toMatchObject([{ kind: 'close', label: 'Notepad' }])
+    })
+
+    it('closes the last opened app on "close it", and asks which app when none was opened', async () => {
+      const intents: OperatorIntent[] = []
+      const { controller, speaker, states } = await makeController(async (intent) => {
+        intents.push(intent)
+        return { spoken: 'ok.' }
+      })
+      await controller.handleSpoken({ text: 'close it' })
+      expect(speaker.spoken).toEqual(['Which app should I close?'])
+      expect(states.at(-1)).toMatchObject({ phase: 'idle', reply: 'Which app should I close?' })
+      await controller.handleSpoken({ text: 'open the browser' })
+      await controller.handleSpoken({ text: 'close that' })
+      expect(speaker.spoken.at(-1)).toBe('Which app should I close?')
+      await controller.handleSpoken({ text: 'open notepad' })
+      await controller.handleSpoken({ text: 'close the app' })
+      expect(intents.map(i => i.kind)).toEqual(['open', 'open', 'close'])
+      expect(intents[2]).toMatchObject({ names: ['notepad'], label: 'Notepad' })
+      await controller.handleSpoken({ text: 'close it' })
+      expect(speaker.spoken.at(-1)).toBe('Which app should I close?')
     })
 
     it('does not ask for harmless commands', async () => {
@@ -601,7 +627,7 @@ describe('VoiceController', () => {
     it('accepts yes after a wake that cut off the prompt', async () => {
       const rig = await makeController(async () => ({ spoken: 'Closing Notepad.' }))
       rig.speaker.autoResolve = false
-      const asking = rig.controller.handleSpoken({ text: 'close notepad' })
+      const asking = rig.controller.handleSpoken({ text: 'lock the screen' })
       await vi.advanceTimersByTimeAsync(0)
       rig.listener.emit('wake')
       await asking
@@ -665,7 +691,7 @@ describe('confirmation edge paths', () => {
 
   it('cancels when the confirmation window passes unanswered', async () => {
     const { controller, speaker } = await rig(async () => ({ spoken: 'Closing Notepad.' }))
-    await controller.handleSpoken({ text: 'close notepad' })
+    await controller.handleSpoken({ text: 'lock the screen' })
     expect(speaker.spoken).toEqual(['Say yes to confirm.'])
     await vi.advanceTimersByTimeAsync(CONFIRM_WINDOW_MS)
     expect(speaker.spoken).toEqual(['Say yes to confirm.', 'Cancelled.'])
@@ -675,7 +701,7 @@ describe('confirmation edge paths', () => {
   it('drops a confirmation prompt that a later answer already settled', async () => {
     const intents: OperatorIntent[] = []
     const { controller, speaker } = await rig(async (intent) => { intents.push(intent); return { spoken: 'Closing Notepad.' } })
-    const first = controller.handleSpoken({ text: 'close notepad' })
+    const first = controller.handleSpoken({ text: 'lock the screen' })
     await Promise.resolve()
     await controller.handleSpoken({ text: 'no thanks' })
     await first

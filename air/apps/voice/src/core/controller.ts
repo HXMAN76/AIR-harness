@@ -4,7 +4,7 @@ import type { Command } from './listener.ts'
 import type { Lang } from './frames.ts'
 import { CONFIRM_SEND, matchEmailCommand, parseVoiceCommand, rewriteForAgent, type Route } from './commands.ts'
 import { REPLY_ON_SCREEN, hasTamilScript, toSpokenText } from './speech-text.ts'
-import { matchOperatorIntent, runOperatorIntent, type OperatorIntent, type OperatorResult } from './operator.ts'
+import { closeIntentForLabel, isCloseReference, matchOperatorIntent, runOperatorIntent, type OperatorIntent, type OperatorResult } from './operator.ts'
 
 /** One frame of the voice state machine, pushed to the UI. */
 export interface VoiceState {
@@ -51,8 +51,10 @@ const WATCHDOG_MS = 120_000
 /** Tool name shown in the state for commands the operator handled. */
 const OPERATOR_TOOL = 'operator'
 
-/** Operator intents that need a spoken yes before they run. */
-const DESTRUCTIVE: ReadonlySet<OperatorIntent['kind']> = new Set(['close', 'lock'])
+/** Operator intents that need a spoken yes before they run. Closing an app is graceful (the app asks to save), so only the lock needs one. */
+const DESTRUCTIVE: ReadonlySet<OperatorIntent['kind']> = new Set(['lock'])
+
+const WHICH_APP = 'Which app should I close?'
 
 /** How long a confirmation waits for "yes". */
 export const CONFIRM_WINDOW_MS = 6_000
@@ -99,6 +101,8 @@ export class VoiceController {
   private phase: 'idle' | 'awake' | 'thinking' | 'speaking' = 'idle'
   private lang: Lang = 'en'
   private busy = false
+  /** The app AIR opened last this session, for "close it". */
+  private lastOpened: OperatorIntent | undefined
   private watchdogTimer: ReturnType<typeof setTimeout> | undefined
   /** A destructive operator command, or (no intent) an email draft, waiting for "yes". */
   private confirming: { text: string; intent: OperatorIntent | undefined; timer: ReturnType<typeof setTimeout> | undefined } | undefined
@@ -204,6 +208,10 @@ export class VoiceController {
         // The operator's patterns are English; Tamil goes to the agent.
         // Email requests go to the browser tools, so they skip the operator's "open gmail" fast path.
         const browser = matchEmailCommand(command.text) !== null
+        if (lang === 'en' && !browser && isCloseReference(command.text)) {
+          await this.closeReference(command.text)
+          break
+        }
         const intent = lang === 'en' && !browser ? matchOperatorIntent(command.text) : null
         if (intent === null) await this.handleAsk(command.text, browser)
         else if (DESTRUCTIVE.has(intent.kind)) await this.askConfirmation(command.text, intent)
@@ -211,6 +219,17 @@ export class VoiceController {
         break
       }
     }
+  }
+
+  /** "Close it": the last app AIR opened, or a question when there is none. */
+  private async closeReference(text: string): Promise<void> {
+    if (this.lastOpened === undefined) {
+      this.phase = 'idle'
+      this.emit({ transcript: text, reply: WHICH_APP, tools: [OPERATOR_TOOL] })
+      await this.speak(WHICH_APP)
+      return
+    }
+    await this.handleOperator(text, this.lastOpened)
   }
 
   private async handleRoute(route: Route): Promise<void> {
@@ -302,6 +321,8 @@ export class VoiceController {
     this.emit({ transcript: text })
     try {
       const result = await this.runOperator(intent)
+      if (intent.kind === 'open') this.lastOpened = closeIntentForLabel(intent.label) ?? this.lastOpened
+      else if (intent.kind === 'close') this.lastOpened = undefined
       this.phase = 'speaking'
       this.emit({ transcript: text, reply: result.spoken, tools: [OPERATOR_TOOL] })
       await this.speak(result.spoken)

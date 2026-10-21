@@ -1,7 +1,19 @@
 import { describe, expect, it } from 'vitest'
-import { matchOperatorIntent, runOperatorIntent, type ExecLike, type OperatorIntent } from '../src/core/operator.ts'
+import { closeIntentForLabel, isCloseReference, matchOperatorIntent, runOperatorIntent, type ExecLike, type OperatorIntent } from '../src/core/operator.ts'
 
 const GOOGLE = 'https://www.google.com'
+
+
+describe('close references', () => {
+  it('recognises pronoun closes only', () => {
+    expect(['close it', 'Close that.', 'quit the app', 'close this window'].map(isCloseReference)).toEqual([true, true, true, true])
+    expect(['close notepad', 'open it'].map(isCloseReference)).toEqual([false, false])
+  })
+  it('maps an opened label to a close intent, or null', () => {
+    expect(closeIntentForLabel('Notepad')).toEqual({ kind: 'close', names: ['notepad'], label: 'Notepad' })
+    expect(closeIntentForLabel('the browser')).toBeNull()
+  })
+})
 
 describe('matchOperatorIntent', () => {
   const table: [string, OperatorIntent | null][] = [
@@ -130,7 +142,7 @@ describe('runOperatorIntent', () => {
   it('closes whitelisted process names only', async () => {
     const { calls, exec } = recorder()
     await expect(runOperatorIntent({ kind: 'close', names: ['CalculatorApp', 'calc'], label: 'Calculator' }, exec)).resolves.toEqual({ spoken: 'Closing Calculator.' })
-    expect(calls).toEqual([{ file: 'powershell.exe', args: [...PREFIX, "Stop-Process -Name ($env:AIR_OP_TARGET -split ',') -ErrorAction Stop"], env: { AIR_OP_TARGET: 'CalculatorApp,calc' } }])
+    expect(calls).toEqual([{ file: 'powershell.exe', args: [...PREFIX, "Get-Process -Name ($env:AIR_OP_TARGET -split ',') -ErrorAction Stop | ForEach-Object { $_.CloseMainWindow() | Out-Null }"], env: { AIR_OP_TARGET: 'CalculatorApp,calc' } }])
     await expect(runOperatorIntent({ kind: 'close', names: ['explorer'], label: 'File Explorer' }, noExec)).rejects.toThrow('not allowed')
     await expect(runOperatorIntent({ kind: 'close', names: [], label: 'Nothing' }, noExec)).rejects.toThrow('not allowed')
   })
