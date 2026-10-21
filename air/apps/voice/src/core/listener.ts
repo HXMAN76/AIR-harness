@@ -17,6 +17,8 @@ export interface ListenerOptions {
   spawnFn?: SpawnLike
   /** Node executable; the worker loads a native addon built for Node, not Electron. */
   command?: string
+  /** Full argument list passed to the command. Overrides workerPath, modelDir, sherpaFrom when set. */
+  args?: string[]
   workerPath?: string
   /** Directory holding the three model files. */
   modelDir?: string
@@ -55,7 +57,7 @@ export class Listener extends EventEmitter {
     super()
     this.spawnFn = options.spawnFn ?? nodeSpawn
     this.command = options.command ?? 'node'
-    this.args = [
+    this.args = options.args ?? [
       options.workerPath ?? join(VOICE_APP_ROOT, 'src', 'listener-worker.ts'),
       options.modelDir ?? dirname(modelPaths().model),
       options.sherpaFrom ?? SENSEVOICE_PACKAGE_JSON,

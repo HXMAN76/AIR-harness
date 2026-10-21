@@ -4,7 +4,7 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 
 /** Name of the cloud key. AIR code checks only whether it is set; the value is never read into a variable. */
-export const CLOUD_KEY_ENV = 'OPENROUTER_API_KEY'
+export const CLOUD_KEY_ENV = 'OLLAMA_CLOUD_KEY'
 
 /**
  * @param home - user home directory.
@@ -37,7 +37,7 @@ export function envTextAssigns(text: string, name: string): boolean {
 /**
  * @param env - environment to check.
  * @param dshHome - runtime home whose `.env` may hold the key.
- * @returns whether `OPENROUTER_API_KEY` is set in either place.
+ * @returns whether `OLLAMA_CLOUD_KEY` is set in either place.
  */
 export function cloudKeyPresent(env: Record<string, string | undefined>, dshHome: string): boolean {
   const value = env[CLOUD_KEY_ENV]

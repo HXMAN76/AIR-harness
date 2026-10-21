@@ -1,9 +1,9 @@
 /** Drives dsh sessions through upstream's TypeScript SDK: one runtime per route, one session per conversation. */
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { sdkHarness } from '../sdk-harness.ts'
 import type { Route } from './commands.ts'
-import { cloudKeyPresent } from './home.ts'
+import { CLOUD_KEY_ENV, cloudKeyPresent, envTextAssigns } from './home.ts'
 import { REPO_ROOT, VOICE_APP_ROOT } from './paths.ts'
 
 /** Launch options handed to the harness factory (a subset of the SDK's `DeepSeekHarnessOptions`). */
@@ -34,11 +34,11 @@ export interface HarnessLike {
 /** Creates a harness; the default creates an SDK `DeepSeekHarness`. */
 export type HarnessFactory = (options: HarnessOptions) => HarnessLike
 
-/** Model route table. Cloud routes go through OpenRouter (ids from pi-ai's OpenRouter catalog). */
+/** Model route table. Cloud routes use Ollama Cloud with a key from the home `.env`. */
 export const ROUTES: Record<Route, { provider: string; model: string; patches: string[]; cloud: boolean }> = {
   local: { provider: 'ollama', model: 'qwen3-8b-32k', patches: ['voice.cordis.patch.yml'], cloud: false },
-  cloud: { provider: 'openrouter', model: 'anthropic/claude-haiku-5.5', patches: ['voice.cordis.patch.yml'], cloud: true },
-  screen: { provider: 'openrouter', model: 'anthropic/claude-sonnet-5.5', patches: ['voice.cordis.patch.yml', 'screen.cordis.patch.yml'], cloud: true },
+  cloud: { provider: 'ollama', model: 'minimax/M3-1-Flash', patches: ['voice.cordis.patch.yml'], cloud: true },
+  screen: { provider: 'ollama', model: 'minimax/M3-1-Flash', patches: ['voice.cordis.patch.yml', 'screen.cordis.patch.yml'], cloud: true },
 }
 
 /** Extra per-launch patch when memory is shared with the cloud (written by the memory track). */
@@ -93,7 +93,7 @@ export class AgentBridge {
   }
 
   /**
-   * Switch route. A cloud route needs `OPENROUTER_API_KEY` in the environment or the voice home's `.env`.
+   * Switch route. A cloud route needs `OLLAMA_CLOUD_KEY` in the environment or the voice home's `.env`.
    * @param route - target route.
    * @returns ok, or `missing-key` (the route stays as it was).
    */
@@ -149,6 +149,19 @@ export class AgentBridge {
     return cloudKeyPresent(this.options.env ?? process.env, this.options.dshHome)
   }
 
+  private cloudKeyValue(): string | undefined {
+    const env = this.options.env ?? process.env
+    const fromEnv = env[CLOUD_KEY_ENV]
+    if (fromEnv !== undefined && fromEnv !== '') return fromEnv
+    const file = join(this.options.dshHome, '.env')
+    if (existsSync(file)) {
+      const text = readFileSync(file, 'utf8')
+      const match = new RegExp(`^\\s*${CLOUD_KEY_ENV}\\s*=\\s*['"]?([^'"\\n#]+)`).exec(text)
+      if (match !== null && match[1] !== undefined && match[1] !== '') return match[1]
+    }
+    return undefined
+  }
+
   private harnessFor(route: Route): HarnessLike {
     const existing = this.harnesses.get(route)
     if (existing !== undefined) return existing
@@ -156,6 +169,11 @@ export class AgentBridge {
     const files = patches.map(name => join(this.profileDir, name))
     const share = join(this.profileDir, MEMORY_SHARE_PATCH)
     if (this.shared && existsSync(share)) files.push(share)
+    const cloudKey = route !== 'local' ? this.cloudKeyValue() : undefined
+    const harnessEnv = cloudKey === undefined ? this.options.env : {
+      ...this.options.env,
+      OLLAMA_API_KEY: cloudKey,
+    }
     const harness = this.factory({
       dshBin: this.dshBin,
       profile: 'sdk',
@@ -165,7 +183,7 @@ export class AgentBridge {
       provider,
       model,
       initializeTimeoutMs: 300_000,
-      ...this.options.env === undefined ? {} : { env: this.options.env },
+      ...harnessEnv === undefined ? {} : { env: harnessEnv },
     })
     this.harnesses.set(route, harness)
     return harness
