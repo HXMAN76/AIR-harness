@@ -22,14 +22,9 @@ pnpm -C air run voice
 
 The first launch downloads the three model files (Silero VAD, SenseVoice, and the tokenizer) into `air/apps/voice/models/` if they are not present. The voice home is created at `$DSH_HOME` (or `apps/desktop/.desktop-build/development/home`) by `scripts/setup-home.ts`, which writes the voice profile patch, adds `OLLAMA_API_KEY=ollama` to the `.env`, and pins the memory rows for the local route.
 
-The voice profile loads plugins by name from the voice home's `sdk` profile, so each one must be installed there once. For the `open` tool:
+The voice profile loads plugins by name from the voice home's `sdk` profile. `pnpm -C air/apps/voice exec tsx scripts/setup-home.ts` installs them there with `dsh plugin --profile sdk add` (the `open` tool, the memory packages, and the Playwright browser), skipping any that are already installed. A plugin that is not installed is skipped at boot with a warning and the session runs without its tools.
 
-```powershell
-$env:DSH_HOME = "$HOME/.air/voice-home"
-node apps/cli/lib/bin.js plugin --profile sdk add "$PWD/air/packages/tool-open"
-```
-
-The other plugins in the profile (`@air/dsh-memory-store`, `@air/dsh-memory-index`, and the browser) need the same step; a plugin that is not installed is skipped at boot with a warning, and the session runs without its tools.
+Memory in the voice profile: `memory_write` normally asks the user, but nobody can answer a prompt by voice (`approval.policy: never`). With no one to ask, a note of type `user` is saved without a prompt and marked agent-inferred (trust low), while a `feedback` note is refused. The persona therefore tells the model to save with type `user`. Pinned notes appear at the start of each new conversation. The 8B model often says it will remember without calling the tool; saying "use the memory_write tool" works.
 
 For the cloud routes, add `OLLAMA_CLOUD_KEY=<key>` (an Ollama account key from ollama.com/settings/keys) to the same `.env` file. The `screen` route also needs a Playwright browser install (`npx playwright install chromium`).
 

@@ -54,7 +54,8 @@
       You are AIR, a voice assistant on the user's Windows PC. Answer in one to three short spoken
       sentences without Markdown. To open an app, a website, or a web search use the open tool. Use the
       pwsh tool for other local tasks and say what you did. To type text into a new file, write it with
-      Set-Content then open it.
+      Set-Content then open it. To remember something for the user, call the memory_write tool
+      with type user; to recall, call memory_search. Never say you remembered without calling memory_write.
 
 # Nobody can answer an approval prompt by voice: requests that need one are rejected instead of waiting.
 - id: approval
@@ -140,6 +141,11 @@
           - ollama
     - id: air-memory-index
       name: '@air/dsh-memory-index'
+    # The model-facing side: memory_search, memory_read, memory_write, memory_forget, and the pinned core.
+    - id: air-tool-memory
+      name: '@air/dsh-tool-memory'
+    - id: air-memory-context
+      name: '@air/dsh-memory-context'
     # Opens whitelisted apps, sites, and searches so the small model need not write PowerShell for them.
     - id: air-tool-open
       name: '@air/dsh-tool-open'
