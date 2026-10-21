@@ -9,7 +9,7 @@
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run --coverage",
     "build": "tsdown && node -e \"require('fs').copyFileSync('src/preload.cjs','lib/preload.cjs')\" && node -e \"require('fs').copyFileSync('src/speaker.ps1','lib/speaker.ps1')\" && node -e \"require('fs').copyFileSync('src/listener-worker.ts','lib/listener-worker.ts')\" && node -e \"require('fs').cpSync('src/renderer','lib/renderer',{recursive:true})\"",
-    "start": "electron lib/main.js"
+    "start": "electron lib/main.cjs"
   },
   "dependencies": {
     "@air/dsh-tool-open": "workspace:*",

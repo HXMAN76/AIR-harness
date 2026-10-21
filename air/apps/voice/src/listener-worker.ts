@@ -63,7 +63,7 @@ const vad = new sherpa.Vad({
 const recognizer = new sherpa.OfflineRecognizer({
   featConfig: { sampleRate: SAMPLE_RATE, featureDim: 80 },
   modelConfig: {
-    senseVoice: { model: join(modelDir, 'model.int8.onnx'), language: 'auto', useInverseTextNormalization: 1 },
+    senseVoice: { model: join(modelDir, 'model.int8.onnx'), language: process.env.AIR_VOICE_LANGUAGE ?? 'en', useInverseTextNormalization: 1 },
     tokens: join(modelDir, 'tokens.txt'),
     numThreads: 4,
     provider: 'cpu',
