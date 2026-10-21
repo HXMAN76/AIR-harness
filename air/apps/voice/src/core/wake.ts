@@ -4,7 +4,7 @@
  * Phrases that start a command: "Jarvis" with its greetings and the ways SenseVoice mis-hears it.
  * javis, jrvis, and jvis are what SenseVoice returned for SAPI speech of "Jarvis" on 2026-10-21.
  */
-export const DEFAULT_WAKE_PHRASES: readonly string[] = ['jarvis', 'hey jarvis', 'ok jarvis', 'jervis', 'jarvas', 'travis', 'javis', 'jrvis', 'jvis']
+export const DEFAULT_WAKE_PHRASES: readonly string[] = ['jarvis', 'hey jarvis', 'ok jarvis', 'jervis', 'jarvas', 'travis', 'javis', 'jrvis', 'jvis', 'davis', 'hey davis', 'jarvis is', 'charvis', 'jarviss'] // SenseVoice mis-hearings of "Jarvis" seen on Windows
 
 /** Result of {@link matchWake}. */
 export interface WakeMatch {

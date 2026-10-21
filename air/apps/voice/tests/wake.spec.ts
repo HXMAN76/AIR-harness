@@ -39,6 +39,7 @@ describe('matchWake', () => {
   })
 
   it('ships the default phrases', () => {
-    expect(DEFAULT_WAKE_PHRASES).toEqual(['jarvis', 'hey jarvis', 'ok jarvis', 'jervis', 'jarvas', 'travis', 'javis', 'jrvis', 'jvis'])
+    expect(DEFAULT_WAKE_PHRASES).toEqual(['jarvis', 'hey jarvis', 'ok jarvis', 'jervis', 'jarvas', 'travis', 'javis', 'jrvis', 'jvis', 'davis', 'hey davis', 'jarvis is', 'charvis', 'jarviss'])
+    expect(matchWake('Davis, open notepad.')).toEqual({ wake: true, command: 'open notepad' })
   })
 })
