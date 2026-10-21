@@ -55,18 +55,25 @@ function stroke(k: number): { points: Point[]; widths: number[] } {
   return { points, widths }
 }
 
+/** Element at an index known to be in range. */
+function at<T>(items: readonly T[], index: number): T {
+  const item = items[index]
+  if (item === undefined) throw new Error(`logo: index ${String(index)} out of range`)
+  return item
+}
+
 /** Outline of a variable-width stroke as one closed path. */
 function outline({ points, widths }: { points: Point[]; widths: number[] }): string {
   const left: Point[] = []
   const right: Point[] = []
   for (let i = 0; i < points.length; i++) {
-    const [x, y] = points[i]!
-    const [px, py] = points[Math.max(0, i - 1)]!
-    const [nx, ny] = points[Math.min(points.length - 1, i + 1)]!
+    const [x, y] = at(points, i)
+    const [px, py] = at(points, Math.max(0, i - 1))
+    const [nx, ny] = at(points, Math.min(points.length - 1, i + 1))
     const dx = nx - px
     const dy = ny - py
     const len = Math.hypot(dx, dy) || 1
-    const h = widths[i]! / 2
+    const h = at(widths, i) / 2
     left.push([x - (dy / len) * h, y + (dx / len) * h])
     right.push([x + (dy / len) * h, y - (dx / len) * h])
   }
