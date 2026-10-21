@@ -739,12 +739,22 @@ describe('email requests and the send gate', () => {
 
   const DRAFT = 'Draft to Asha saying running late.\nCONFIRM SEND'
 
-  it('switches local to cloud, skips the operator for "open gmail", and asks the rewritten text', async () => {
+  it('opens gmail through the operator with no model, with or without the cloud key', async () => {
     const { controller, speaker, agent, operated } = await rig()
     await controller.handleSpoken({ text: 'open gmail' })
+    agent.cloudKeyMissing = true
+    await controller.handleSpoken({ text: 'open gmail' })
+    expect(agent.routeChanges).toEqual([])
+    expect(agent.asks).toEqual([])
+    expect(operated).toEqual([{ kind: 'open', target: 'https://mail.google.com', label: 'Gmail' }, { kind: 'open', target: 'https://mail.google.com', label: 'Gmail' }])
+    expect(speaker.spoken).toEqual(['Opened.', 'Opened.'])
+  })
+
+  it('switches local to cloud for a mail read and asks the read-only instruction', async () => {
+    const { controller, speaker, agent } = await rig()
+    await controller.handleSpoken({ text: 'read my important mail' })
     expect(agent.routeChanges).toEqual(['cloud'])
-    expect(operated).toEqual([])
-    expect(agent.asks[0]).toContain('https://mail.google.com')
+    expect(agent.asks[0]).toContain('up to 5 unread messages')
     expect(speaker.spoken).toEqual(['Using the cloud model.', 'The time is 3 PM.'])
   })
 

@@ -66,9 +66,8 @@ describe('email commands', () => {
     ['write the mail to mum', { kind: 'send', details: 'to mum' }],
     ['compose e-mail, to Bob', { kind: 'send', details: 'to Bob' }],
     ['send gmail', { kind: 'send', details: '' }],
-    ['open gmail', { kind: 'open' }],
-    ['Open my email.', { kind: 'open' }],
-    ['open inbox', { kind: 'open' }],
+    ['read my important mail', { kind: 'check' }],
+    ['check unread emails', { kind: 'check' }],
     ['check my mail', { kind: 'check' }],
     ['Read my emails', { kind: 'check' }],
     ['check gmail', { kind: 'check' }],
@@ -77,7 +76,7 @@ describe('email commands', () => {
     expect(matchEmailCommand(text)).toEqual(expected)
   })
 
-  it.each(['open notepad', 'send a text to Asha', 'mail the report', 'what is gmail', 'check the weather', 'sending gmail'])('does not match %j', (text) => {
+  it.each(['open gmail', 'open my email', 'open inbox', 'open notepad', 'send a text to Asha', 'mail the report', 'what is gmail', 'check the weather', 'sending gmail'])('does not match %j', (text) => {
     expect(matchEmailCommand(text)).toBeNull()
   })
 
@@ -93,11 +92,14 @@ describe('email commands', () => {
     expect(rewriteForAgent('send an email')).toContain('ask me who it is for and what it should say')
   })
 
-  it('rewrites open and check without any send language', () => {
-    expect(rewriteForAgent('open gmail')).toBe('Use the browser tools to open https://mail.google.com. Reply in one sentence saying what the inbox shows. Do not click anything else.')
-    const check = rewriteForAgent('check my mail')
-    expect(check).toContain('read the newest unread messages')
-    expect(check).toContain('Do not reply, delete, or send anything.')
+  it('rewrites a mail check into a read-only listing of up to five messages', () => {
+    expect(rewriteForAgent('open gmail')).toBe('open gmail')
+    const check = rewriteForAgent('read my important mail')
+    expect(check).toContain('up to 5 unread messages in the Important or Primary view')
+    expect(check).toContain('"From <sender>: <subject>."')
+    expect(check).toContain('Never open attachments, never click links inside a mail')
+    expect(check).toContain('never reply, delete, or send anything')
+    expect(check).not.toContain('CONFIRM SEND')
   })
 })
 

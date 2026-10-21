@@ -70,21 +70,21 @@ const REMEMBER = /^(?:please )?(?:remember|note|don['’]?t forget)(?: that)? (.
 const RECALL = /^(?:what do you remember about|do you remember) (.+)$/i
 
 const EMAIL_SEND = /^(?:send|write|compose)(?: (?:a|an|the))? (?:gmail|e-?mail|mail)\b[\s,]*(.*)$/i
-const EMAIL_OPEN = /^open(?: my)? (?:gmail|e-?mail|mail|inbox)$/i
-const EMAIL_CHECK = /^(?:check|read)(?: my)? (?:gmail|e-?mails?|mails?|inbox)$/i
+// "Open gmail" is not here: the operator opens it locally, with no model and no cloud key.
+const EMAIL_CHECK = /^(?:check|read)(?: my)?(?: (?:important|unread))? (?:gmail|e-?mails?|mails?|inbox)$/i
 
 /** The exact line the send rewrite tells the model to end its reply with, instead of pressing Send. */
 export const CONFIRM_SEND = 'CONFIRM SEND'
 
-/** An email request that needs the browser tools. */
-export type EmailCommand = { kind: 'send'; details: string } | { kind: 'open' } | { kind: 'check' }
+/** An email request that needs the browser tools (read or send). */
+export type EmailCommand = { kind: 'send'; details: string } | { kind: 'check' }
 
 function stripEnd(text: string): string {
   return text.trim().replace(/[.!?,\s]+$/, '')
 }
 
 /**
- * Classify a spoken email request: send/write/compose a gmail, open gmail, or check/read mail.
+ * Classify a spoken email request: send/write/compose a gmail, or check/read mail.
  * @param text - the ask text.
  * @returns the email request, or null when the text is not one.
  */
@@ -92,14 +92,15 @@ export function matchEmailCommand(text: string): EmailCommand | null {
   const trimmed = stripEnd(text)
   const send = EMAIL_SEND.exec(trimmed)
   if (send !== null) return { kind: 'send', details: captured(send).trim() }
-  if (EMAIL_OPEN.test(trimmed)) return { kind: 'open' }
   if (EMAIL_CHECK.test(trimmed)) return { kind: 'check' }
   return null
 }
 
+/** Read-only mail instruction for the agent: no attachments, no links inside mails, nothing sent. */
+const READ_MAIL = 'Use the browser tools to open https://mail.google.com and list up to 5 unread messages in the Important or Primary view. Reply with one short spoken line per message in the form "From <sender>: <subject>." Never open attachments, never click links inside a mail, never reply, delete, or send anything.'
+
 function emailInstruction(email: EmailCommand): string {
-  if (email.kind === 'open') return 'Use the browser tools to open https://mail.google.com. Reply in one sentence saying what the inbox shows. Do not click anything else.'
-  if (email.kind === 'check') return 'Use the browser tools to open https://mail.google.com and read the newest unread messages. Reply in two short sentences with sender and subject. Do not reply, delete, or send anything.'
+  if (email.kind === 'check') return READ_MAIL
   const details = email.details === '' ? 'ask me who it is for and what it should say' : email.details
   return `Use the browser tools to compose an email in Gmail at https://mail.google.com: ${details}. Fill in the recipient, a short subject, and the body, but do NOT press Send. End your reply with a one-sentence summary of the draft, then a final line that is exactly ${CONFIRM_SEND}`
 }

@@ -52,6 +52,7 @@ function captured(match: RegExpExecArray): string {
 function matchOpen(name: string): OperatorIntent | null {
   const lower = name.toLowerCase()
   if (/^(?:my )?(?:default |web )?browser$/.test(lower)) return { kind: 'open', target: GOOGLE_HOME, label: 'the browser' }
+  if (/^(?:my )?(?:e-?mail|mail|inbox)$/.test(lower)) return { kind: 'open', target: 'https://mail.google.com', label: 'Gmail' }
   const app = findApp(lower)
   if (app !== undefined) return { kind: 'open', target: app.target, label: app.label }
   const site = findSite(lower)

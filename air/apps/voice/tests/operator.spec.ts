@@ -35,6 +35,8 @@ describe('matchOperatorIntent', () => {
     ['open VS Code', { kind: 'open', target: 'code', label: 'VS Code' }],
     ['open code', { kind: 'open', target: 'code', label: 'VS Code' }],
     ['open youtube', { kind: 'open', target: 'https://www.youtube.com', label: 'YouTube' }],
+    ['open my email', { kind: 'open', target: 'https://mail.google.com', label: 'Gmail' }],
+    ['open inbox', { kind: 'open', target: 'https://mail.google.com', label: 'Gmail' }],
     ['open gmail', { kind: 'open', target: 'https://mail.google.com', label: 'Gmail' }],
     ['open github', { kind: 'open', target: 'https://github.com', label: 'GitHub' }],
     ['open google', { kind: 'open', target: GOOGLE, label: 'Google' }],
