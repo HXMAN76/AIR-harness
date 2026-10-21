@@ -141,13 +141,22 @@ describe('explicit choices win', () => {
   })
 
   it('stops after a pick that arrives while the plugin evaluates', async () => {
-    const world = await setup({}, { model: { provider: 'cloud', model: 'big' } })
+    const world = await setup({}, { model: { provider: 'cloud', model: 'big' }, presets: ['air-lean', 'air', 'other'] })
     const agent = await world.open('race')
-    await world.ctx.agentPresets.select(agent, 'air-lean')
+    await world.ctx.agentPresets.select(agent, 'other')
     await flush()
     pickModel(agent, 'cloud', 'big')
     await flush()
-    expect(composed(world, agent)).toBe('air-lean')
+    expect(composed(world, agent)).toBe('other')
+  })
+
+  it('does not see a pick of the preset the session already runs', async () => {
+    // Upstream's select returns without logging when the Session already records and runs the preset,
+    // so such a pick is indistinguishable from no pick and the model rule still applies.
+    const world = await setup({}, { model: { provider: 'cloud', model: 'big' } })
+    const agent = await world.open('repick')
+    await world.ctx.agentPresets.select(agent, 'air-lean')
+    await vi.waitFor(() => { expect(composed(world, agent)).toBe('air') })
   })
 
   it('does not act on a preset requested at creation that differs from the default', async () => {
