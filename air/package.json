@@ -19,7 +19,8 @@
     "check:composition": "tsx scripts/check-air-composition.ts",
     "demo": "tsx scripts/make-demo-project.ts",
     "desktop:setup": "tsx scripts/setup-desktop-profile.ts",
-    "desktop": "pnpm --dir .. run start:desktop"
+    "desktop": "pnpm --dir .. run start:desktop",
+    "voice": "pnpm -C apps/voice start"
   },
   "devDependencies": {
     "@stylistic/eslint-plugin": "^5.10.0",

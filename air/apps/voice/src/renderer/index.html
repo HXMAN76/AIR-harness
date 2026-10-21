@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'">
+  <title>AIR Voice</title>
+  <style>
+    :root {
+      --bg: #1a1a1a;
+      --fg: #e0e0e0;
+      --accent: #4a9eff;
+      --idle: #666;
+      --awake: #ffa500;
+      --thinking: #4a9eff;
+      --speaking: #4caf50;
+      --error: #f44336;
+    }
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--fg);
+      padding: 16px;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .status-dot {
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      background: var(--idle);
+      transition: background 0.2s;
+    }
+
+    .status-dot.awake { background: var(--awake); }
+    .status-dot.thinking { background: var(--thinking); }
+    .status-dot.speaking { background: var(--speaking); }
+
+    .phase-label {
+      font-size: 14px;
+      font-weight: 600;
+      text-transform: capitalize;
+    }
+
+    .mic-indicator {
+      margin-left: auto;
+      font-size: 20px;
+      opacity: 0.3;
+    }
+
+    .mic-indicator.active {
+      opacity: 1;
+    }
+
+    .controls {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .route-btn {
+      padding: 6px 12px;
+      border: 1px solid var(--fg);
+      border-radius: 4px;
+      background: transparent;
+      color: var(--fg);
+      cursor: pointer;
+      font-size: 12px;
+    }
+
+    .route-btn.active {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: white;
+    }
+
+    .memory-toggle {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+    }
+
+    .section {
+      background: rgba(255, 255, 255, 0.05);
+      border-radius: 8px;
+      padding: 12px;
+    }
+
+    .section-label {
+      font-size: 11px;
+      text-transform: uppercase;
+      opacity: 0.6;
+      margin-bottom: 4px;
+    }
+
+    .section-content {
+      font-size: 13px;
+      line-height: 1.4;
+      word-break: break-word;
+    }
+
+    .tools {
+      display: flex;
+      gap: 4px;
+      flex-wrap: wrap;
+      margin-top: 4px;
+    }
+
+    .tool-tag {
+      font-size: 10px;
+      padding: 2px 6px;
+      background: rgba(74, 158, 255, 0.2);
+      border-radius: 3px;
+    }
+
+    .error {
+      color: var(--error);
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="status-dot" id="statusDot"></div>
+    <div class="phase-label" id="phaseLabel">idle</div>
+    <div class="mic-indicator" id="micIndicator">🎤</div>
+  </div>
+
+  <div class="controls">
+    <button class="route-btn active" data-route="local">Local</button>
+    <button class="route-btn" data-route="cloud">Cloud</button>
+    <button class="route-btn" data-route="screen">Screen</button>
+  </div>
+
+  <label class="memory-toggle">
+    <input type="checkbox" id="memoryShare">
+    Share memory with cloud
+  </label>
+
+  <div class="section">
+    <div class="section-label">Transcript</div>
+    <div class="section-content" id="transcript">—</div>
+  </div>
+
+  <div class="section">
+    <div class="section-label">Reply</div>
+    <div class="section-content" id="reply">—</div>
+    <div class="tools" id="tools"></div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

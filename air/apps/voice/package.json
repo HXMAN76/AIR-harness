@@ -7,9 +7,14 @@
   "license": "MIT",
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
-    "test": "vitest run --coverage"
+    "test": "vitest run --coverage",
+    "build": "tsdown src/main.ts --format cjs --out-dir lib --platform node && cp src/preload.cts lib/preload.cjs && cp -r src/renderer lib/renderer",
+    "start": "electron lib/main.js"
   },
   "dependencies": {
     "@deepseek-ai/dsh-sdk-client": "link:../../../packages/sdk/client"
+  },
+  "devDependencies": {
+    "electron": "link:../../../apps/desktop/node_modules/electron"
   }
 }
