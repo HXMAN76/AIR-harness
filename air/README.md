@@ -4,7 +4,7 @@ New here? Read [ONBOARDING.md](ONBOARDING.md) first. On native Windows, follow [
 
 ## What AIR is
 
-AIR is the working name of a local-first personal agent. It is built on a fork of an MIT-licensed upstream agent harness and delivered as a set of plugins and bundles that run inside the upstream project's Electron desktop app. The default model runs on your own machine through Ollama, project files written for other agents (a `.claude` folder and `.mcp.json`) are read unchanged, and project MCP servers are pinned and reviewed before their tools reach the model. The plan and its evidence are in [research/research.md](../research/research.md).
+AIR is a local-first personal agent. It is built on a fork of an MIT-licensed upstream agent harness and delivered as a set of plugins and bundles that run inside the upstream project's Electron desktop app. The default model runs on your own machine through Ollama, project files written for other agents (a `.claude` folder and `.mcp.json`) are read unchanged, and project MCP servers are pinned and reviewed before their tools reach the model. The plan and its evidence are in [research/research.md](../research/research.md).
 
 ## Status
 

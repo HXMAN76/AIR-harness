@@ -4,7 +4,7 @@ Instructions for coding agents (and people) working on AIR in this fork. The rep
 
 ## What this project is
 
-AIR (working name; the product name is on hold) is a local-first personal agent built on a fork of an MIT-licensed upstream agent harness. It is a final-year university project. The upstream project accepts no external pull requests, so this fork carries its own work on the `air/main` branch.
+AIR (product name decided 2026-10-22) is a local-first personal agent built on a fork of an MIT-licensed upstream agent harness. It is a final-year university project. The upstream project accepts no external pull requests, so this fork carries its own work on the `air/main` branch.
 
 Read in this order:
 
@@ -37,7 +37,7 @@ CI: the fork's own `air` job (Linux and Windows) is the signal for AIR work. Ups
 - **Security is enforced, not advised.** Markdown instructions shape model behavior; pinning, permission rules, approval, and the sandbox enforce.
 - **Product form.** The product is delivered as the AIR bundle running in upstream's desktop app (`apps/desktop`, profile `desktop`, plus `air/bundles/air-desktop`) and in the Web UI, and headless serves evaluation; desktop is primary; in-tree edits under `apps/desktop` are allowed when unavoidable and must be listed in `UPSTREAM-DELTA.md`; macOS is out of scope; scripts must run on native Windows and Linux (Node or tsx, not bash).
 - **Permissions.** Product defaults are upstream's permission presets; AIR adds only the `sudo` guard, gating of MCP tool calls, and saved rules (plan 03 as amended in the roadmap).
-- **Placeholders.** The product name and the desktop identifiers are on hold; use the placeholders in [BRANDING.md](BRANDING.md).
+- **Name and identifiers.** The product name is AIR and the logo is final ([BRANDING.md](BRANDING.md)). The desktop identifiers (app id, `dsh://` protocol, data folders, package names, `dsh` binary) stay as upstream has them; do not rename them.
 - **Local first.** The default model route is local Ollama. Do not add a dependency on a hosted service to a default code path.
 - **Repository text gates scan `air/` and `research/`.** Do not write the banned origin-label word checked by `verify-concrete-terms` (say "source" or "origin"), git commit hashes (cite release tags), or URLs under the upstream working organization. No `as unknown` casts in code.
 - **Documentation is English only** under `air/` and `research/`.

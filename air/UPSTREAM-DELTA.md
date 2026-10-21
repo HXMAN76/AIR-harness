@@ -25,12 +25,19 @@ Every file AIR changes outside `air/` and `research/`, with the reason. Upstream
 | `packages/client/ui-chat/tests/conversation-node-definitions.client.spec.ts` | One assertion that the automatic compaction node has `groupTree` `turn` | Asserts the Definition sets the position |
 | `packages/client/ui-chat/tests/chat-snapshot-fixture.client.ts` | `fixtureGroupTree` returns `turn` for `compaction` | Keeps the test fixture equal to what the Definitions build |
 | `apps/desktop/scripts/retain-desktop-ci.ts` | `retainDesktopCi` throws `desktop retention: packaging for linux is not supported` when the resolved target is `linux-x64` | Upstream added this packaging script after `dsh-v0.2.1-alpha.2`; it passes the result of `resolveDesktopBuildTarget` to functions typed for the three packaging targets, which no longer typechecks once that function can return `linux-x64`. Narrows the type and fails loudly, like the `prepare-runtime.ts` row |
+| `apps/desktop/{cli/dsh,cli/dsh.cmd,electron-builder.config.d.mts,installer/*,scripts/{electron-builder-config.mjs,development-app.ts,package-macos.ts,package-target.ts,smoke-packaged-runtime.ts,verify-retained-desktop.ts},src/{locale,main}.ts}` | Display name "DeepSeek Harness" replaced by "AIR" (`productName`, protocol display name, menus, dialogs, installer text, About name, executable and bundle file names); the address-in-use text says "AIR instance" | Product name decision of 2026-10-22; app id, `dsh://` scheme, data folders, and the `dsh` binary are unchanged |
+| `apps/desktop/tests/**` (specs and `expected/*`) | Expected strings follow the new name | Keeps the tests truthful |
+| `apps/desktop/resources/{icon,icon-windows,icon-macos}.{svg,png}`, `tray-windows.ico` | Replaced by output of `air/scripts/gen-icons.ts` | AIR icons |
+| `packages/client/locale/src/locales/{en,zh}.ts` | `brand.localBuild` is "AIR" | Page title and sidebar name |
+| `packages/client/ui-plugin-manager/src/client/locales.ts`, `packages/client/ui-sidebar-documentpreview/src/client/office/locales.ts` | "DeepSeek Harness" replaced by "AIR" in two strings each | User-visible product name |
+| `apps/web/index.html`, `apps/web/vite.config.ts` | Initial page title and default client title "AIR" | Name before the client mounts |
+| `packages/client/{ui-layout,ui-sidebar}/tests/**`, `apps/web/tests/{built-boot.expected,document-preview}.e2e.ts` | Expected brand string and snapshots updated | Keeps the tests truthful |
 
-Candidates not yet made (research.md and the plans): streaming methods on the speech-to-text Service Definition; more Claude Code hook events in `hooks-claude-code`; product-name surfaces that no plugin slot or configuration can replace (the places in `apps/desktop` are listed in [BRANDING.md](BRANDING.md)). The desktop app is upstream's `apps/desktop`; the AIR bundles run inside it, and the superseded plan 07 would have added one workflow file, `.github/workflows/air-desktop.yml`, which does not exist.
+Candidates not yet made (research.md and the plans): streaming methods on the speech-to-text Service Definition; more Claude Code hook events in `hooks-claude-code`. The desktop app is upstream's `apps/desktop`; the AIR bundles run inside it, and the superseded plan 07 would have added one workflow file, `.github/workflows/air-desktop.yml`, which does not exist.
 
 ## Re-check after each upstream sync
 
-Checked against the release tag `dsh-v0.2.1-rc.2`: the 25 files changed outside `air/` and `research/` are exactly the files in the table above.
+Checked against the release tag `dsh-v0.2.1-rc.2`: the 25 files changed outside `air/` and `research/` were exactly the files in the table above, before the rebrand rows (product name and icons, 2026-10-22) were added; those touch the files listed in [BRANDING.md](BRANDING.md).
 
 | Area | Files | Re-check |
 |---|---|---|
@@ -40,6 +47,7 @@ Checked against the release tag `dsh-v0.2.1-rc.2`: the 25 files changed outside 
 | MCP client review hook | `packages/mcp/mcp-client/**` | Details below; MCP client tests, then the `@air/dsh-mcp-trust` and `@air/dsh-mcp-conventions` tests |
 | Linux development target | `apps/desktop/scripts/*`, `apps/desktop/tests/desktop-build-paths.spec.ts` | Details below; desktop build-path tests |
 | Compaction row | `packages/client/ui-chat/**` | Details below; chat UI tests and a rebuild |
+| Product name and icons | files in the six rows above | `grep -rn "DeepSeek Harness" apps/desktop packages/client/locale packages/client/ui-plugin-manager packages/client/ui-sidebar-documentpreview apps/web --include=*.ts --include=*.tsx --include=*.mjs --include=*.nsh --include=*.json -l` (excluding node_modules) must list only fixtures that do not show the name; re-run `pnpm -C air exec tsx scripts/gen-icons.ts` if upstream changes the artwork; `pnpm exec vitest run apps/desktop/tests packages/client/ui-sidebar packages/client/ui-layout`; new upstream strings that name the product need the same replacement |
 | AIR generated files | not an upstream edit | `pnpm -C air run gen:lean`, `pnpm -C air run gen:policies`, `pnpm -C air run lint`, and `pnpm -C air exec vitest run scripts/tests/preset-air-drift.spec.ts` |
 
 Merge-conflict exposure of the mcp-client edit is `syncTools` (the phase-1 loop and the swap) and `connectGeneration` (the instruction block). At each upstream sync, re-apply by hand if they conflict, rerun `pnpm exec vitest run packages/mcp/mcp-client/tests --coverage --coverage.include='packages/mcp/mcp-client/src/**/*.ts'`, run `pnpm run gen-config-catalog`, and rerun the `@air/dsh-mcp-trust` and `@air/dsh-mcp-conventions` tests. A provider whose `review` throws or rejects blocks every tool of the reviewed server.
