@@ -62,6 +62,25 @@
   config:
     policy: never
 
+# The upstream preset table has no entry for workspace-write with approval never, so the permission service
+# refused to start ("match no preset"). Define it and make it the default for new sessions.
+- id: permission
+  config:
+    presets:
+      read-only:
+        sandbox: read-only
+        approval: ask
+      workspace-write:
+        sandbox: workspace-write
+        approval: ask
+      danger-full-access:
+        sandbox: danger-full-access
+        approval: never
+      voice:
+        sandbox: workspace-write
+        approval: never
+    defaultPreset: voice
+
 # Rows that send data to DeepSeek services or depend on a DeepSeek account (as in air/bundles/air-headless).
 - id: session-log-deepseek
   disabled: true
