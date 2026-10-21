@@ -1,7 +1,7 @@
 /** Orchestrates the voice loop: wake → command → agent → speech. */
 import type { EventEmitter } from 'node:events'
 import { matchWake } from './wake.ts'
-import { parseVoiceCommand, type Route } from './commands.ts'
+import { parseVoiceCommand, rewriteForAgent, type Route } from './commands.ts'
 import { toSpokenText } from './speech-text.ts'
 import { matchOperatorIntent, runOperatorIntent, type OperatorIntent, type OperatorResult } from './operator.ts'
 
@@ -243,7 +243,7 @@ export class VoiceController {
     this.startWatchdog()
 
     try {
-      const result = await this.agent.ask(text)
+      const result = await this.agent.ask(rewriteForAgent(text))
       this.clearWatchdog()
 
       const spoken = toSpokenText(result.reply)

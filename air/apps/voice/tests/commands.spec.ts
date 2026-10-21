@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { parseVoiceCommand } from '../src/core/commands.ts'
+import { parseVoiceCommand, rewriteForAgent } from '../src/core/commands.ts'
 
 describe('parseVoiceCommand', () => {
   it.each([
@@ -24,5 +24,23 @@ describe('parseVoiceCommand', () => {
   it('passes anything else to the agent, trimmed and in its original casing', () => {
     expect(parseVoiceCommand('  Open Notepad and use cloud storage ')).toEqual({ kind: 'ask', text: 'Open Notepad and use cloud storage' })
     expect(parseVoiceCommand('cancel my meeting')).toEqual({ kind: 'ask', text: 'cancel my meeting' })
+  })
+})
+
+describe('rewriteForAgent', () => {
+  it.each([
+    ['remember that I like short answers', 'Use the memory_write tool with type user to save this note: I like short answers. Then reply "Noted."'],
+    ['Please remember my sister is Asha.', 'Use the memory_write tool with type user to save this note: my sister is Asha. Then reply "Noted."'],
+    ["don't forget the meeting is at 5", 'Use the memory_write tool with type user to save this note: the meeting is at 5. Then reply "Noted."'],
+    ['Dont forget that I am vegetarian!', 'Use the memory_write tool with type user to save this note: I am vegetarian. Then reply "Noted."'],
+    ['note I prefer dark mode', 'Use the memory_write tool with type user to save this note: I prefer dark mode. Then reply "Noted."'],
+    ['what do you remember about my sister?', 'Use memory_search for: my sister. Answer in one sentence.'],
+    ['Do you remember my favourite colour', 'Use memory_search for: my favourite colour. Answer in one sentence.'],
+  ])('%j', (text, expected) => {
+    expect(rewriteForAgent(text)).toBe(expected)
+  })
+
+  it.each(['remember', 'open notepad', 'I remember that', 'notes are useful', '  tell me a joke '])('leaves %j alone', (text) => {
+    expect(rewriteForAgent(text)).toBe(text)
   })
 })

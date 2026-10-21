@@ -36,3 +36,29 @@ export function parseVoiceCommand(command: string): VoiceCommand {
   if (SHARE_OFF.test(text)) return { kind: 'memory-share', on: false }
   return { kind: 'ask', text: command.trim() }
 }
+
+const REMEMBER = /^(?:please )?(?:remember|note|don['’]?t forget)(?: that)? (.+)$/i
+const RECALL = /^(?:what do you remember about|do you remember) (.+)$/i
+
+function stripEnd(text: string): string {
+  return text.trim().replace(/[.!?,\s]+$/, '')
+}
+
+/**
+ * Turn memory phrases into explicit tool instructions, because a small model often answers "I'll remember" without calling the tool.
+ * @param text - the ask text.
+ * @returns the instruction for the agent, or the text unchanged.
+ */
+export function rewriteForAgent(text: string): string {
+  const trimmed = text.trim()
+  const recall = RECALL.exec(trimmed)
+  if (recall !== null) return `Use memory_search for: ${stripEnd(captured(recall))}. Answer in one sentence.`
+  const remember = REMEMBER.exec(trimmed)
+  if (remember !== null) return `Use the memory_write tool with type user to save this note: ${stripEnd(captured(remember))}. Then reply "Noted."`
+  return text
+}
+
+/** The text of the one capture group of a match. */
+function captured(match: RegExpExecArray): string {
+  return match.slice(1).join('')
+}

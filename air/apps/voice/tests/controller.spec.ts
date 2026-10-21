@@ -558,6 +558,15 @@ describe('VoiceController', () => {
     await first
   })
 
+  it('sends remember commands to the agent as an explicit memory_write instruction, showing the spoken text', async () => {
+    const { controller, agent, states } = await makeController(clock)
+
+    await controller.handleSegment({ text: 'Jarvis remember that I like short answers' })
+
+    expect(agent.asks).toEqual(['Use the memory_write tool with type user to save this note: I like short answers. Then reply "Noted."'])
+    expect(states.find(state => state.phase === 'thinking')?.transcript).toBe('remember that I like short answers')
+  })
+
   it('toggles memory share via setMemoryShare (UI click path)', async () => {
     const { controller, agent, states } = await makeController(clock)
 
