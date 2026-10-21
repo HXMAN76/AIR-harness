@@ -92,7 +92,7 @@ pnpm -C air run desktop:setup
 pnpm -C air run desktop
 ```
 
-`desktop:setup` is idempotent. It adds the AIR bundles to the desktop profile, writes the Ollama route patch when none exists, adds `OLLAMA_API_KEY=ollama` to the `.env` of the harness home, and backs up every file it changes as `<name>.bak-<timestamp>`. The first launch downloads and builds a Node, pnpm, and Python runtime payload (about 128 MB downloaded, about 455 MB on disk; measured on Linux). On Windows the launch picked the `win-x64` payload. The first launch on 2026-10-20 failed once with `EPERM, Permission denied` on `appsdesktop.desktop-build	argetswin-x64untimeprimary-runtime`; running `pnpm -C air run desktop` again succeeded.
+`desktop:setup` is idempotent. It adds the AIR bundles to the desktop profile, writes the Ollama route patch when none exists, adds `OLLAMA_API_KEY=ollama` to the `.env` of the harness home, and backs up every file it changes as `<name>.bak-<timestamp>`. The first launch downloads and builds a Node, pnpm, and Python runtime payload (about 128 MB downloaded, about 455 MB on disk; measured on Linux). On Windows the launch picked the `win-x64` payload. The first launch on 2026-10-20 failed once with `EPERM, Permission denied` on `apps\desktop\.desktop-build\targets\win-x64\runtime\primary-runtime`; running `pnpm -C air run desktop` again succeeded.
 
 Where things live, derived from `air/scripts/setup-desktop-profile.ts` and `apps/desktop/scripts/dev.ts`:
 
@@ -122,7 +122,7 @@ Add-Content "$HOME\.dsh\.env" "OLLAMA_API_KEY=ollama"
 pnpm dsh --profile air
 ```
 
-The Web UI opens on `http://127.0.0.1:3080`. This has not been run on Windows either.
+The Web UI opens on `http://127.0.0.1:3080`. This has not been run on Windows either. Run the first command only once: since `dsh-v0.2.1-rc.2`, `--from-default-profile` replaces an existing profile, which removes the added bundle and the copied patch.
 
 ## 10. Troubleshooting
 

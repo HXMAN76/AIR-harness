@@ -121,6 +121,8 @@ Catalog growth for small models (mitigated by commands being non-model-invocable
 
 `packages/subagent/tool-subagent/src/index.ts`:
 
+Note (2026-10-20, `dsh-v0.2.1-rc.2`): this listing predates two upstream changes. `backgroundMode` and `run_in_background` are gone, and `persona` and `toolFilter` are rejected; spawn selects an Agent Preset through `agentPreset` or `allowedAgentPresets`, and fork inherits the parent's preset (`docs/upgrade-guide/v0.2.1-alpha.1/subagent-preset-composition/guide.md`). Re-read `packages/subagent/` before relying on it.
+
 ```ts
 export const name = 'tool-subagent'
 export const inject = ['tools', 'subagents', 'systemPrompt', 'sessionProjections']   // L45

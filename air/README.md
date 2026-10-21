@@ -70,7 +70,7 @@ On Linux this is a development launch from source, not an installed app: there i
 The Web UI must keep working beside the desktop app. It uses the `air` profile under `~/.dsh`:
 
 ```sh
-pnpm dsh --profile air --from-default-profile web --dump-config > /dev/null   # create the profile from the Web template
+pnpm dsh --profile air --from-default-profile web --dump-config > /dev/null   # create the profile from the Web template; rerunning it resets the profile
 pnpm dsh plugin --profile air add "$PWD/air/bundles/air"
 cp air/examples/ollama.profile.cordis.patch.yml ~/.dsh/profiles/air/cordis.patch.yml
 echo 'OLLAMA_API_KEY=ollama' >> ~/.dsh/.env
@@ -147,7 +147,7 @@ Compaction and its limits:
 - Measured on the lean preset: at 16K, compaction starts at about 9,000 tokens, replies are capped near 3,000 tokens, and history is pruned and summarised about every three turns when tool results are large. At 32K the threshold is 20,000 tokens and replies keep 4,096 tokens.
 - Once the threshold is crossed, a tool result over 8,192 characters is cut to its head and tail in the model's view. The original stays in the session log. The app does not show this trimming.
 - The compaction rows run `@air/dsh-compaction-log` (row id `compaction-basic`), which appends to the summary instruction a numbered Chronological Log of every user request and tool call (capped at `logMaxEntries`, default 60, oldest merged) and a verbatim First request line (cut to `firstRequestMaxChars`, default 300). Without it the 8B model's summary lost early details and named the wrong first file. The log is written by the small model, so a long session can still lose steps.
-- The app shows a "Context compacted" row. An in-tree two-line `ui-chat` change keeps it outside collapsed tool groups ([UPSTREAM-DELTA.md](UPSTREAM-DELTA.md)).
+- The app shows a "Context compacted" row. An in-tree one-line `ui-chat` change keeps it outside collapsed tool groups ([UPSTREAM-DELTA.md](UPSTREAM-DELTA.md)).
 - The full preset on a 16K window is not recommended: its fixed prompt is about 9,500 tokens. The full-preset values and the 24K values were derived, not run. Models not in the table get no compaction. Hosted models keep upstream defaults and were not tested.
 
 ## Project conventions

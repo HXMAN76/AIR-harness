@@ -24,7 +24,7 @@ What exists: ten `@air/dsh-*` packages under [packages](packages) and five bundl
 
 Generated files: the `preset-air-lean` plugin list comes from `scripts/gen-preset-air-lean.ts` (`pnpm -C air run gen:lean`), and the compaction `modelPolicies` blocks come from `scripts/gen-compaction-policies.ts` (`gen:policies`). Edit the sources, not the generated blocks; `pnpm -C air run lint` fails when they are stale.
 
-In-tree edits outside `air/`, all listed in [UPSTREAM-DELTA.md](UPSTREAM-DELTA.md) with re-check steps: the MCP client review hook (`packages/mcp/mcp-client`), the Linux development target (`apps/desktop/scripts`), and two lines in `packages/client/ui-chat` that make the compaction row visible. The CI workflow file and small repository-gate adjustments are also listed there.
+In-tree edits outside `air/`, all listed in [UPSTREAM-DELTA.md](UPSTREAM-DELTA.md) with re-check steps: the MCP client review hook (`packages/mcp/mcp-client`), the Linux development target (`apps/desktop/scripts`), the Linux target narrowing in the desktop retention script, and one `groupTree` argument in `packages/client/ui-chat` that makes the compaction row visible. The CI workflow file and small repository-gate adjustments are also listed there.
 
 CI: the fork's own `air` job (Linux and Windows) is the signal for AIR work. Upstream's `CI` workflow leaves a red "all checks passed" mark that is expected; ignore it. Never edit, disable, or change settings of workflows.
 

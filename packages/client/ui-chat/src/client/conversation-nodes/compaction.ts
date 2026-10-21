@@ -52,7 +52,7 @@ export const compactionDefinition: ConversationNodeDefinition<CompactionState> =
     const state = context.state ?? fallbackState(context)
     if (state.checkpoint === undefined) return null
     const marker = compactSummary(state.summary, state.checkpoint)
-    return chatNode(context, 'compaction', marker.seq, marker)
+    return chatNode(context, 'compaction', marker.seq, marker, { groupTree: 'turn' })
   },
 }
 

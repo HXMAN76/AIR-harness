@@ -76,6 +76,22 @@ Problems:
 
 Not covered: the Electron window itself (the check used the page it serves), the Web UI fallback, MCP trust, skills, commands, and compaction on Windows.
 
+## 2026-10-20: upstream sync to `dsh-v0.2.1-rc.2`
+
+Environment: Windows 11 Home, Node 26.12.0, pnpm 11.28.5, branch `air/sync/dsh-v0.2.1-rc.2`. Details of the merge are in [research.md](../research/research.md) section 2b (fifth sync) and [UPSTREAM-DELTA.md](UPSTREAM-DELTA.md).
+
+Passed after the merge:
+
+- Root `pnpm install`, `pnpm run clean`, and `pnpm run build` (9 gates passed). A first build run at the same time as a second clean failed with stale `tsbuildinfo` files (`TS2307` in `ui-message-feedback`, `TS6305` in `session-inspector`); a single clean followed by a single build passed. Do not run two builds or a clean and a build at once.
+- `pnpm exec vitest run` on the desktop build-path, runtime-preparation, and retention tests, `packages/client/ui-chat`, and `packages/mcp/mcp-client/tests`: 64 files, 1,003 tests passed.
+- `pnpm run gen-config-catalog` left `docs/config-catalog*.md` unchanged.
+- `pnpm -C air install`, `build`, `typecheck`, `lint`, and `smoke` (all three smokes "ok").
+- AIR package tests: all ten packages pass, `preset-by-model` after its test change (28 tests).
+
+- `scripts/tests/preset-air-drift.spec.ts` failed until `preset-air` dropped `toolFilter` from its two sub-agent rows (upstream's `standard` preset dropped it and `dsh-tool-subagent` now rejects it) and gained the disabled `tool-plugin-market` row. After that change and `gen:lean`, the AIR root tests (74), lint, and the three smokes passed.
+
+Not run: the desktop app and the Web UI on the merged tree.
+
 ## Continuous integration
 
 The fork's `air` workflow runs on Linux and Windows: root install and build, AIR install, build, typecheck, lint, tests, the repository text gates, and the profile smokes. This is the only Windows signal so far. The Windows leg found the failures listed in the troubleshooting table of [WINDOWS.md](WINDOWS.md).
