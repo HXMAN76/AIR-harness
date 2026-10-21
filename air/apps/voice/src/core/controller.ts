@@ -2,7 +2,7 @@
 import type { EventEmitter } from 'node:events'
 import type { Command } from './listener.ts'
 import type { Lang } from './frames.ts'
-import { CONFIRM_SEND, matchEmailCommand, parseVoiceCommand, rewriteForAgent, type Route } from './commands.ts'
+import { CONFIRM_SEND, matchEmailCommand, parseVoiceCommand, rewriteForAgent, suggestionFor, type Route } from './commands.ts'
 import { REPLY_ON_SCREEN, hasTamilScript, toSpokenText } from './speech-text.ts'
 import { closeIntentForLabel, isCloseReference, matchOperatorIntent, runOperatorIntent, type OperatorIntent, type OperatorResult } from './operator.ts'
 
@@ -41,8 +41,8 @@ interface AgentLike {
 /** The part of {@link import('./listener.ts').Listener} the controller needs. */
 interface ListenerLike extends EventEmitter {
   setLanguage(lang: Lang): void
-  /** Listen for one command without a wake word. */
-  listen?(): void
+  /** Listen for one command without a wake word, waiting up to `seconds` for speech to start. */
+  listen?(seconds?: number): void
 }
 
 /** How long a thinking turn may run before the controller says "Still working." */
@@ -75,6 +75,28 @@ const CONFIRM_WORDS = /^(?:yes|yeah|yep|confirm|confirmed|yes confirm|yes please
 /** Spoken when the operator could not do what was asked. */
 const OPERATOR_FAILED = "I couldn't do that."
 
+/** Default follow-up window: how long the app listens without a wake word after it spoke. */
+export const DEFAULT_FOLLOWUP_MS = 8_000
+
+/**
+ * @param env - environment to read `AIR_VOICE_FOLLOWUP_MS` from.
+ * @returns the follow-up window in ms: the variable when it is a number of 0 or more (0 turns conversation mode off), else {@link DEFAULT_FOLLOWUP_MS}.
+ */
+export function followUpMsFromEnv(env: Record<string, string | undefined>): number {
+  const raw = env.AIR_VOICE_FOLLOWUP_MS
+  const value = raw === undefined || raw.trim() === '' ? Number.NaN : Number(raw)
+  return Number.isFinite(value) && value >= 0 ? value : DEFAULT_FOLLOWUP_MS
+}
+
+const OKAY = 'Okay.'
+const SUGGESTIONS = "I can read your important mail, read today's news, or open an app. What would you like?"
+
+/** @returns "Good morning.", "Good afternoon." or "Good evening." for the hour of the day. */
+export function greetingFor(now: Date): string {
+  const hour = now.getHours()
+  return hour < 12 ? 'Good morning.' : hour < 17 ? 'Good afternoon.' : 'Good evening.'
+}
+
 /** Constructor options. */
 export interface VoiceControllerDeps {
   listener: ListenerLike
@@ -82,6 +104,10 @@ export interface VoiceControllerDeps {
   agent: AgentLike
   /** Runs a matched operator intent; defaults to {@link runOperatorIntent}. Tests inject a fake. */
   runOperator?: (intent: OperatorIntent) => Promise<OperatorResult>
+  /** Follow-up window in ms (see {@link followUpMsFromEnv}); 0 or omitted turns conversation mode off. */
+  followUpMs?: number
+  /** Clock for the time-of-day greeting. */
+  now?: () => Date
   /** Called on every state change. */
   onState: (state: VoiceState) => void
 }
@@ -97,10 +123,14 @@ export class VoiceController {
   private readonly agent: AgentLike
   private readonly runOperator: (intent: OperatorIntent) => Promise<OperatorResult>
   private readonly onState: (state: VoiceState) => void
+  private readonly followUpMs: number
+  private readonly now: () => Date
 
   private phase: 'idle' | 'awake' | 'thinking' | 'speaking' = 'idle'
   private lang: Lang = 'en'
   private busy = false
+  /** A follow-up window is open: the next speech needs no wake word. */
+  private following = false
   /** The app AIR opened last this session, for "close it". */
   private lastOpened: OperatorIntent | undefined
   private watchdogTimer: ReturnType<typeof setTimeout> | undefined
@@ -113,14 +143,18 @@ export class VoiceController {
     this.agent = deps.agent
     this.runOperator = deps.runOperator ?? (intent => runOperatorIntent(intent))
     this.onState = deps.onState
+    this.followUpMs = deps.followUpMs ?? 0
+    this.now = deps.now ?? (() => new Date())
 
-    this.listener.on('wake', () => {
+    this.listener.on('wake', (bare?: boolean) => {
       this.handleWake()
+      if (bare === true) void this.greet()
     })
     this.listener.on('command', (command: Command) => {
       void this.handleSpoken(command)
     })
     this.listener.on('timeout', () => {
+      this.following = false
       if (this.confirming !== undefined) void this.cancelConfirmation()
       else if (this.phase === 'awake') {
         this.phase = 'idle'
@@ -137,6 +171,7 @@ export class VoiceController {
    */
   handleWake(): void {
     this.speaker.beep()
+    this.following = false
     if (this.phase === 'speaking') {
       this.speaker.stop()
       this.clearWatchdog()
@@ -161,7 +196,32 @@ export class VoiceController {
       else await this.speak("I'm still on the last one.")
       return
     }
-    await this.handleCommand(command.text, command.lang ?? this.lang)
+    const followUp = this.following
+    this.following = false
+    await this.handleCommand(command.text, command.lang ?? this.lang, followUp)
+  }
+
+  /** A bare wake phrase: greet by the time of day, suggest what AIR can do, then listen without a wake. */
+  private async greet(): Promise<void> {
+    if (this.busy || this.confirming !== undefined) return
+    const text = `${greetingFor(this.now())} ${SUGGESTIONS}`
+    this.phase = 'speaking'
+    this.emit({ reply: text })
+    await this.speak(text)
+    if (this.phase === 'speaking') this.openFollowUp()
+  }
+
+  /** After a spoken reply: listen for the next request without a wake word until the window passes in silence. */
+  private openFollowUp(): void {
+    if (this.followUpMs <= 0 || this.listener.listen === undefined) {
+      this.phase = 'idle'
+      this.emit()
+      return
+    }
+    this.following = true
+    this.phase = 'awake'
+    this.emit()
+    this.listener.listen(this.followUpMs / 1000)
   }
 
   /**
@@ -182,7 +242,8 @@ export class VoiceController {
     this.emit()
   }
 
-  private async handleCommand(text: string, lang: Lang): Promise<void> {
+  private async handleCommand(spoken: string, lang: Lang, followUp = false): Promise<void> {
+    const text = followUp && lang === 'en' ? suggestionFor(spoken) ?? spoken : spoken
     const command = parseVoiceCommand(text)
     switch (command.kind) {
       case 'route':
@@ -195,6 +256,11 @@ export class VoiceController {
         break
       case 'cancel':
         await this.handleCancel()
+        break
+      case 'end':
+        this.phase = 'idle'
+        this.emit({ transcript: spoken, reply: OKAY })
+        await this.speak(OKAY)
         break
       case 'language':
         await this.handleLanguage(command.lang)
@@ -227,6 +293,7 @@ export class VoiceController {
       this.phase = 'idle'
       this.emit({ transcript: text, reply: WHICH_APP, tools: [OPERATOR_TOOL] })
       await this.speak(WHICH_APP)
+      this.openFollowUp()
       return
     }
     await this.handleOperator(text, this.lastOpened)
@@ -318,6 +385,7 @@ export class VoiceController {
   private async handleOperator(text: string, intent: OperatorIntent): Promise<void> {
     this.phase = 'thinking'
     this.busy = true
+    let spokeReply = false
     this.emit({ transcript: text })
     try {
       const result = await this.runOperator(intent)
@@ -326,6 +394,8 @@ export class VoiceController {
       this.phase = 'speaking'
       this.emit({ transcript: text, reply: result.spoken, tools: [OPERATOR_TOOL] })
       await this.speak(result.spoken)
+      // A wake that cut the reply off already made the state 'awake'; do not open a window over it.
+      spokeReply = this.phase === 'speaking'
     } catch {
       this.phase = 'idle'
       this.emit({ transcript: text, reply: OPERATOR_FAILED, tools: [OPERATOR_TOOL], error: OPERATOR_FAILED })
@@ -337,6 +407,7 @@ export class VoiceController {
         this.emit()
       }
     }
+    if (spokeReply) this.openFollowUp()
   }
 
   /**
@@ -359,6 +430,7 @@ export class VoiceController {
 
     this.startWatchdog()
     let gated = false
+    let spokeReply = false
 
     try {
       const result = await this.agent.ask(followUp ? text : rewriteForAgent(text))
@@ -371,6 +443,7 @@ export class VoiceController {
       this.emit({ transcript: text, reply, tools: result.tools })
 
       if (!gated || reply !== '') await this.speaker.speak(spoken)
+      spokeReply = !gated && this.phase === 'speaking'
     } catch (error) {
       this.clearWatchdog()
       gated = false
@@ -386,6 +459,7 @@ export class VoiceController {
       }
     }
     if (gated) await this.askConfirmation(text, undefined)
+    else if (spokeReply) this.openFollowUp()
   }
 
   private startWatchdog(): void {

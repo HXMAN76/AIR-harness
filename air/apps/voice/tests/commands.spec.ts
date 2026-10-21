@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { CONFIRM_SEND, matchEmailCommand, parseVoiceCommand, rewriteForAgent } from '../src/core/commands.ts'
+import { CONFIRM_SEND, matchEmailCommand, parseVoiceCommand, rewriteForAgent, suggestionFor } from '../src/core/commands.ts'
 
 describe('parseVoiceCommand', () => {
   it.each([
@@ -98,5 +98,20 @@ describe('email commands', () => {
     const check = rewriteForAgent('check my mail')
     expect(check).toContain('read the newest unread messages')
     expect(check).toContain('Do not reply, delete, or send anything.')
+  })
+})
+
+describe('end and suggestions', () => {
+  it.each(['stop', "That's all.", 'thank you', 'Thank you Jarvis', 'thanks', 'bye'])('%j ends the conversation', (said) => {
+    expect(parseVoiceCommand(said)).toEqual({ kind: 'end' })
+  })
+  it('does not end on longer sentences', () => {
+    expect(parseVoiceCommand('stop the music').kind).toBe('ask')
+  })
+  it.each([['important mail', 'read my important mail'], ['my mail', 'read my important mail'], ['Emails.', 'read my important mail'], ['the news', 'read the news'], ['headlines', 'read the news'], ["today's news", 'read the news']])('%j -> %j', (said, request) => {
+    expect(suggestionFor(said)).toBe(request)
+  })
+  it('leaves other replies alone', () => {
+    expect(suggestionFor('open notepad')).toBeNull()
   })
 })

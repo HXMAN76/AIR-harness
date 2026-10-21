@@ -61,6 +61,15 @@ describe('Listener', () => {
     expect(fake.children[1]!.written).toEqual([])
   })
 
+  it('passes a listen window and a bare wake through', () => {
+    const { listener, fake, events } = setup()
+    listener.start()
+    listener.listen(8)
+    expect(fake.children[0]!.written).toEqual([controlFrame({ type: 'listen', seconds: 8 })])
+    fake.children[0]!.out('{"type":"wake","bare":true}\n')
+    expect(events).toEqual(['wake true'])
+  })
+
   it('asks the worker to listen without a wake word', () => {
     const { listener, fake } = setup()
     listener.listen()

@@ -172,12 +172,13 @@ export class WorkerEngine {
   }
 
   /**
-   * Listen for one command without a wake word (the follow-up window after a spoken question).
-   * It ends like a normal capture: a command, or a timeout after {@link NO_SPEECH_TIMEOUT_S}.
+   * Listen for one command without a wake word (the follow-up window after a spoken reply).
+   * It ends like a normal capture: a command, or a timeout.
+   * @param seconds - how long to wait for speech to start; {@link NO_SPEECH_TIMEOUT_S} by default.
    */
-  arm(): void {
+  arm(seconds = NO_SPEECH_TIMEOUT_S): void {
     this.capturing = true
-    this.deadline = this.clock + NO_SPEECH_TIMEOUT_S
+    this.deadline = this.clock + seconds
     this.pending = new Float32Array(0)
     this.vad.reset()
   }
@@ -296,9 +297,14 @@ export class WorkerEngine {
       else this.c.send({ type: 'heard' })
       return
     }
+    // A bare wake does not await a command here: the controller greets and then arms a follow-up window,
+    // so its own speech is not taken as the command.
+    if (match.command === '') {
+      this.c.send({ type: 'wake', bare: true })
+      return
+    }
     this.c.send({ type: 'wake' })
-    if (match.command === '') this.deadline = this.clock + NO_SPEECH_TIMEOUT_S
-    else this.c.send({ type: 'command', text: match.command, lang: this.lang, audioMs, decodeMs })
+    this.c.send({ type: 'command', text: match.command, lang: this.lang, audioMs, decodeMs })
   }
 
   private decode(samples: Float32Array): string {

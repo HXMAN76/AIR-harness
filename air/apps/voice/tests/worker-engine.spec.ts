@@ -375,25 +375,26 @@ describe('WorkerEngine text mode', () => {
     expect(r.sent.at(-1)).toMatchObject({ type: 'command', text: 'open notepad' })
   })
 
-  it('takes the next segment as the command after a bare wake', () => {
+  it('reports a bare wake as bare and does not await a command by itself', () => {
     const r = textRig()
     say(r, 'Jarvis')
+    expect(r.sent.slice(1)).toEqual([{ type: 'wake', bare: true }])
     say(r, 'volume up')
-    expect(r.sent.slice(1)).toMatchObject([{ type: 'wake' }, { type: 'command', text: 'volume up' }])
+    expect(r.sent.slice(2)).toEqual([{ type: 'heard' }])
   })
 
-  it('expires the wait for a command with a timeout and drops late speech', () => {
+  it('waits a custom number of seconds in an armed window, then times out', () => {
     const r = textRig()
-    say(r, 'Jarvis')
-    frames(r.engine, NO_SPEECH_TIMEOUT_S * 10 + 1)
+    r.engine.arm(8)
+    frames(r.engine, 79)
+    expect(r.sent.filter(m => 'type' in m && m.type === 'timeout')).toEqual([])
+    frames(r.engine, 3)
     expect(r.sent.at(-1)).toEqual({ type: 'timeout' })
-    say(r, 'volume up')
-    expect(r.sent.filter(message => 'type' in message && message.type === 'command')).toEqual([])
   })
 
-  it('ignores a command that arrives after the wait ran out without a timeout check', () => {
+  it('ignores a command that arrives after an armed wait ran out without a timeout check', () => {
     const r = textRig()
-    say(r, 'Jarvis')
+    r.engine.arm()
     r.vad.detected = true
     frames(r.engine, NO_SPEECH_TIMEOUT_S * 10 + 1)
     r.vad.detected = false

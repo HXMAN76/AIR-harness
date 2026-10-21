@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { EventEmitter } from 'node:events'
 import type { Route } from '../src/core/commands.ts'
 import type { OperatorIntent } from '../src/core/operator.ts'
-import { CONFIRM_WINDOW_MS } from '../src/core/controller.ts'
+import { CONFIRM_WINDOW_MS, DEFAULT_FOLLOWUP_MS, followUpMsFromEnv, greetingFor } from '../src/core/controller.ts'
 
 // ── fakes ──────────────────────────────────────────────────────────────────
 
@@ -13,8 +13,10 @@ class FakeListener extends EventEmitter {
     this.languages.push(lang)
   }
   listens = 0
-  listen(): void {
+  windows: Array<number | undefined> = []
+  listen(seconds?: number): void {
     this.listens++
+    this.windows.push(seconds)
   }
   command(text: string, lang = 'en'): void {
     this.emit('command', { text, lang, audioMs: 500, decodeMs: 50 })
@@ -606,7 +608,7 @@ describe('VoiceController', () => {
       })
       await controller.handleSpoken({ text: 'close it' })
       expect(speaker.spoken).toEqual(['Which app should I close?'])
-      expect(states.at(-1)).toMatchObject({ phase: 'idle', reply: 'Which app should I close?' })
+      expect(states.some(state => state.reply === 'Which app should I close?')).toBe(true)
       await controller.handleSpoken({ text: 'open the browser' })
       await controller.handleSpoken({ text: 'close that' })
       expect(speaker.spoken.at(-1)).toBe('Which app should I close?')
@@ -835,5 +837,135 @@ describe('email requests and the send gate', () => {
     agent.ask = async () => { throw new Error('browser failed') }
     await controller.handleSpoken({ text: 'check my mail' })
     expect(speaker.spoken.at(-1)).toBe('browser failed')
+  })
+})
+
+describe('conversation mode', () => {
+  beforeEach(() => { vi.useFakeTimers() })
+  afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks() })
+
+  async function rig(hour = 9, runOperator?: (intent: OperatorIntent) => Promise<{ spoken: string }>) {
+    const { VoiceController } = await import('../src/core/controller.ts')
+    const listener = new FakeListener()
+    const speaker = new FakeSpeaker()
+    const agent = new FakeAgent()
+    const states: VoiceState[] = []
+    const controller = new VoiceController({
+      listener, speaker, agent, followUpMs: 8000, now: () => new Date(2026, 9, 22, hour, 0),
+      runOperator: runOperator ?? (async () => ({ spoken: 'Opening Notepad.' })),
+      onState: (s: VoiceState) => { states.push(s) },
+    })
+    return { controller, listener, speaker, agent, states }
+  }
+
+  it('reads the follow-up window from the environment', () => {
+    expect(DEFAULT_FOLLOWUP_MS).toBe(8000)
+    expect(followUpMsFromEnv({})).toBe(8000)
+    expect(followUpMsFromEnv({ AIR_VOICE_FOLLOWUP_MS: ' ' })).toBe(8000)
+    expect(followUpMsFromEnv({ AIR_VOICE_FOLLOWUP_MS: 'abc' })).toBe(8000)
+    expect(followUpMsFromEnv({ AIR_VOICE_FOLLOWUP_MS: '-5' })).toBe(8000)
+    expect(followUpMsFromEnv({ AIR_VOICE_FOLLOWUP_MS: '3000' })).toBe(3000)
+    expect(followUpMsFromEnv({ AIR_VOICE_FOLLOWUP_MS: '0' })).toBe(0)
+  })
+
+  it.each([[5, 'Good morning.'], [12, 'Good afternoon.'], [16, 'Good afternoon.'], [17, 'Good evening.'], [23, 'Good evening.']])('greets at hour %i with %s', (hour, greeting) => {
+    expect(greetingFor(new Date(2026, 9, 22, hour, 30))).toBe(greeting)
+  })
+
+  it('greets on a bare wake with suggestions, then listens for 8 s without a wake', async () => {
+    const { listener, speaker, states } = await rig(9)
+    listener.emit('wake', true)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(speaker.spoken).toEqual(["Good morning. I can read your important mail, read today's news, or open an app. What would you like?"])
+    expect(listener.windows).toEqual([8])
+    expect(states.at(-1)).toMatchObject({ phase: 'awake' })
+    listener.emit('timeout')
+    expect(states.at(-1)).toMatchObject({ phase: 'idle' })
+    expect(speaker.spoken).toHaveLength(1)
+  })
+
+  it('greets by the real clock when none is injected, and a second wake cuts the greeting off', async () => {
+    const plain = await makeController()
+    plain.listener.emit('wake', true)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(plain.speaker.spoken[0]).toMatch(/^Good (?:morning|afternoon|evening). I can read/)
+    const { listener, speaker, states } = await rig()
+    speaker.autoResolve = false
+    listener.emit('wake', true)
+    await vi.advanceTimersByTimeAsync(0)
+    listener.emit('wake')
+    await vi.advanceTimersByTimeAsync(0)
+    expect(listener.windows).toEqual([])
+    expect(states.at(-1)).toMatchObject({ phase: 'awake' })
+  })
+
+  it('does not greet when a command follows the wake, or while a turn is running', async () => {
+    const { listener, speaker } = await rig()
+    listener.emit('wake')
+    await vi.advanceTimersByTimeAsync(0)
+    expect(speaker.spoken).toEqual([])
+    let finish: (() => void) | undefined
+    const busy = await rig(9, () => new Promise((resolve) => { finish = () => { resolve({ spoken: 'Done.' }) } }))
+    const first = busy.controller.handleSpoken({ text: 'open notepad' })
+    await vi.advanceTimersByTimeAsync(0)
+    busy.listener.emit('wake', true)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(busy.speaker.spoken).toEqual([])
+    finish?.()
+    await first
+  })
+
+  it('does not greet while a confirmation is pending', async () => {
+    const { controller, listener, speaker } = await rig()
+    await controller.handleSpoken({ text: 'lock the screen' })
+    listener.emit('wake', true)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(speaker.spoken).toEqual(['Say yes to confirm.'])
+  })
+
+  it('opens the same window after an operator reply and after an agent reply', async () => {
+    const { controller, listener, agent, states } = await rig()
+    await controller.handleSpoken({ text: 'open notepad' })
+    expect(listener.windows).toEqual([8])
+    expect(states.at(-1)).toMatchObject({ phase: 'awake' })
+    await controller.handleSpoken({ text: 'tell me a joke' })
+    expect(agent.asks).toEqual(['tell me a joke'])
+    expect(listener.windows).toEqual([8, 8])
+  })
+
+  it('does not open a window after an error, or when conversation mode is off', async () => {
+    const failing = await rig(9, async () => { throw new Error('x') })
+    await failing.controller.handleSpoken({ text: 'open notepad' })
+    expect(failing.listener.windows).toEqual([])
+    const off = await makeController()
+    await off.controller.handleSpoken({ text: 'tell me a joke' })
+    expect(off.listener.windows).toEqual([])
+    expect(off.states.at(-1)).toMatchObject({ phase: 'idle' })
+  })
+
+  it('goes idle with nothing spoken after 8 s of silence', async () => {
+    const { controller, listener, speaker, states } = await rig()
+    await controller.handleSpoken({ text: 'open notepad' })
+    const spoken = speaker.spoken.length
+    listener.emit('timeout')
+    expect(speaker.spoken).toHaveLength(spoken)
+    expect(states.at(-1)).toMatchObject({ phase: 'idle' })
+  })
+
+  it.each(['stop', "that's all", 'Thank you Jarvis.', 'thanks'])('ends the conversation on %j with Okay and no new window', async (said) => {
+    const { controller, listener, speaker, states, agent } = await rig()
+    await controller.handleSpoken({ text: 'open notepad' })
+    await controller.handleSpoken({ text: said })
+    expect(speaker.spoken).toEqual(['Opening Notepad.', 'Okay.'])
+    expect(listener.windows).toEqual([8])
+    expect(states.at(-1)).toMatchObject({ phase: 'idle' })
+    expect(agent.asks).toEqual([])
+  })
+
+  it('sends anything that is not a suggestion to the agent in the follow-up window', async () => {
+    const { controller, agent } = await rig()
+    await controller.handleSpoken({ text: 'open notepad' })
+    await controller.handleSpoken({ text: 'something else' })
+    expect(agent.asks).toEqual(['something else'])
   })
 })

@@ -7,7 +7,7 @@ import { join } from 'node:path'
 import { Listener } from './core/listener.ts'
 import { Speaker } from './core/speaker.ts'
 import { AgentBridge } from './core/agent.ts'
-import { VoiceController } from './core/controller.ts'
+import { VoiceController, followUpMsFromEnv } from './core/controller.ts'
 import { mkdirSync } from 'node:fs'
 import { assertWorkspaceOutsideHome, voiceHome, voiceWorkspace } from './core/home.ts'
 import { modelRoot } from './core/models.ts'
@@ -102,6 +102,7 @@ function startVoice(): void {
     listener,
     speaker,
     agent,
+    followUpMs: followUpMsFromEnv(process.env),
     onState: (state) => {
       debug('state:', state.phase, state.transcript ?? '', state.reply ?? '', state.error ?? '')
       mainWindow?.webContents.send('state', state)

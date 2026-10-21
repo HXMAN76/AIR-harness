@@ -12,6 +12,7 @@ export type VoiceCommand =
   | { kind: 'cancel' }
   | { kind: 'memory-share'; on: boolean }
   | { kind: 'language'; lang: Lang }
+  | { kind: 'end' }
   | { kind: 'ask'; text: string }
 
 const ROUTE = /^(?:use|switch to|go to)(?: the)? (local|cloud|screen)(?: model| mode)?$|^(screen) mode on$/
@@ -20,6 +21,8 @@ const ENGLISH_MODE = /^(?:(?:switch|go) to|use) english(?: mode)?$|^english mode
 /** Tamil-script transliterations of "english mode" and "tamil mode", for a command spoken while the Tamil recogniser is active. */
 const ENGLISH_MODE_TA = /^(?:இங்கிலீஷ்|ஆங்கிலம்)(?: மோட்| முறை)?$/u
 const TAMIL_MODE_TA = /^தமிழ்(?: மோட்| முறை)?$/u
+/** Ends a conversation: "stop", "that's all", "thank you (jarvis)". */
+const END = /^(?:stop|(?:thats|that is) all|(?:thank you|thanks)(?: (?:very much|so much))?(?: jarvis)?|goodbye|bye)$/
 const NEW_CONVERSATION = /^(?:start )?(?:a )?new conversation$/
 const CANCEL = /^(?:cancel(?: that)?|never mind)$/
 const SHARE_ON = /^(?:share memory with(?: the)? cloud|turn on memory sharing)$/
@@ -40,11 +43,27 @@ export function parseVoiceCommand(command: string): VoiceCommand {
   if (route !== null) return { kind: 'route', route: (route[1] ?? route[2]) as Route }
   if (TAMIL_MODE.test(text) || TAMIL_MODE_TA.test(command.trim())) return { kind: 'language', lang: 'ta' }
   if (ENGLISH_MODE.test(text) || ENGLISH_MODE_TA.test(command.trim())) return { kind: 'language', lang: 'en' }
+  if (END.test(text)) return { kind: 'end' }
   if (NEW_CONVERSATION.test(text)) return { kind: 'new-conversation' }
   if (CANCEL.test(text)) return { kind: 'cancel' }
   if (SHARE_ON.test(text)) return { kind: 'memory-share', on: true }
   if (SHARE_OFF.test(text)) return { kind: 'memory-share', on: false }
   return { kind: 'ask', text: command.trim() }
+}
+
+const SUGGEST_MAIL = /^(?:(?:my |the |your )?(?:important )?(?:mail|e-?mails?|inbox)|(?:read |check )?(?:my |the )?important (?:mail|e-?mails?))$/
+const SUGGEST_NEWS = /^(?:(?:read )?(?:me )?(?:today s |the |todays )?(?:news|headlines)(?: please)?)$/
+
+/**
+ * Match a reply to the greeting's suggestions ("important mail", "the news") and give the full request for it.
+ * @param text - what was said in a follow-up window.
+ * @returns the request text, or null when it is not one of the suggestions.
+ */
+export function suggestionFor(text: string): string | null {
+  const spoken = normalise(text)
+  if (SUGGEST_MAIL.test(spoken)) return 'read my important mail'
+  if (SUGGEST_NEWS.test(spoken)) return 'read the news'
+  return null
 }
 
 const REMEMBER = /^(?:please )?(?:remember|note|don['’]?t forget)(?: that)? (.+)$/i
