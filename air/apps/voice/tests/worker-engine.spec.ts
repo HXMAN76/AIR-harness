@@ -352,4 +352,17 @@ describe('WorkerEngine text mode', () => {
     say(r, 'volume up')
     expect(r.sent.filter(message => 'type' in message && message.type === 'command')).toEqual([])
   })
+
+  it('arm() captures one command without a wake word, and times out after six seconds', () => {
+    const r = rig({ wake: 'kws' })
+    r.recognizers[0]!.text = 'yes'
+    r.engine.arm()
+    r.vad.segments.push({ samples: new Float32Array(160) })
+    r.engine.push(FRAME)
+    expect(r.sent.filter(message => 'type' in message)).toEqual([{ type: 'command', text: expect.any(String), lang: 'en', audioMs: 10, decodeMs: 10 }])
+    r.sent.length = 0
+    r.engine.arm()
+    frames(r.engine, NO_SPEECH_TIMEOUT_S * 10 + 2)
+    expect(r.sent).toEqual([{ type: 'timeout' }])
+  })
 })

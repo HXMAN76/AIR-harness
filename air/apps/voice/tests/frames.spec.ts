@@ -28,6 +28,7 @@ describe('frames', () => {
   it('accepts only known control messages', () => {
     expect(parseControl(Buffer.from('{"type":"language","lang":"en"}'))).toEqual({ type: 'language', lang: 'en' })
     expect(parseControl(Buffer.from('{"type":"language","lang":"fr"}'))).toBeUndefined()
+    expect(parseControl(Buffer.from('{"type":"listen"}'))).toEqual({ type: 'listen' })
     expect(parseControl(Buffer.from('{"type":"other"}'))).toBeUndefined()
     expect(parseControl(Buffer.from('7'))).toBeUndefined()
     expect(parseControl(Buffer.from('null'))).toBeUndefined()

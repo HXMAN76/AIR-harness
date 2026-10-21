@@ -165,6 +165,17 @@ export class WorkerEngine {
     else this.listen(samples)
   }
 
+  /**
+   * Listen for one command without a wake word (the follow-up window after a spoken question).
+   * It ends like a normal capture: a command, or a timeout after {@link NO_SPEECH_TIMEOUT_S}.
+   */
+  arm(): void {
+    this.capturing = true
+    this.deadline = this.clock + NO_SPEECH_TIMEOUT_S
+    this.pending = new Float32Array(0)
+    this.vad.reset()
+  }
+
   /** The input ended: finish a speech segment in progress. */
   finish(): void {
     if (!this.capturing) return

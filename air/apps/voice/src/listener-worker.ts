@@ -44,7 +44,8 @@ process.stdin.on('data', (chunk: Buffer) => {
     if (frame.kind === FRAME_AUDIO) engine.push(samplesOf(frame.payload))
     else if (frame.kind === FRAME_CONTROL) {
       const message = parseControl(frame.payload)
-      if (message !== undefined) engine.setLanguage(message.lang)
+      if (message?.type === 'language') engine.setLanguage(message.lang)
+      else if (message?.type === 'listen') engine.arm()
     }
   }
 })

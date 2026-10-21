@@ -61,6 +61,14 @@ describe('Listener', () => {
     expect(fake.children[1]!.written).toEqual([])
   })
 
+  it('asks the worker to listen without a wake word', () => {
+    const { listener, fake } = setup()
+    listener.listen()
+    listener.start()
+    listener.listen()
+    expect(fake.children[0]!.written).toEqual([controlFrame({ type: 'listen' })])
+  })
+
   it('turns JSON lines into events', () => {
     const { listener, fake, commands, ready, events } = setup()
     listener.start()

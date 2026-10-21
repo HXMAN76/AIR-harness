@@ -126,6 +126,11 @@ export class Listener extends EventEmitter {
     this.child?.stdin.write(controlFrame({ type: 'language', lang }))
   }
 
+  /** Listen for one command without a wake word; the worker answers with a `'command'` or a `'timeout'`. */
+  listen(): void {
+    this.child?.stdin.write(controlFrame({ type: 'listen' }))
+  }
+
   /** Stop the worker; no restart follows. */
   async stop(): Promise<void> {
     const child = this.child
