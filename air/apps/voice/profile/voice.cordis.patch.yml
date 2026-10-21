@@ -1,0 +1,123 @@
+# Voice profile: a per-launch patch on upstream's `sdk` profile, passed by the voice app's agent bridge.
+# Routes: local Ollama (default) and the OpenRouter catalog route for the cloud and screen routes.
+# Put `OLLAMA_API_KEY=ollama` in the voice home's .env (scripts/setup-home.ts does) and, for the cloud,
+# `OPENROUTER_API_KEY`. The tool set is kept lean to save prompt tokens on the local model:
+# the base file and working-directory tools, pwsh, web fetch, and the browser (memory rows are added by the memory track).
+
+# The Ollama route, as in air/examples/ollama.profile.cordis.patch.yml (see that file for the reasons).
+# OpenRouter is a pi-ai catalog route; naming it with its key reference and two models narrows it to those.
+- id: llm-pi-ai
+  config:
+    providers:
+      ollama:
+        displayName: Ollama (local)
+        apiKeyEnv: OLLAMA_API_KEY
+        reasoning: 'off'
+        api: openai-completions
+        baseURL: http://127.0.0.1:11434/v1
+        compat:
+          supportsDeveloperRole: false
+          maxTokensField: max_tokens
+        models:
+          - id: qwen3-8b-32k
+            contextWindow: 32768
+            maxTokens: 4096
+            compat:
+              supportsReasoningEffort: true
+            reasoningEfforts:
+              'off': none
+              medium: medium
+      openrouter:
+        displayName: OpenRouter (cloud)
+        apiKeyEnv: OPENROUTER_API_KEY
+        models:
+          - id: anthropic/claude-haiku-5.5
+          - id: anthropic/claude-sonnet-5.5
+
+- id: agent-default-model
+  config:
+    provider: ollama
+    model: qwen3-8b-32k
+
+# The voice persona replaces the SDK's coding-agent persona.
+- id: system-prompt
+  config:
+    personaPrefix: >-
+      You are AIR, a voice assistant on the user's Windows PC. Answer in one to three short spoken
+      sentences without Markdown. Use the pwsh tool for local tasks and say what you did. To open an app
+      use Start-Process. To type text into a new file, write it with Set-Content then open it.
+
+# Nobody can answer an approval prompt by voice: requests that need one are rejected instead of waiting.
+- id: approval
+  config:
+    policy: never
+
+# Rows that send data to DeepSeek services or depend on a DeepSeek account (as in air/bundles/air-headless).
+- id: session-log-deepseek
+  disabled: true
+- id: plugin-package-inventory-deepseek
+  disabled: true
+- id: session-telemetry-otel
+  disabled: true
+- id: deepseek-account
+  disabled: true
+- id: llm-deepseek-account
+  disabled: true
+- id: web-search-deepseek
+  disabled: true
+- id: web-deepseek-api
+  disabled: true
+
+# Web: fetch only; search goes through the browser.
+- id: tool-web
+  config:
+    search: false
+    fetch: true
+
+# Token economy: no skills catalog, no subagent, schedule, goal, workflow, or todo tools.
+- id: skill
+  disabled: true
+- id: skill-filesystem
+  disabled: true
+- id: tool-skill
+  disabled: true
+- id: goal
+  disabled: true
+- id: goal-round-driver
+  disabled: true
+- id: command-goal
+  disabled: true
+- id: tool-goal
+  disabled: true
+- id: subagent
+  disabled: true
+- id: subagent-spawn-in-process
+  disabled: true
+- id: subagent-fork-in-process
+  disabled: true
+- id: tool-subagent-control
+  disabled: true
+- id: tool-subagent-list-agents
+  disabled: true
+- id: tool-subagent
+  disabled: true
+- id: tool-subagent-fork
+  disabled: true
+- id: ptc-runtime
+  disabled: true
+- id: workflow-ptc
+  disabled: true
+- id: tool-workflow
+  disabled: true
+- id: tool-todo
+  disabled: true
+
+# Browser for search and pages (Playwright MCP, launched headless per session).
+- insert:
+    - id: browser-use
+      name: '@deepseek-ai/dsh-browser-use'
+    - id: browser-use-playwright-mcp
+      name: '@deepseek-ai/dsh-experimental-browser-use-playwright-mcp'
+      config:
+        mode: launch
+        headless: true
