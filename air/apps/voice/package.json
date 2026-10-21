@@ -12,6 +12,7 @@
     "start": "electron lib/main.js"
   },
   "dependencies": {
+    "@air/dsh-tool-open": "workspace:*",
     "@deepseek-ai/dsh-sdk-client": "link:../../../packages/sdk/client"
   },
   "devDependencies": {

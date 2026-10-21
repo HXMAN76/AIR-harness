@@ -8,5 +8,5 @@ export default defineConfig({
   target: 'es2024',
   dts: false,
   clean: false,
-  external: ['electron'],
+  deps: { neverBundle: ['electron'], alwaysBundle: [/^@air\//] },
 })

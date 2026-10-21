@@ -44,6 +44,9 @@ importers:
 
   apps/voice:
     dependencies:
+      '@air/dsh-tool-open':
+        specifier: workspace:*
+        version: link:../../packages/tool-open
       '@deepseek-ai/dsh-sdk-client':
         specifier: link:../../../packages/sdk/client
         version: link:../../../packages/sdk/client
@@ -657,6 +660,28 @@ importers:
       '@deepseek-ai/dsh-session':
         specifier: link:../../../packages/core/session
         version: link:../../../packages/core/session
+      '@deepseek-ai/dsh-subprocess-local':
+        specifier: link:../../../packages/subprocess/subprocess-local
+        version: link:../../../packages/subprocess/subprocess-local
+      '@deepseek-ai/dsh-system-prompt':
+        specifier: link:../../../packages/core/system-prompt
+        version: link:../../../packages/core/system-prompt
+      '@deepseek-ai/dsh-tools':
+        specifier: link:../../../packages/core/tools
+        version: link:../../../packages/core/tools
+
+  packages/tool-open:
+    dependencies:
+      '@deepseek-ai/schemastery':
+        specifier: link:../../../vendor/schemastery
+        version: link:../../../vendor/schemastery
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: link:../../../vendor/cordis
+        version: link:../../../vendor/cordis
+      '@deepseek-ai/dsh-llm':
+        specifier: link:../../../packages/llm/llm
+        version: link:../../../packages/llm/llm
       '@deepseek-ai/dsh-subprocess-local':
         specifier: link:../../../packages/subprocess/subprocess-local
         version: link:../../../packages/subprocess/subprocess-local

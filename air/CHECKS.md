@@ -97,6 +97,13 @@ Environment: Windows 11 Home. These scenarios require the Electron app running w
 | 3 | Remember a preference, recall it in a new session | NOT RUN — requires Windows desktop with audio | — | — |
 | 4 | Switch model routes by voice or toggle | NOT RUN — requires Windows desktop with audio | — | — |
 
+## 2026-10-21: voice operator, open tool, Ollama Cloud route
+
+Environment: Windows 11 Home, branch `air/feat/voice-agent-track-a`, local Ollama with `qwen3-8b-32k`. Run: `pnpm -C air run typecheck` (passed), `pnpm -C air run lint` (passed), `pnpm -C air/apps/voice test` (10 files, 207 tests, 100% statements, branches, functions, lines), `pnpm -C air/apps/voice run build` (passed), `pnpm -r --no-bail --if-present run test` in `air` (all packages passed, `tool-open` 46 tests at 100% coverage).
+
+- Operator by hand: through the real runner, "open notepad" started Notepad and "close notepad" stopped it. Not run by hand: the other operator actions (volume keys, lock, search URLs, apps other than Notepad), a spoken end-to-end command with a microphone, and the Ollama Cloud route (no key was used; the route and the model id `minimax-m3.1-flash`, taken from the public model list at ollama.com/api/tags, were not called).
+- One real SDK turn, `scripts/ask.ts "open notepad"` on the local route after installing `@air/dsh-tool-open` into the voice home's `sdk` profile: one tool call, `open` with `{"kind":"app","value":"notepad"}`, result "Opened Notepad.", reply in 6.5 s, Notepad running afterwards (then stopped). First request: 2,878 prompt tokens (1,522 new plus 1,356 read from cache, from the usage event). Before the tool existed, the same prompt gave 2,776 prompt tokens, no tool call, and a prose reply, in 15 s. The profile's memory and browser rows were not installed in the voice home, so those tools were absent from both runs; they are skipped at boot with a warning.
+
 ## Not checked
 
 - Native Windows by a person: any step.

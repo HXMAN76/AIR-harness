@@ -1,10 +1,10 @@
 # Per-launch patch: applied when memory share is toggled on (UI checkbox or
 # voice command). Adds the cloud route to the memory store's shareWith list,
-# so the voice agent's notes are also visible to the Anthropic (cloud) route.
+# so the voice agent's notes are also visible to the Ollama Cloud route.
 # The controller's setMemoryShare(true) adds this patch; setMemoryShare(false)
 # removes it. See voice.cordis.patch.yml for the base memory rows.
 - id: air-memory-store
   config:
     shareWith:
       - ollama
-      - anthropic
+      - ollama-cloud
