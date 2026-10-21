@@ -18,7 +18,7 @@ Read in this order:
 
 Plans 00, 01, and 02 are executed and merged. The product runs as the AIR bundle inside upstream's Electron desktop app (profile `desktop`, plus `bundles/air-desktop`), which is the primary surface; the Web UI (profile `air`) must keep working; headless (upstream's headless profile plus `bundles/air-headless`) is for evaluation and scripted runs. A separate AIR Electron shell (plan 07 as written) was dropped, and macOS is out of scope. Follow-up work is done too: the `air-lean` preset, per-model compaction policies, chronological compaction summaries, a visible compaction row, preset selection by model, and an effort pick that applies to one session. Plans 03, 04, 05, and 06 are written but not executed; do not execute a later plan until the owner says to. Plan 07 needs a rewrite around upstream's desktop app.
 
-Checked by hand on Fedora only ([CHECKS.md](CHECKS.md)). Nobody has run anything on native Windows; the Windows CI leg is the only signal. There is no installer on any OS.
+Checked by hand on Fedora, and on native Windows from setup to a first answered prompt in the desktop app on 2026-10-20 ([CHECKS.md](CHECKS.md)); feature checks on Windows are still not done. There is no installer on any OS.
 
 What exists: ten `@air/dsh-*` packages under [packages](packages) and five bundles under [bundles](bundles) (`air`, `air-desktop`, `air-headless`, `air-mcp`, `mcp-servers`), described in [README.md](README.md#layout-of-the-air-workspace).
 
