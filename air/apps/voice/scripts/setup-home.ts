@@ -1,4 +1,4 @@
-/** Create the voice runtime home and workspace and install the profile's plugins. `pnpm -C air/apps/voice exec tsx scripts/setup-home.ts` */
+/** Create the voice runtime home and workspace and install the profile plugins: `pnpm -C air/apps/voice exec tsx scripts/setup-home.ts` */
 import { nodeExec } from '@air/dsh-tool-open/exec'
 import { prepareVoiceHome, voiceHome, voiceWorkspace } from '../src/core/home.ts'
 import { REPO_ROOT } from '../src/core/paths.ts'
