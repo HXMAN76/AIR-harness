@@ -1,5 +1,20 @@
 # AIR Voice Agent Implementation Plan
 
+## Status (2026-10-22)
+
+Branch `air/feat/voice-agent` (Track A and B work). The task text below is the original plan and is not rewritten; the revision list in [plan 08](2026-10-21-08-voice-agent.md#revision-2026-10-22) says where the build differs (Jarvis with a keyword spotter, Parakeet and IndicConformer, Ollama Cloud, operator fast path, `open` tool).
+
+| Task | State |
+|---|---|
+| A1 Package scaffold and wake matcher | Done |
+| A2 Spoken-text cleaner and voice commands | Done |
+| A3 Speaker (SAPI child) | Done |
+| A4 Listener | Done, reworked: keyword spotter, VAD, Parakeet and IndicConformer worker |
+| A5 Agent bridge and voice profile | Done (cloud route is Ollama Cloud; the workspace is `Documents\AIR Voice`) |
+| A6 Controller and Electron shell | Done |
+| A7 Review scenarios, docs, checks | Partial: docs written; the four spec scenarios on a real microphone and the cloud and screen routes are not recorded as run |
+| Track B Memory (plan 04 without embeddings) | Done, trimmed: store, FTS5 index, `tool-memory`, `memory-context`, wired into the `air` bundle and the voice profile; the `B-final` scenario check is not recorded |
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** A wake-phrase voice companion for native Windows that drives a dsh session (local Qwen by default, OpenRouter cloud opt-in) with PowerShell, web, desktop control, and Markdown memory.

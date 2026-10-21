@@ -18,6 +18,8 @@ Last verification dates and the environment of each check are in [CHECKS.md](CHE
 | Preset `air-lean` by default, `air` by hand or by model | Works | Works | Lean only | Run by hand; selection logic also unit tested |
 | Compaction with a chronological log, visible row | Works | Same client | Compaction only | Run by hand on `qwen3-8b-32k` |
 | Thinking off by default, "Medium" per session | Works | Works | Off | Run by hand |
+| Voice agent (preview) | Windows only; not on Linux | n/a | n/a | Unit tests and parts run by hand on Windows; the four review scenarios are not recorded ([apps/voice/README.md](apps/voice/README.md)) |
+| Memory (trimmed plan 04) | Rows in the `air` bundle | Same | Not checked | Unit tests |
 | Windows | Not yet run by a person | Not yet run by a person | Not yet run by a person | Windows CI leg: install, build, typecheck, lint, tests, profile smokes |
 | Installer, tray, menus, updater | Not done | n/a | n/a | No installer on any OS; tray, menus, and updater unchecked on Linux |
 | Hosted (cloud) models | Untested | Untested | Untested | Not run |
@@ -212,7 +214,7 @@ From the command line, the `air-mcp` profile uses the bundle `bundles/mcp-server
 | `bundles/air-headless` | AIR defaults and plugins for a profile made from the headless template |
 | `bundles/air-mcp` | The `air-mcp` command-line profile |
 | `bundles/mcp-servers` | The MCP trust row shared by `air` and `air-mcp` |
-| `apps/voice` | Wake-phrase voice companion: Electron, Silero VAD, SenseVoice, Windows SAPI |
+| `apps/voice` | Wake-word voice companion: Electron, keyword spotter, Parakeet and IndicConformer, Windows SAPI |
 | `scripts/` | Generators, smoke tests, `setup-desktop-profile.ts`, `desktop-drive.mjs` |
 | `examples/` | Profile-patch examples, such as the local Ollama route |
 | `plans/` | Roadmap, implementation plans, and API spikes |
@@ -256,13 +258,17 @@ Back up or move notes with `pnpm -C air run memory:transfer export <file>` and `
 
 ## Voice agent (preview)
 
-A wake-phrase voice companion that captures the microphone, transcribes speech with Silero VAD and SenseVoice, sends commands to a dsh session through the SDK, and speaks the reply through Windows SAPI. The default route is local Ollama; cloud routes (Claude Haiku, Claude Sonnet with computer use) are opt-in.
+A voice companion that captures the microphone, spots the wake word "Jarvis" with a small keyword model (speech without it is never transcribed), transcribes the command after it (English: Parakeet; Tamil: IndicConformer), sends it to a dsh session through the SDK, and speaks the reply through Windows SAPI. The default route is local Ollama; the cloud routes (Ollama Cloud, model `minimax-m3.1-flash`, with computer use on the screen route) are opt-in and need `OLLAMA_CLOUD_KEY`.
 
 ```powershell
 pnpm -C air/apps/voice install
+pnpm -C air/apps/voice exec tsx scripts/fetch-models.ts
+pnpm -C air/apps/voice exec tsx scripts/setup-home.ts
 pnpm -C air/apps/voice build
 pnpm -C air run voice
 ```
+
+Models live in `%USERPROFILE%\.air\voice-models\<name>\` and are never downloaded at launch. The voice home is `%USERPROFILE%\.air\voice-home` (separate from the desktop app); the agent works in `<Documents>\AIR Voice`.
 
 Four voice commands are handled by the app itself (the model never sees them):
 
@@ -273,7 +279,7 @@ Four voice commands are handled by the app itself (the model never sees them):
 | Cancel | "cancel", "cancel that", "never mind" |
 | Memory sharing | "share memory with the cloud", "stop sharing memory" |
 
-Anything else after the wake phrase ("Jarvis" and common mis-hearings) is sent to the agent. The model's reply is spoken aloud and shown in the transcript pane.
+Simple PC commands ("open notepad", "volume up", "lock screen") run locally without the model; closing an app and locking the screen ask for a spoken "yes" first. Anything else after the wake word ("Jarvis", "hey Jarvis", "OK Jarvis") is sent to the agent. The model's reply is spoken aloud and shown in the transcript pane.
 
 Windows only; requires SAPI voices and microphone permissions. Details, setup for cloud routes, and troubleshooting: [apps/voice/README.md](apps/voice/README.md).
 
@@ -289,7 +295,7 @@ Windows only; requires SAPI voices and microphone permissions. Details, setup fo
 - Models not listed in the variants table get no compaction until they have a table entry.
 - One reply in one 7-turn session was cut off with "Output token limit reached" (before the compaction fixes); it did not repeat and its cause is not known.
 - Headless: no presets, no schedule tool, no answerable MCP prompt, no resume of preset sessions.
-- The voice agent is a Windows-only preview: wake matching is text-based (no trained wake-word model), the cloud and screen routes are untested by a person, and nobody can answer an approval prompt by voice.
+- The voice agent is a Windows-only preview: the wake word is a general keyword model, not one trained for "Jarvis", the cloud and screen routes are untested by a person, and nobody can answer an approval prompt by voice.
 - Not covered by any check: path-scoped rules, `revoke` in the app, a pinned server that later changes its tools, and the benchmark raw data from 2026-10-10, which was lost (the figures are summaries).
 
 ## Where to read more

@@ -71,7 +71,7 @@ Not run: the desktop app and the Web UI on the merged tree.
 
 ## Continuous integration
 
-The fork's `air` workflow runs on Linux and Windows: root install and build, AIR install, build, typecheck, lint, tests, the repository text gates, and the profile smokes. This is the only Windows signal so far. The Windows leg found the failures listed in the troubleshooting table of [WINDOWS.md](WINDOWS.md).
+The fork's `air` workflow runs on Linux and Windows: root install and build, AIR install, build, typecheck, lint, tests, the repository text gates, and the profile smokes. This is the only Windows signal so far. Because `pnpm -r` also reaches `apps/voice`, CI covers its typecheck, lint, and unit tests (the live listener spec is excluded); it does not build `apps/voice` (tsdown plus copy), run the Electron entry, or run the renderer, so run `pnpm -C air/apps/voice run build` by hand. The workflow file is not edited (repository rule). The Windows leg found the failures listed in the troubleshooting table of [WINDOWS.md](WINDOWS.md).
 
 ## 2026-10-21: voice agent automated checks
 
@@ -112,7 +112,7 @@ Browser rows moved to the screen patch, local route, "open notepad": first reque
 
 - Native Windows by a person: any step.
 - The desktop app on Windows; an installer; tray, menus, and updater on Linux.
-- Hosted (cloud) models.
+- Hosted (cloud) models, including the voice cloud and screen routes (Ollama Cloud), which exist but have not been run by a person.
 - Benchmark raw data from 2026-10-10 was lost; the figures in the research notes are summaries.
 
 ## 2026-10-21: voice wake word and English/Tamil recognisers

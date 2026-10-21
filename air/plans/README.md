@@ -20,9 +20,10 @@ This page orders the work, names each plan, and lists what is still unplanned. T
 | Desktop on upstream's app | Done, not a numbered plan; see [Desktop app](../README.md#quick-start-desktop-app) in the README |
 | Follow-up fixes (lean preset, compaction policies and log, visible compaction row, preset by model, session-only effort) | Done; checks in [../CHECKS.md](../CHECKS.md) |
 | Plan 07 | Superseded; needs a rewrite (list below the table) |
-| Plans 03, 04, 05, 06 | Written, not executed |
-| Plan 08 (voice agent design) | Approved |
-| Plan 09 (voice agent implementation) | In progress; feature branch `air/feat/voice-agent-track-a` |
+| Plans 03, 05, 06 | Written, not executed |
+| Plan 04 (memory core) | Trimmed (no embeddings or vector index) and executed on the voice branch |
+| Plan 08 (voice agent design) | Approved; revision list of 2026-10-22 at the top |
+| Plan 09 (voice agent implementation) | A1 to A6 and Track B done, A7 partial; feature branch `air/feat/voice-agent` |
 
 ## Plans
 
@@ -32,12 +33,12 @@ This page orders the work, names each plan, and lists what is still unplanned. T
 | 01 | [File conventions, slice 1](2026-09-30-01-file-conventions-slice1.md): AIR preset, skill roots, instructions, `.mcp.json`, commands | Executed and merged | 00 | [spike 02](spikes/02-file-conventions.md) |
 | 02 | [MCP trust](2026-09-30-02-mcp-trust.md): review hook, lockfile, guard, `air-mcp` CLI profile | Executed and merged | 00 | [spike 03](spikes/03-mcp-trust.md) |
 | 03 | [Permissions](2026-09-30-03-permissions.md): `Tool(pattern)` rule store, capability scopes, approval answerer with audit log, `/allow` and `/deny`, sudo guard | Written, not executed (Always-allow button and argument detail UI deferred to a follow-up plan) | 00, 01 through Task 2 (`toDshToolName`, `expandHome`, `isRecord`) | [spike 04](spikes/04-memory-context-permissions.md) §7 |
-| 04 | [Memory core](2026-09-30-04-memory-core.md): Markdown store with git history, FTS5 + vector index, embedding seam, four memory tools, pinned core | Written, not executed (auto-recall, priors, extraction, consolidation deferred to follow-up plans) | 00; 01 Task 9 when wiring into `preset-air` | [spike 04](spikes/04-memory-context-permissions.md) §1–5 |
+| 04 | [Memory core](2026-09-30-04-memory-core.md): Markdown store with git history, FTS5 + vector index, embedding seam, four memory tools, pinned core | Trimmed and executed on the voice branch: no embedding seam or vector index, FTS5 keyword search only (auto-recall, priors, extraction, consolidation deferred to follow-up plans) | 00; 01 Task 9 when wiring into `preset-air` | [spike 04](spikes/04-memory-context-permissions.md) §1–5 |
 | 05 | [Evaluation pilot](2026-09-30-05-eval-pilot.md): eval bundle and uv project, session-log metrics, RQ1 five-server mini-corpus, token/latency table, LongMemEval 10-question smoke | Written, not executed (code run in a scratch copy: 40 tests pass) | 00; 02 for the shared digest golden file | [spike 06](spikes/06-evaluation.md) |
 | 06 | [AgentDojo banking pilot](2026-10-03-06-agentdojo-pilot.md): native AgentDojo pipeline vs the undefended harness, MCP bridge, eval-only approval answerer, route as a parameter, off-device token count | Written, not executed (code run in a scratch copy on the local route: 52 tests pass, both arms ran on 5 episodes each; hosted route not run) | 00; 05 Tasks 1–4 | [spike 06](spikes/06-evaluation.md) §1 |
 | 07 | [Desktop shell](2026-10-03-07-desktop-shell.md): AIR-owned Electron app for Windows and Linux (staging script, Host entry, main process, close/tray policy, hotkey, packaging, updates, CI) | Superseded by the 2026-10-12 owner decision (history; do not execute as written); needs rewriting around upstream's `apps/desktop` (plan code typechecked and 111 unit tests run in a scratch copy; staging and Host boot verified on Fedora; Windows and packaging not run) | 00 | [research note 09](../../research/notes/09-desktop-cross-os.md), [research note 13](../../research/notes/13-desktop-shell-practice.md) |
-| 08 | [Voice agent design](2026-10-21-08-voice-agent.md): wake-phrase matching, Silero VAD + SenseVoice pipeline, SAPI output, SDK session bridge, route switching, memory sharing | Approved | 00, 04 | [spike 05](spikes/05-voice-os-triggers-shell.md) |
-| 09 | [Voice agent implementation](2026-10-21-09-voice-agent-implementation.md): Electron app, listener worker, speaker child, command parser, controller, voice profile, tier-1 memory wiring | In progress; feature branch `air/feat/voice-agent-track-a` | 08 | — |
+| 08 | [Voice agent design](2026-10-21-08-voice-agent.md): wake-phrase matching, Silero VAD + SenseVoice pipeline, SAPI output, SDK session bridge, route switching, memory sharing | Approved; revised 2026-10-22 (Jarvis with a keyword spotter, Parakeet and IndicConformer, Ollama Cloud, operator, `open` tool) | 00, 04 | [spike 05](spikes/05-voice-os-triggers-shell.md) |
+| 09 | [Voice agent implementation](2026-10-21-09-voice-agent-implementation.md): Electron app, listener worker, speaker child, command parser, controller, voice profile, tier-1 memory wiring | A1 to A6 and Track B done, A7 partial; feature branch `air/feat/voice-agent` | 08 | — |
 
 Plan 07 superseded: a rewritten plan must cover a Windows installer through upstream's packaging, Linux packaging (which upstream does not have), branding and identifiers ([../BRANDING.md](../BRANDING.md)), the updater, and a first-run setup that creates the model variant.
 

@@ -126,17 +126,21 @@ The Web UI opens on `http://127.0.0.1:3080`. This has not been run on Windows ei
 
 ## 10. Voice agent
 
-The voice agent (`air/apps/voice`) is a Windows-only preview. It captures the microphone, transcribes speech locally with Silero VAD and SenseVoice, and drives a dsh session through the SDK. Replies are spoken by Windows SAPI.
+The voice agent (`air/apps/voice`) is a Windows-only preview. It captures the microphone, spots the wake word "Jarvis" locally with a small keyword model, transcribes the command after it (English: Parakeet; Tamil: IndicConformer), and drives a dsh session through the SDK. Replies are spoken by Windows SAPI.
 
 ### Setup
 
+Run the steps in this order:
+
 ```powershell
 pnpm -C air/apps/voice install
+pnpm -C air/apps/voice exec tsx scripts/fetch-models.ts
+pnpm -C air/apps/voice exec tsx scripts/setup-home.ts
 pnpm -C air/apps/voice build
 pnpm -C air run voice
 ```
 
-The first launch downloads three model files (Silero VAD, SenseVoice, and its tokenizer) into `air\apps\voice\models\`. The voice home is created by `scripts/setup-home.ts` at the same `$DSH_HOME` the desktop app uses. For the cloud routes, add `OPENROUTER_API_KEY=<key>` to that home's `.env` file.
+Models are fetched only by `fetch-models.ts` (about 1 GB) into `%USERPROFILE%\.air\voice-models\<name>\`; the app never downloads them. `setup-home.ts` creates the voice home `%USERPROFILE%\.air\voice-home` (not shared with the desktop app) and the agent workspace `<Documents>\AIR Voice` (OneDrive-redirected Documents works). The agent works in the workspace, so the home's `.env`, memory and profile are outside its sandbox. For the cloud routes, add `OLLAMA_CLOUD_KEY=<key>` (an Ollama account key) to `%USERPROFILE%\.air\voice-home\.env`. Closing an app and locking the screen ask for a spoken "yes" first. Set `AIR_VOICE_DEBUG=1` for extra console output.
 
 ### Windows-specific requirements
 
@@ -151,9 +155,9 @@ The first launch downloads three model files (Silero VAD, SenseVoice, and its to
 |---|---|---|
 | "listening" but no transcript after speaking | Microphone muted, wrong device selected, or permissions denied | Check Windows microphone privacy settings; select the correct input device in Settings > Sound |
 | Speaker says nothing | No SAPI voice installed, or the voice is set to a device with no output | Install a SAPI voice in Windows Speech settings; check the default audio output |
-| "listener unavailable" on start | The worker child crashed twice (native addon mismatch or missing model files) | Delete `air/apps/voice/models/` and relaunch to re-download; confirm Node version matches the addon build |
-| Wake phrase not recognised | SenseVoice returned a spelling not in the wake list | The accepted phrases are "jarvis", "hey jarvis", "ok jarvis", "jervis", "jarvas", "travis", "javis", "jrvis", "jvis"; check the transcript pane for what was heard |
-| Cloud route returns "API key missing" | `OPENROUTER_API_KEY` not in the voice home's `.env` | Add the key to `$DSH_HOME\.env` and relaunch |
+| "listener unavailable" on start | The worker child crashed twice (native addon mismatch or missing model files) | Run `fetch-models.ts` again (it skips models that are intact) and relaunch; confirm Node version matches the addon build |
+| Wake phrase not recognised | The keyword spotter did not fire | Say "Jarvis", "hey Jarvis" or "OK Jarvis" clearly; tune with `AIR_VOICE_KWS_SCORE` and `AIR_VOICE_KWS_THRESHOLD` (see the voice README). `AIR_VOICE_WAKE=text` switches to text matching with looser aliases |
+| Cloud route returns "API key missing" | `OLLAMA_CLOUD_KEY` not in the voice home's `.env` or the environment | Add the key to `%USERPROFILE%\.air\voice-home\.env` and relaunch |
 
 ## 11. Troubleshooting
 

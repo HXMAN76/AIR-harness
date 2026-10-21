@@ -1,6 +1,6 @@
 # AIR-harness Research: Building an Open, Local-First, Verifiable Personal Agent
 
-Date: 2026-09-28. Status: synthesis v1.7, fourteen notes merged; upstream base is now `dsh 0.2.1-rc.2` (section 2b lists what each sync changed). Notes 01–07 were written against `dsh 0.1.6-alpha.2`; where they disagree with section 2b, section 2b wins. Detailed evidence, sources, and file citations live in `research/notes/`:
+Date: 2026-09-28. Status: synthesis v1.7, fourteen notes merged; upstream base is now `dsh 0.2.1-rc.2` (section 2b lists what each sync changed). Update 2026-10-22: on the branch `air/feat/voice-agent`, plan 04 (memory, trimmed) and plans 08 and 09 (voice agent, `open` tool) are executed; see `air/plans/README.md`. Notes 01–07 were written against `dsh 0.1.6-alpha.2`; where they disagree with section 2b, section 2b wins. Detailed evidence, sources, and file citations live in `research/notes/`:
 
 | Note | Topic |
 |---|---|
