@@ -277,13 +277,20 @@ describe('WorkerEngine kws mode', () => {
     expect(sent.some(message => 'type' in message && message.type === 'timeout')).toBe(false)
   })
 
-  it('reports a timeout when the segment decodes to nothing', () => {
-    const { engine, sent, spotter, vad } = rig()
+  it('keeps waiting when a segment is empty or only the rest of the wake word, then sends the command', () => {
+    const { engine, sent, spotter, vad, recognizers } = rig()
     spotter.fired = true
     engine.push(FRAME)
     vad.segments.push({ samples: new Float32Array(160) })
     engine.push(FRAME)
-    expect(sent.at(-1)).toEqual({ type: 'timeout' })
+    recognizers[0]!.text = 'Jarvis.'
+    vad.segments.push({ samples: new Float32Array(160) })
+    engine.push(FRAME)
+    expect(sent.filter(m => m.type === 'timeout' || m.type === 'command')).toEqual([])
+    recognizers[0]!.text = 'Hey Jarvis, open notepad.'
+    vad.segments.push({ samples: new Float32Array(160) })
+    engine.push(FRAME)
+    expect(sent.at(-1)).toMatchObject({ type: 'command', text: 'open notepad.' })
   })
 
   it('finishes a segment in progress when the input ends, and ignores the end while idle', () => {

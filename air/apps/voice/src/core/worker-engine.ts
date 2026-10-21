@@ -259,8 +259,11 @@ export class WorkerEngine {
       const text = this.decode(samples)
       const decodeMs = Math.round(this.now() - started)
       if (this.c.wake === 'kws') {
-        if (text === '') this.c.send({ type: 'timeout' })
-        else this.c.send({ type: 'command', text, lang: this.lang, audioMs, decodeMs })
+        // The spotter fires inside "Jarvis", so the first segment is often the rest of the wake word
+        // or noise; keep waiting for the command until the deadline instead of ending the capture.
+        const command = text.replace(/^\W*((hey|ok)\s+)?jarvis\W*/i, '').trim()
+        if (command === '') continue
+        this.c.send({ type: 'command', text: command, lang: this.lang, audioMs, decodeMs })
         this.endCapture()
         return
       }
