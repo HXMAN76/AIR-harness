@@ -1,5 +1,7 @@
 /** Voice commands the app handles itself, before the agent sees the text. Pure. */
 
+import type { Lang } from './frames.ts'
+
 /** Model route: local Ollama, cloud conversation model, or cloud model with computer use. */
 export type Route = 'local' | 'cloud' | 'screen'
 
@@ -9,9 +11,15 @@ export type VoiceCommand =
   | { kind: 'new-conversation' }
   | { kind: 'cancel' }
   | { kind: 'memory-share'; on: boolean }
+  | { kind: 'language'; lang: Lang }
   | { kind: 'ask'; text: string }
 
 const ROUTE = /^(?:use|switch to|go to)(?: the)? (local|cloud|screen)(?: model| mode)?$|^(screen) mode on$/
+const TAMIL_MODE = /^(?:(?:switch|go) to|use) tamil(?: mode)?$|^tamil mode(?: on)?$/
+const ENGLISH_MODE = /^(?:(?:switch|go) to|use) english(?: mode)?$|^english mode(?: on)?$/
+/** Tamil-script transliterations of "english mode" and "tamil mode", for a command spoken while the Tamil recogniser is active. */
+const ENGLISH_MODE_TA = /^(?:இங்கிலீஷ்|ஆங்கிலம்)(?: மோட்| முறை)?$/u
+const TAMIL_MODE_TA = /^தமிழ்(?: மோட்| முறை)?$/u
 const NEW_CONVERSATION = /^(?:start )?(?:a )?new conversation$/
 const CANCEL = /^(?:cancel(?: that)?|never mind)$/
 const SHARE_ON = /^(?:share memory with(?: the)? cloud|turn on memory sharing)$/
@@ -30,6 +38,8 @@ export function parseVoiceCommand(command: string): VoiceCommand {
   const text = normalise(command)
   const route = ROUTE.exec(text)
   if (route !== null) return { kind: 'route', route: (route[1] ?? route[2]) as Route }
+  if (TAMIL_MODE.test(text) || TAMIL_MODE_TA.test(command.trim())) return { kind: 'language', lang: 'ta' }
+  if (ENGLISH_MODE.test(text) || ENGLISH_MODE_TA.test(command.trim())) return { kind: 'language', lang: 'en' }
   if (NEW_CONVERSATION.test(text)) return { kind: 'new-conversation' }
   if (CANCEL.test(text)) return { kind: 'cancel' }
   if (SHARE_ON.test(text)) return { kind: 'memory-share', on: true }

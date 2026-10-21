@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { NOTHING_TO_SAY, toSpokenText } from '../src/core/speech-text.ts'
+import { NOTHING_TO_SAY, hasTamilScript, toSpokenText } from '../src/core/speech-text.ts'
 
 describe('toSpokenText', () => {
   it('drops Markdown emphasis and replaces a bare URL', () => {
@@ -44,5 +44,12 @@ describe('toSpokenText', () => {
 
   it('leaves ending punctuation alone', () => {
     expect(toSpokenText('Is that all?')).toBe('Is that all?')
+  })
+})
+
+describe('hasTamilScript', () => {
+  it('detects Tamil script and nothing else', () => {
+    expect(hasTamilScript('வணக்கம் friend')).toBe(true)
+    expect(hasTamilScript('Hello, vanakkam')).toBe(false)
   })
 })

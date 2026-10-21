@@ -9,7 +9,7 @@ import { Speaker } from './core/speaker.ts'
 import { AgentBridge } from './core/agent.ts'
 import { VoiceController } from './core/controller.ts'
 import { voiceHome } from './core/home.ts'
-import { modelPaths } from './core/models.ts'
+import { modelRoot } from './core/models.ts'
 
 let mainWindow: BrowserWindow | undefined
 let listener: Listener | undefined
@@ -49,27 +49,31 @@ function createWindow(): void {
 function startVoice(): void {
   const home = voiceHome()
 
-  // Model and runtime files live in the source tree (copied to lib/ by build).
-  const models = modelPaths()
+  const models = modelRoot()
   const sherpaFrom = join(REPO_ROOT, 'packages', 'experimental', 'speech-to-text-sensevoice', 'package.json')
 
   listener = new Listener({
     command: 'node',
-    args: ['--import', 'tsx/esm', join(__dirname, 'listener-worker.ts'), models.model.replace(/[/\\][^/\\]+$/, ''), sherpaFrom],
-    modelDir: models.model.replace(/[/\\][^/\\]+$/, ''), // dirname
-    sherpaFrom,
+    args: [join(__dirname, 'listener-worker.cjs'), models, sherpaFrom, join(__dirname, 'keywords.txt')],
   })
   listener.on('error', (err: Error) => {
     console.error('listener error:', err.message)
   })
-  listener.on('segment', (seg: { text: string }) => {
-    console.log('heard:', seg.text)
+  listener.on('wake', () => {
+    console.log('wake')
+  })
+  listener.on('command', (command: { text: string; lang: string; decodeMs: number }) => {
+    console.log(`heard (${command.lang}, ${command.decodeMs}ms):`, command.text)
+  })
+  listener.on('language', (info: { lang: string; loadMs: number }) => {
+    console.log(`language ${info.lang} (${info.loadMs}ms)`)
   })
   listener.on('ready', (ms: number) => {
     console.log(`listener ready (${ms}ms)`)
   })
 
   speaker = new Speaker(undefined, join(__dirname, 'speaker.ps1'))
+  speaker.warm()
 
   agent = new AgentBridge({
     dshHome: home,

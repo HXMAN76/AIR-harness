@@ -1,8 +1,9 @@
 /** Orchestrates the voice loop: wake → command → agent → speech. */
 import type { EventEmitter } from 'node:events'
-import { matchWake } from './wake.ts'
+import type { Command } from './listener.ts'
+import type { Lang } from './frames.ts'
 import { parseVoiceCommand, rewriteForAgent, type Route } from './commands.ts'
-import { toSpokenText } from './speech-text.ts'
+import { REPLY_ON_SCREEN, hasTamilScript, toSpokenText } from './speech-text.ts'
 import { matchOperatorIntent, runOperatorIntent, type OperatorIntent, type OperatorResult } from './operator.ts'
 
 /** One frame of the voice state machine, pushed to the UI. */
@@ -14,12 +15,15 @@ export interface VoiceState {
   tools?: string[]
   error?: string
   memoryShared: boolean
+  /** Language of the active recogniser. */
+  lang: Lang
 }
 
 /** The part of {@link import('./speaker.ts').Speaker} the controller needs. */
 interface SpeakerLike {
   speak(text: string): Promise<void>
   stop(): void
+  beep(): void
   readonly speaking: boolean
 }
 
@@ -35,10 +39,9 @@ interface AgentLike {
 }
 
 /** The part of {@link import('./listener.ts').Listener} the controller needs. */
-interface ListenerLike extends EventEmitter {}
-
-/** How long the controller waits for a follow-up command after a bare wake phrase. */
-const FOLLOW_UP_WINDOW_MS = 8_000
+interface ListenerLike extends EventEmitter {
+  setLanguage(lang: Lang): void
+}
 
 /** How long a thinking turn may run before the controller says "Still working." */
 const WATCHDOG_MS = 120_000
@@ -54,8 +57,6 @@ export interface VoiceControllerDeps {
   listener: ListenerLike
   speaker: SpeakerLike
   agent: AgentLike
-  /** Wall-clock source; defaults to `Date.now`. Tests inject a fake. */
-  now?: () => number
   /** Runs a matched operator intent; defaults to {@link runOperatorIntent}. Tests inject a fake. */
   runOperator?: (intent: OperatorIntent) => Promise<OperatorResult>
   /** Called on every state change. */
@@ -71,12 +72,11 @@ export class VoiceController {
   private readonly listener: ListenerLike
   private readonly speaker: SpeakerLike
   private readonly agent: AgentLike
-  private readonly now: () => number
   private readonly runOperator: (intent: OperatorIntent) => Promise<OperatorResult>
   private readonly onState: (state: VoiceState) => void
 
   private phase: 'idle' | 'awake' | 'thinking' | 'speaking' = 'idle'
-  private wokeAt = 0
+  private lang: Lang = 'en'
   private busy = false
   private watchdogTimer: ReturnType<typeof setTimeout> | undefined
 
@@ -84,59 +84,52 @@ export class VoiceController {
     this.listener = deps.listener
     this.speaker = deps.speaker
     this.agent = deps.agent
-    this.now = deps.now ?? (() => Date.now())
     this.runOperator = deps.runOperator ?? (intent => runOperatorIntent(intent))
     this.onState = deps.onState
 
-    this.listener.on('segment', (seg: { text: string; durationMs: number }) => {
-      void this.handleSegment(seg)
+    this.listener.on('wake', () => {
+      this.handleWake()
+    })
+    this.listener.on('command', (command: Command) => {
+      void this.handleSpoken(command)
+    })
+    this.listener.on('timeout', () => {
+      if (this.phase === 'awake') {
+        this.phase = 'idle'
+        this.emit()
+      }
     })
 
     this.emit()
   }
 
   /**
-   * Process one speech segment.
-   * Called by the listener's segment handler and exposed for direct testing.
+   * The wake word was heard: cue the user, cut off speech (barge-in), and wait for the command.
+   * A running turn keeps going; only a cancel gets through while it runs.
    */
-  async handleSegment(seg: { text: string }): Promise<void> {
-    const match = matchWake(seg.text)
-    if (!match.wake) {
-      // Not a wake phrase — check if we're in the awake follow-up window
-      if (this.phase === 'awake' && this.now() - this.wokeAt <= FOLLOW_UP_WINDOW_MS) {
-        await this.handleCommand(seg.text)
-      }
-      // Otherwise ignore (mid-sentence or random speech)
-      return
-    }
-
-    // Wake phrase detected
+  handleWake(): void {
+    this.speaker.beep()
     if (this.phase === 'speaking') {
       this.speaker.stop()
       this.clearWatchdog()
-    }
+      this.busy = false
+    } else if (this.phase === 'thinking' || this.busy) return
+    this.phase = 'awake'
+    this.emit()
+  }
 
+  /**
+   * Process the command spoken after a wake.
+   * Called by the listener's command handler and exposed for direct testing.
+   */
+  async handleSpoken(command: { text: string; lang?: Lang }): Promise<void> {
     if (this.phase === 'thinking' || this.busy) {
       // While thinking, only cancel gets through
-      const command = parseVoiceCommand(match.command)
-      if (command.kind === 'cancel') {
-        await this.handleCancel()
-      } else if (match.command !== '') {
-        await this.speak("I'm still on the last one.")
-      }
+      if (parseVoiceCommand(command.text).kind === 'cancel') await this.handleCancel()
+      else await this.speak("I'm still on the last one.")
       return
     }
-
-    if (match.command === '') {
-      // Bare wake — go awake and wait for the command
-      this.phase = 'awake'
-      this.wokeAt = this.now()
-      this.emit()
-      return
-    }
-
-    // Wake with command — handle it
-    await this.handleCommand(match.command)
+    await this.handleCommand(command.text, command.lang ?? this.lang)
   }
 
   /**
@@ -157,7 +150,7 @@ export class VoiceController {
     this.emit()
   }
 
-  private async handleCommand(text: string): Promise<void> {
+  private async handleCommand(text: string, lang: Lang): Promise<void> {
     const command = parseVoiceCommand(text)
     switch (command.kind) {
       case 'route':
@@ -171,13 +164,17 @@ export class VoiceController {
       case 'cancel':
         await this.handleCancel()
         break
+      case 'language':
+        await this.handleLanguage(command.lang)
+        break
       case 'memory-share':
         await this.agent.setMemoryShare(command.on)
         this.phase = 'idle'
         this.emit()
         break
       case 'ask': {
-        const intent = matchOperatorIntent(command.text)
+        // The operator's patterns are English; Tamil goes to the agent.
+        const intent = lang === 'en' ? matchOperatorIntent(command.text) : null
         if (intent === null) await this.handleAsk(command.text)
         else await this.handleOperator(command.text, intent)
         break
@@ -199,6 +196,14 @@ export class VoiceController {
       screen: 'Screen mode on.',
     }
     await this.speak(messages[route])
+    this.phase = 'idle'
+    this.emit()
+  }
+
+  private async handleLanguage(lang: Lang): Promise<void> {
+    this.lang = lang
+    this.listener.setLanguage(lang)
+    await this.speak(lang === 'ta' ? 'Tamil mode.' : 'English mode.')
     this.phase = 'idle'
     this.emit()
   }
@@ -228,7 +233,7 @@ export class VoiceController {
       await this.speak(OPERATOR_FAILED)
     } finally {
       this.busy = false
-      if (this.phase !== 'idle') {
+      if (this.phase === 'speaking') {
         this.phase = 'idle'
         this.emit()
       }
@@ -246,7 +251,7 @@ export class VoiceController {
       const result = await this.agent.ask(rewriteForAgent(text))
       this.clearWatchdog()
 
-      const spoken = toSpokenText(result.reply)
+      const spoken = hasTamilScript(result.reply) ? REPLY_ON_SCREEN : toSpokenText(result.reply)
       this.phase = 'speaking'
       this.emit({ transcript: text, reply: result.reply, tools: result.tools })
 
@@ -259,7 +264,7 @@ export class VoiceController {
       await this.speak(message)
     } finally {
       this.busy = false
-      if (this.phase !== 'idle') {
+      if (this.phase === 'speaking') {
         this.phase = 'idle'
         this.emit()
       }
@@ -293,6 +298,7 @@ export class VoiceController {
       phase: this.phase,
       route: this.agent.route,
       memoryShared: this.agent.memoryShared,
+      lang: this.lang,
       ...extra,
     }
     this.onState(state)

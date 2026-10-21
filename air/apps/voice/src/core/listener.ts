@@ -1,15 +1,20 @@
-/** Parent side of the speech listener: streams microphone frames to the VAD + SenseVoice worker and reads its segments. */
+/** Parent side of the speech listener: streams microphone frames to the worker (keyword spotter, VAD, recognisers) and reads its events. */
 import { EventEmitter } from 'node:events'
-import { dirname, join } from 'node:path'
+import { join } from 'node:path'
 import { nodeSpawn } from '../node-spawn.ts'
 import { ignoreStdinErrors, lineReader, type ChildLike, type SpawnLike } from './child.ts'
-import { modelPaths } from './models.ts'
+import { audioFrame, controlFrame, type Lang, type WorkerMessage } from './frames.ts'
+import { modelRoot } from './models.ts'
 import { SENSEVOICE_PACKAGE_JSON, VOICE_APP_ROOT } from './paths.ts'
 
-/** One transcribed speech segment. */
-export interface Segment {
+/** A command the user spoke after the wake word. */
+export interface Command {
   text: string
-  durationMs: number
+  lang: Lang
+  /** Length of the speech, ms. */
+  audioMs: number
+  /** Time the recogniser took, ms. */
+  decodeMs: number
 }
 
 /** How to start the worker. Defaults run `node src/listener-worker.ts` from this checkout. */
@@ -17,33 +22,46 @@ export interface ListenerOptions {
   spawnFn?: SpawnLike
   /** Node executable; the worker loads a native addon built for Node, not Electron. */
   command?: string
-  /** Full argument list passed to the command. Overrides workerPath, modelDir, sherpaFrom when set. */
+  /** Full argument list passed to the command. Overrides workerPath, modelsRoot, sherpaFrom, keywordsFile when set. */
   args?: string[]
   workerPath?: string
-  /** Directory holding the three model files. */
-  modelDir?: string
+  /** Directory holding the model folders (`kws`, `asr-en`, `asr-ta`, `vad`). */
+  modelsRoot?: string
   /** `package.json` that `sherpa-onnx-node` is resolved from. */
   sherpaFrom?: string
+  /** BPE keyword file for the wake words. */
+  keywordsFile?: string
 }
 
 /** A worker that exited this many times is not started again. */
 const MAX_STARTS = 2
 
-function isSegment(value: unknown): value is Segment {
-  if (typeof value !== 'object' || value === null) return false
-  const record = value as Record<string, unknown>
-  return typeof record.text === 'string' && typeof record.durationMs === 'number'
+function isLang(value: unknown): value is Lang {
+  return value === 'en' || value === 'ta'
 }
 
-function isReady(value: unknown): value is { ready: true; loadMs: number } {
-  if (typeof value !== 'object' || value === null) return false
-  const record = value as Record<string, unknown>
-  return record.ready === true && typeof record.loadMs === 'number'
+function isNumber(value: unknown): value is number {
+  return typeof value === 'number'
+}
+
+/** Narrow a parsed line to a {@link WorkerMessage}; undefined when it is none. */
+function toMessage(value: unknown): WorkerMessage | undefined {
+  if (typeof value !== 'object' || value === null) return undefined
+  const r = value as Record<string, unknown>
+  if (r.ready === true && isNumber(r.loadMs)) return { ready: true, loadMs: r.loadMs }
+  if (r.type === 'wake' || r.type === 'timeout') return { type: r.type }
+  if (r.type === 'command' && typeof r.text === 'string' && isLang(r.lang) && isNumber(r.audioMs) && isNumber(r.decodeMs)) {
+    return { type: 'command', text: r.text, lang: r.lang, audioMs: r.audioMs, decodeMs: r.decodeMs }
+  }
+  if (r.type === 'language' && isLang(r.lang) && isNumber(r.loadMs)) return { type: 'language', lang: r.lang, loadMs: r.loadMs }
+  if (r.type === 'error' && typeof r.message === 'string') return { type: 'error', message: r.message }
+  return undefined
 }
 
 /**
- * Emits `'segment'` ({@link Segment}), `'ready'` (model load time in ms), and `'error'` (Error).
- * Protocol: raw Float32 little-endian 16 kHz mono samples on the worker's stdin; one JSON object per line on its stdout.
+ * Emits `'wake'`, `'command'` ({@link Command}), `'timeout'` (no speech after a wake), `'language'` ({ lang, loadMs }),
+ * `'ready'` (model load time in ms), and `'error'` (Error).
+ * Protocol: frames on the worker's stdin (audio and control, see `frames.ts`); one JSON object per line on its stdout.
  */
 export class Listener extends EventEmitter {
   private readonly spawnFn: SpawnLike
@@ -51,6 +69,7 @@ export class Listener extends EventEmitter {
   private readonly args: string[]
   private child: ChildLike | undefined
   private starts = 0
+  private lang: Lang = 'en'
 
   /** @param options - worker launch options. */
   constructor(options: ListenerOptions = {}) {
@@ -59,8 +78,9 @@ export class Listener extends EventEmitter {
     this.command = options.command ?? 'node'
     this.args = options.args ?? [
       options.workerPath ?? join(VOICE_APP_ROOT, 'src', 'listener-worker.ts'),
-      options.modelDir ?? dirname(modelPaths().model),
+      options.modelsRoot ?? modelRoot(),
       options.sherpaFrom ?? SENSEVOICE_PACKAGE_JSON,
+      options.keywordsFile ?? join(VOICE_APP_ROOT, 'src', 'keywords.txt'),
     ]
   }
 
@@ -74,6 +94,7 @@ export class Listener extends EventEmitter {
     child.stdout.on('data', lineReader((line) => {
       this.onLine(line)
     }))
+    if (this.lang !== 'en') child.stdin.write(controlFrame({ type: 'language', lang: this.lang }))
     let gone = false
     const onGone = (): void => {
       if (gone) return
@@ -93,7 +114,16 @@ export class Listener extends EventEmitter {
    * @param frame - 16 kHz mono samples.
    */
   push(frame: Float32Array): void {
-    this.child?.stdin.write(Buffer.from(frame.buffer, frame.byteOffset, frame.byteLength))
+    this.child?.stdin.write(audioFrame(frame))
+  }
+
+  /**
+   * Choose the language the worker decodes the next commands in; the worker loads its model on first use and answers with `'language'`.
+   * @param lang - `en` or `ta`.
+   */
+  setLanguage(lang: Lang): void {
+    this.lang = lang
+    this.child?.stdin.write(controlFrame({ type: 'language', lang }))
   }
 
   /** Stop the worker; no restart follows. */
@@ -119,8 +149,16 @@ export class Listener extends EventEmitter {
     } catch {
       value = undefined
     }
-    if (isSegment(value)) this.emit('segment', { text: value.text, durationMs: value.durationMs })
-    else if (isReady(value)) this.emit('ready', value.loadMs)
-    else this.emit('error', new Error('listener sent a malformed line'))
+    const message = toMessage(value)
+    if (message === undefined) {
+      this.emit('error', new Error('listener sent a malformed line'))
+      return
+    }
+    if ('ready' in message) this.emit('ready', message.loadMs)
+    else if (message.type === 'wake') this.emit('wake')
+    else if (message.type === 'timeout') this.emit('timeout')
+    else if (message.type === 'command') this.emit('command', { text: message.text, lang: message.lang, audioMs: message.audioMs, decodeMs: message.decodeMs } satisfies Command)
+    else if (message.type === 'language') this.emit('language', { lang: message.lang, loadMs: message.loadMs })
+    else this.emit('error', new Error(message.message))
   }
 }

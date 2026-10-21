@@ -15,7 +15,7 @@ interface Pending {
 }
 
 /**
- * Line protocol to the child: `SAY <base64 UTF-8>` queues an utterance, `STOP` cancels all;
+ * Line protocol to the child: `SAY <base64 UTF-8>` queues an utterance, `STOP` cancels all, `BEEP` plays a beep;
  * the child writes `DONE` once per utterance when it finishes or is cancelled.
  */
 export class Speaker {
@@ -50,6 +50,16 @@ export class Speaker {
       this.pending.push({ resolve, reject })
       child.stdin.write(`SAY ${Buffer.from(text, 'utf8').toString('base64')}\n`)
     })
+  }
+
+  /** Start the child now so the first beep or utterance does not wait for PowerShell to load. */
+  warm(): void {
+    this.ensureChild()
+  }
+
+  /** Play a short beep (the wake cue) without queueing; ignored when the child cannot start. */
+  beep(): void {
+    this.ensureChild()?.stdin.write('BEEP\n')
   }
 
   /** Cancel all queued and playing speech; pending `speak` calls resolve now. */

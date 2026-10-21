@@ -71,6 +71,27 @@ describe('Speaker', () => {
     await next
   })
 
+  it('warm() starts the child; beep() writes BEEP without queueing speech', () => {
+    const fake = fakeSpawn()
+    const speaker = new Speaker(fake.spawn)
+    speaker.warm()
+    speaker.beep()
+    expect(fake.children).toHaveLength(1)
+    expect(fake.children[0]!.text).toBe('BEEP\n')
+    expect(speaker.speaking).toBe(false)
+  })
+
+  it('beep() is ignored once the child cannot start', () => {
+    const fake = fakeSpawn()
+    const speaker = new Speaker(fake.spawn)
+    speaker.warm()
+    fake.children[0]!.exit(1)
+    speaker.warm()
+    fake.children[1]!.exit(1)
+    speaker.beep()
+    expect(fake.children).toHaveLength(2)
+  })
+
   it('stop() with nothing to say writes nothing', () => {
     const fake = fakeSpawn()
     const speaker = new Speaker(fake.spawn)

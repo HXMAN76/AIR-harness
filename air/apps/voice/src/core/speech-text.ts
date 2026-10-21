@@ -1,5 +1,8 @@
 /** Turns an agent reply into text that sounds right when spoken. Pure. */
 
+/** Spoken instead of a reply in Tamil script, which no installed SAPI voice can read. */
+export const REPLY_ON_SCREEN = 'Reply is on screen.'
+
 /** Spoken when nothing speakable is left after cleaning. */
 export const NOTHING_TO_SAY = 'Done. The details are on screen.'
 
@@ -72,4 +75,12 @@ export function toSpokenText(reply: string): string {
   if (!/[\p{L}\p{N}]/u.test(text)) return NOTHING_TO_SAY
   if (text.split(' ').length <= MAX_SPOKEN_WORDS) return text
   return Array.from(text.matchAll(/[^.!?]+[.!?]+/g), match => match[0].trim()).slice(0, 2).join(' ')
+}
+
+/**
+ * @param text - a reply.
+ * @returns whether it contains Tamil script (U+0B80 to U+0BFF).
+ */
+export function hasTamilScript(text: string): boolean {
+  return /[஀-௿]/u.test(text)
 }

@@ -57,6 +57,7 @@
       pwsh tool for other local tasks and say what you did. To type text into a new file, write it with
       Set-Content then open it. To remember something for the user, call the memory_write tool
       with type user; to recall, call memory_search. Never say you remembered without calling memory_write.
+      Reply in the language the user spoke (English or Tamil).
 
 # Nobody can answer an approval prompt by voice: requests that need one are rejected instead of waiting.
 - id: approval

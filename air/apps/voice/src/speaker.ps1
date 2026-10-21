@@ -1,6 +1,7 @@
 # Voice speaker child for @air/voice. Reads lines on stdin:
 #   SAY <base64 UTF-8 text>   queue one utterance
 #   STOP                      cancel everything queued or playing
+#   BEEP                      play a short beep (the wake cue)
 # Writes DONE on stdout once per utterance when it finishes or is cancelled.
 # Exits when stdin closes.
 $ErrorActionPreference = 'Stop'
@@ -30,6 +31,8 @@ while ($true) {
       $prompts.Add($synth.SpeakAsync($text))
     } elseif ($line -eq 'STOP') {
       $synth.SpeakAsyncCancelAll()
+    } elseif ($line -eq 'BEEP') {
+      [console]::Beep(880,120)
     }
     $read = $stdin.ReadLineAsync()
   }

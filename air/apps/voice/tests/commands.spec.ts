@@ -44,3 +44,17 @@ describe('rewriteForAgent', () => {
     expect(rewriteForAgent(text)).toBe(text)
   })
 })
+
+describe('language commands', () => {
+  it.each(['tamil mode', 'Switch to Tamil.', 'use tamil mode', 'go to Tamil', 'தமிழ்', 'தமிழ் மோட்'])('%j switches to Tamil', (text) => {
+    expect(parseVoiceCommand(text)).toEqual({ kind: 'language', lang: 'ta' })
+  })
+
+  it.each(['english mode', 'Switch to English.', 'use english', 'இங்கிலீஷ் மோட்', 'ஆங்கிலம்'])('%j switches to English', (text) => {
+    expect(parseVoiceCommand(text)).toEqual({ kind: 'language', lang: 'en' })
+  })
+
+  it('leaves other Tamil and English text for the agent', () => {
+    expect(parseVoiceCommand('tamil movies near me')).toEqual({ kind: 'ask', text: 'tamil movies near me' })
+  })
+})
