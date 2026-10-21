@@ -454,6 +454,28 @@ describe('VoiceController', () => {
     expect(speaker.spoken).toContain('Using the cloud model.')
   })
 
+  it('ignores setRoute while thinking', async () => {
+    const { controller, agent, speaker } = await makeController(clock)
+
+    let resolveAsk: (() => void) | undefined
+    agent.askDelay = () => new Promise<void>((r) => { resolveAsk = r })
+
+    // Start an ask so the controller enters 'thinking'
+    const askPromise = controller.handleSegment({ text: 'Jarvis what time is it' })
+    await vi.advanceTimersByTimeAsync(10)
+
+    // Try to change route while thinking
+    await controller.setRoute('cloud')
+
+    // Route should not have changed
+    expect(agent.routeChanges).not.toContain('cloud')
+    expect(speaker.spoken).not.toContain('Using the cloud model.')
+
+    // Finish the ask
+    resolveAsk?.()
+    await askPromise
+  })
+
   it('toggles memory share via setMemoryShare (UI click path)', async () => {
     const { controller, agent, states } = await makeController(clock)
 

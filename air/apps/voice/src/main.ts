@@ -5,7 +5,6 @@ import { Listener } from './core/listener.ts'
 import { Speaker } from './core/speaker.ts'
 import { AgentBridge } from './core/agent.ts'
 import { VoiceController } from './core/controller.ts'
-import type { Route } from './core/commands.ts'
 import { voiceHome } from './core/home.ts'
 
 let mainWindow: BrowserWindow | undefined
@@ -66,7 +65,8 @@ function setupIpc(): void {
     }
   })
 
-  ipcMain.on('setRoute', (_event, route: Route) => {
+  ipcMain.on('setRoute', (_event, route: unknown) => {
+    if (route !== 'local' && route !== 'cloud' && route !== 'screen') return
     void controller?.setRoute(route)
   })
 

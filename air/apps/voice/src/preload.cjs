@@ -3,19 +3,19 @@ const { contextBridge, ipcRenderer } = require('electron')
 
 contextBridge.exposeInMainWorld('voiceAPI', {
   /** Send audio frames to the main process. */
-  sendFrames: (buffers: ArrayBuffer[]) => {
+  sendFrames: (buffers) => {
     ipcRenderer.send('frames', buffers)
   },
   /** Listen for state updates from the main process. */
-  onState: (callback: (state: unknown) => void) => {
-    ipcRenderer.on('state', (_event: Electron.IpcRendererEvent, state: unknown) => callback(state))
+  onState: (callback) => {
+    ipcRenderer.on('state', (_event, state) => callback(state))
   },
   /** Request a route change (local | cloud | screen). */
-  setRoute: (route: string) => {
+  setRoute: (route) => {
     ipcRenderer.send('setRoute', route)
   },
   /** Request a memory-share toggle change. */
-  setMemoryShare: (on: boolean) => {
+  setMemoryShare: (on) => {
     ipcRenderer.send('setMemoryShare', on)
   },
 })

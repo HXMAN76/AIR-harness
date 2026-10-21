@@ -131,8 +131,10 @@ export class VoiceController {
   /**
    * Switch the active route from a UI click (not voice).
    * Speaks the confirmation and returns to idle.
+   * Ignored while the agent is mid-turn (thinking).
    */
   async setRoute(route: Route): Promise<void> {
+    if (this.phase === 'thinking') return
     await this.handleRoute(route)
   }
 
