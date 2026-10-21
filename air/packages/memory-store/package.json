@@ -1,0 +1,48 @@
+{
+  "name": "@air/dsh-memory-store",
+  "description": "AIR memory files: Markdown with frontmatter in a git repository",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "main": "lib/index.js",
+  "types": "lib/types/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/types/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib/index.js",
+    "lib/types/**/*.d.ts"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json && tsdown",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@deepseek-ai/schemastery": "link:../../../vendor/schemastery",
+    "yaml": "^2.9.0",
+    "zod": "4.4.3"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.4",
+    "@deepseek-ai/dsh-agent-default-model": "^0.2.0-rc.1 || ^0.2.1-alpha.1",
+    "@deepseek-ai/dsh-atomic-write": "^0.2.0-rc.1 || ^0.2.1-alpha.1",
+    "@deepseek-ai/dsh-brand": "^0.2.0-rc.1 || ^0.2.1-alpha.1",
+    "@deepseek-ai/dsh-home-paths": "^0.2.0-rc.1 || ^0.2.1-alpha.1",
+    "@deepseek-ai/dsh-subprocess": "^0.2.0-rc.1 || ^0.2.1-alpha.1"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "link:../../../vendor/cordis",
+    "@deepseek-ai/dsh-agent-default-model": "link:../../../packages/core/agent-default-model",
+    "@deepseek-ai/dsh-atomic-write": "link:../../../packages/util/atomic-write",
+    "@deepseek-ai/dsh-brand": "link:../../../packages/util/brand",
+    "@deepseek-ai/dsh-home-paths": "link:../../../packages/util/home-paths",
+    "@deepseek-ai/dsh-subprocess": "link:../../../packages/subprocess/subprocess",
+    "@deepseek-ai/dsh-subprocess-local": "link:../../../packages/subprocess/subprocess-local"
+  }
+}

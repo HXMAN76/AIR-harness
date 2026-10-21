@@ -11,7 +11,7 @@ This page is the entry point for a new teammate. It says what the project is, wh
 5. Working: project files from other agents (`.claude` folders, `.mcp.json`) are read unchanged, project MCP servers are pinned and reviewed, two presets switch by model size, and compaction keeps a chronological log.
 6. Checked: on Fedora, by hand, in the desktop app ([CHECKS.md](CHECKS.md)).
 7. Not checked: on native Windows only setup and a first prompt in the desktop app were run by hand (2026-10-20); feature checks there are not done, and there is no installer on any OS.
-8. Written but not executed: plans 03 (permissions), 04 (memory), 05 and 06 (evaluation). Plan 07 (desktop shell) is superseded and needs a rewrite ([plans/README.md](plans/README.md)).
+8. Executed on the voice branch: plan 04 (memory, trimmed) and plans 08 and 09 (voice agent, `open` tool, `apps/voice`). Written but not executed: plans 03 (permissions), 05 and 06 (evaluation). Plan 07 (desktop shell) is superseded and needs a rewrite ([plans/README.md](plans/README.md)).
 9. The status table in [README.md](README.md#status) is the short version.
 10. Nothing important lives only in one person's chat history; the repository is the record.
 

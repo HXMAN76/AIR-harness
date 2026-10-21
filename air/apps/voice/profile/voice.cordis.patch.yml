@@ -1,0 +1,165 @@
+# Voice profile: a per-launch patch on upstream's `sdk` profile, passed by the voice app's agent bridge.
+# Routes: local Ollama (default) and Ollama Cloud (https://ollama.com/v1, bearer key) for the cloud and screen routes.
+# Put `OLLAMA_API_KEY=ollama` in the voice home's .env (scripts/setup-home.ts does) and, for the cloud,
+# `OLLAMA_CLOUD_KEY` (the agent bridge passes it as OLLAMA_API_KEY to cloud launches only). The tool set is kept lean to save prompt tokens on the local model:
+# the base file and working-directory tools, pwsh, web fetch, open, and memory. The browser (Playwright, about 3,700 prompt
+# tokens of tool definitions) is only in screen.cordis.patch.yml; the local operator already opens sites and searches.
+
+# The Ollama route, as in air/examples/ollama.profile.cordis.patch.yml (see that file for the reasons).
+# Ollama Cloud serves the same OpenAI-compatible API at ollama.com with an account key; model ids are the names
+# from https://ollama.com/api/tags (no :cloud suffix).
+- id: llm-pi-ai
+  config:
+    providers:
+      ollama:
+        displayName: Ollama (local)
+        apiKeyEnv: OLLAMA_API_KEY
+        reasoning: 'off'
+        api: openai-completions
+        baseURL: http://127.0.0.1:11434/v1
+        compat:
+          supportsDeveloperRole: false
+          maxTokensField: max_tokens
+        models:
+          - id: qwen3-8b-32k
+            contextWindow: 32768
+            maxTokens: 4096
+            compat:
+              supportsReasoningEffort: true
+            reasoningEfforts:
+              'off': none
+              medium: medium
+      ollama-cloud:
+        displayName: Ollama Cloud
+        apiKeyEnv: OLLAMA_API_KEY
+        reasoning: 'off'
+        api: openai-completions
+        baseURL: https://ollama.com/v1
+        compat:
+          supportsDeveloperRole: false
+          maxTokensField: max_tokens
+        models:
+          - id: minimax-m3.1-flash
+            contextWindow: 131072
+            maxTokens: 4096
+
+- id: agent-default-model
+  config:
+    provider: ollama
+    model: qwen3-8b-32k
+
+# The voice persona replaces the SDK's coding-agent persona.
+- id: system-prompt
+  config:
+    personaPrefix: >-
+      You are AIR, a voice assistant on the user's Windows PC. Answer in one to three short spoken
+      sentences without Markdown. To open an app, a website, or a web search use the open tool. Use the
+      pwsh tool for other local tasks and say what you did. To type text into a new file, write it with
+      Set-Content then open it. To remember something for the user, call the memory_write tool
+      with type user; to recall, call memory_search. Never say you remembered without calling memory_write.
+      Reply in the language the user spoke (English or Tamil).
+
+# Nobody can answer an approval prompt by voice: requests that need one are rejected instead of waiting.
+- id: approval
+  config:
+    policy: never
+
+# The upstream preset table has no entry for workspace-write with approval never, so the permission service
+# refused to start ("match no preset"). Define it and make it the default for new sessions.
+- id: permission
+  config:
+    presets:
+      read-only:
+        sandbox: read-only
+        approval: ask
+      workspace-write:
+        sandbox: workspace-write
+        approval: ask
+      danger-full-access:
+        sandbox: danger-full-access
+        approval: never
+      voice:
+        sandbox: workspace-write
+        approval: never
+    defaultPreset: voice
+
+# Rows that send data to DeepSeek services or depend on a DeepSeek account (as in air/bundles/air-headless).
+- id: session-log-deepseek
+  disabled: true
+- id: plugin-package-inventory-deepseek
+  disabled: true
+- id: session-telemetry-otel
+  disabled: true
+- id: deepseek-account
+  disabled: true
+- id: llm-deepseek-account
+  disabled: true
+- id: web-search-deepseek
+  disabled: true
+- id: web-deepseek-api
+  disabled: true
+
+# Web: fetch only; searches go through the operator or the open tool.
+- id: tool-web
+  config:
+    search: false
+    fetch: true
+
+# Token economy: no skills catalog, no subagent, schedule, goal, workflow, or todo tools.
+- id: skill
+  disabled: true
+- id: skill-filesystem
+  disabled: true
+- id: tool-skill
+  disabled: true
+- id: goal
+  disabled: true
+- id: goal-round-driver
+  disabled: true
+- id: command-goal
+  disabled: true
+- id: tool-goal
+  disabled: true
+- id: subagent
+  disabled: true
+- id: subagent-spawn-in-process
+  disabled: true
+- id: subagent-fork-in-process
+  disabled: true
+- id: tool-subagent-control
+  disabled: true
+- id: tool-subagent-list-agents
+  disabled: true
+- id: tool-subagent
+  disabled: true
+- id: tool-subagent-fork
+  disabled: true
+- id: ptc-runtime
+  disabled: true
+- id: workflow-ptc
+  disabled: true
+- id: tool-workflow
+  disabled: true
+- id: tool-todo
+  disabled: true
+
+# Rows loaded on every route: the open tool and memory.
+- insert:
+    # AIR memory, tier 1 (FTS5 only). The voice agent remembers notes for the
+    # local Ollama route by default; toggle memory-share in the UI or via the
+    # voice command to also share with the cloud route (see memory-share.cordis.patch.yml).
+    - id: air-memory-store
+      name: '@air/dsh-memory-store'
+      config:
+        shareWith:
+          - ollama
+    - id: air-memory-index
+      name: '@air/dsh-memory-index'
+    # The model-facing side: memory_search, memory_read, memory_write, memory_forget, and the pinned core.
+    - id: air-tool-memory
+      name: '@air/dsh-tool-memory'
+    - id: air-memory-context
+      name: '@air/dsh-memory-context'
+    # Opens whitelisted apps, sites, and searches so the small model need not write PowerShell for them.
+    - id: air-tool-open
+      name: '@air/dsh-tool-open'

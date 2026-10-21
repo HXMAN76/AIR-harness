@@ -1,0 +1,142 @@
+/** The voice runtime home and workspace, and the one-time setup of the home's `.env`. */
+import { execFileSync } from 'node:child_process'
+import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { homedir } from 'node:os'
+import { isAbsolute, join, relative, resolve } from 'node:path'
+
+/** Name of the cloud key. AIR code checks only whether it is set; the value is never read into a variable. */
+export const CLOUD_KEY_ENV = 'OLLAMA_CLOUD_KEY'
+
+/**
+ * @param home - user home directory.
+ * @returns `<home>/.air/voice-home`, the `DSH_HOME` of the voice runtime.
+ */
+export function voiceHome(home: string = homedir()): string {
+  return join(home, '.air', 'voice-home')
+}
+
+/**
+ * The user's Documents folder, which OneDrive may have moved. Asks Windows once (`MyDocuments`);
+ * falls back to `<USERPROFILE>/Documents` when that fails or answers with a relative path.
+ * @param options - `ask` returns the Documents path (default: one PowerShell call); `profile` is the user profile directory.
+ * @returns an absolute directory path.
+ */
+export function documentsDir(options: { ask?: () => string; profile?: string } = {}): string {
+  const profile = options.profile ?? process.env.USERPROFILE ?? homedir()
+  const ask = options.ask ?? (() => execFileSync(
+    'powershell.exe',
+    ['-NoProfile', '-NonInteractive', '-Command', "[Environment]::GetFolderPath('MyDocuments')"],
+    { encoding: 'utf8', timeout: 10_000, windowsHide: true },
+  ))
+  try {
+    const answer = ask().trim()
+    if (answer !== '' && isAbsolute(answer)) return answer
+  } catch {
+    // Not Windows, or PowerShell is unavailable: use the profile fallback.
+  }
+  return join(profile, 'Documents')
+}
+
+/**
+ * The agent's working directory. The Windows sandbox cannot grant ACLs outside the user profile on some drives,
+ * so it lives in Documents, away from the voice home that holds the key, memory, and profile.
+ * @param documents - the Documents folder; defaults to {@link documentsDir}.
+ * @returns `<Documents>/AIR Voice`.
+ */
+export function voiceWorkspace(documents: string = documentsDir()): string {
+  return join(documents, 'AIR Voice')
+}
+
+/**
+ * Refuse a workspace that would put the voice home inside the agent's write scope.
+ * @param workspace - the agent's working directory.
+ * @param home - the voice home.
+ * @throws when the workspace is the home, lies under it, or contains it.
+ */
+export function assertWorkspaceOutsideHome(workspace: string, home: string): void {
+  const inside = (outer: string, inner: string): boolean => {
+    const path = relative(resolve(outer).toLowerCase(), resolve(inner).toLowerCase())
+    return path === '' || (!path.startsWith('..') && !isAbsolute(path))
+  }
+  if (inside(home, workspace) || inside(workspace, home)) {
+    throw new Error(`The workspace ${workspace} must not contain or lie inside the voice home ${home}.`)
+  }
+}
+
+/**
+ * Whether a dotenv text assigns a non-empty value to `name` (commented lines do not count).
+ * @param text - dotenv file contents.
+ * @param name - variable name.
+ * @returns presence only.
+ */
+export function envTextAssigns(text: string, name: string): boolean {
+  const pattern = new RegExp(`^\\s*${name}\\s*=\\s*['"]?[^\\s'"#]`)
+  return text.split(/\r?\n/).some(line => pattern.test(line))
+}
+
+/**
+ * @param env - environment to check.
+ * @param dshHome - runtime home whose `.env` may hold the key.
+ * @returns whether `OLLAMA_CLOUD_KEY` is set in either place.
+ */
+export function cloudKeyPresent(env: Record<string, string | undefined>, dshHome: string): boolean {
+  const value = env[CLOUD_KEY_ENV]
+  if (value !== undefined && value !== '') return true
+  const file = join(dshHome, '.env')
+  return existsSync(file) && envTextAssigns(readFileSync(file, 'utf8'), CLOUD_KEY_ENV)
+}
+
+/**
+ * @param env - environment to check first.
+ * @param dshHome - runtime home whose `.env` is the fallback.
+ * @returns the cloud key value for passing to a launch (never log it), or undefined when unset.
+ */
+export function cloudKeyValue(env: Record<string, string | undefined>, dshHome: string): string | undefined {
+  const fromEnv = env[CLOUD_KEY_ENV]
+  if (fromEnv !== undefined && fromEnv !== '') return fromEnv
+  const file = join(dshHome, '.env')
+  if (!existsSync(file)) return undefined
+  const match = new RegExp(`^[ \\t]*${CLOUD_KEY_ENV}[ \\t]*=[ \\t]*['"]?([^\\s'"#]+)`, 'm').exec(readFileSync(file, 'utf8'))
+  return match?.[1]
+}
+
+/** What {@link prepareVoiceHome} did. */
+export interface VoiceHomeReport {
+  home: string
+  workspace: string
+  envUpdated: boolean
+  backup: string | undefined
+  cloudKey: boolean
+}
+
+/**
+ * Create the home and workspace and add `OLLAMA_API_KEY=ollama` to `<home>/.env` when absent.
+ * A changed file is first copied to `<name>.bak-<timestamp>`.
+ * @param options - locations, environment, and clock.
+ * @returns what was done and whether the cloud key is present.
+ */
+export function prepareVoiceHome(options: {
+  home: string
+  workspace: string
+  env?: Record<string, string | undefined>
+  now?: () => number
+}): VoiceHomeReport {
+  const { home, workspace } = options
+  const now = options.now ?? Date.now
+  mkdirSync(home, { recursive: true })
+  mkdirSync(workspace, { recursive: true })
+  const file = join(home, '.env')
+  const before = existsSync(file) ? readFileSync(file, 'utf8') : undefined
+  let envUpdated = false
+  let backup: string | undefined
+  if (before === undefined || !envTextAssigns(before, 'OLLAMA_API_KEY')) {
+    if (before !== undefined) {
+      backup = `${file}.bak-${now()}`
+      copyFileSync(file, backup)
+    }
+    const prefix = before === undefined ? '' : before.replace(/\n?$/, '\n')
+    writeFileSync(file, `${prefix}OLLAMA_API_KEY=ollama\n`)
+    envUpdated = true
+  }
+  return { home, workspace, envUpdated, backup, cloudKey: cloudKeyPresent(options.env ?? process.env, home) }
+}

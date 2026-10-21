@@ -1,0 +1,44 @@
+{
+  "name": "@air/dsh-tool-open",
+  "description": "AIR open tool (apps, sites, searches from a whitelist) and the whitelist the voice app shares",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "main": "lib/index.js",
+  "types": "lib/types/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/types/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./whitelist": "./src/whitelist.ts",
+    "./exec": "./src/exec.ts",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib/index.js",
+    "lib/types/**/*.d.ts",
+    "src/whitelist.ts",
+    "src/exec.ts"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json && tsdown",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run --coverage"
+  },
+  "dependencies": {
+    "@deepseek-ai/schemastery": "link:../../../vendor/schemastery"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.4",
+    "@deepseek-ai/dsh-tools": "^0.2.0-rc.1 || ^0.2.1-alpha.1"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "link:../../../vendor/cordis",
+    "@deepseek-ai/dsh-llm": "link:../../../packages/llm/llm",
+    "@deepseek-ai/dsh-subprocess-local": "link:../../../packages/subprocess/subprocess-local",
+    "@deepseek-ai/dsh-system-prompt": "link:../../../packages/core/system-prompt",
+    "@deepseek-ai/dsh-tools": "link:../../../packages/core/tools"
+  }
+}
