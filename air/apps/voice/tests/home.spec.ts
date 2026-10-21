@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, 
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { prepareVoiceHome, voiceHome, voiceWorkspace } from '../src/core/home.ts'
+import { cloudKeyValue, prepareVoiceHome, voiceHome, voiceWorkspace } from '../src/core/home.ts'
 
 const dirs: string[] = []
 afterEach(() => {
@@ -36,11 +36,11 @@ describe('prepareVoiceHome', () => {
 
   it('appends to an existing .env after backing it up, and leaves it alone the next time', () => {
     const home = temp()
-    writeFileSync(join(home, '.env'), 'OPENROUTER_API_KEY=test-value')
+    writeFileSync(join(home, '.env'), 'OLLAMA_CLOUD_KEY=test-value')
     const first = prepareVoiceHome({ home, workspace: join(home, 'ws'), env: {}, now: () => 42 })
     expect(first.backup).toBe(join(home, '.env.bak-42'))
-    expect(readFileSync(join(home, '.env.bak-42'), 'utf8')).toBe('OPENROUTER_API_KEY=test-value')
-    expect(readFileSync(join(home, '.env'), 'utf8')).toBe('OPENROUTER_API_KEY=test-value\nOLLAMA_API_KEY=ollama\n')
+    expect(readFileSync(join(home, '.env.bak-42'), 'utf8')).toBe('OLLAMA_CLOUD_KEY=test-value')
+    expect(readFileSync(join(home, '.env'), 'utf8')).toBe('OLLAMA_CLOUD_KEY=test-value\nOLLAMA_API_KEY=ollama\n')
     expect(first.cloudKey).toBe(true)
     const second = prepareVoiceHome({ home, workspace: join(home, 'ws'), env: {}, now: () => 43 })
     expect(second.envUpdated).toBe(false)
@@ -51,12 +51,24 @@ describe('prepareVoiceHome', () => {
   it('reports the cloud key present in the environment', () => {
     const home = temp()
     mkdirSync(join(home, 'ws'))
-    const report = prepareVoiceHome({ home, workspace: join(home, 'ws'), env: { OPENROUTER_API_KEY: 'test-value' }, now: () => 1 })
+    const report = prepareVoiceHome({ home, workspace: join(home, 'ws'), env: { OLLAMA_CLOUD_KEY: 'test-value' }, now: () => 1 })
     expect(report.cloudKey).toBe(true)
   })
 
   it('has defaults', () => {
     const home = temp()
     expect(prepareVoiceHome({ home, workspace: join(home, 'ws') }).envUpdated).toBe(true)
+  })
+})
+
+describe('cloudKeyValue', () => {
+  it('prefers the environment, then a later line of the home .env, else undefined', () => {
+    const home = temp()
+    expect(cloudKeyValue({}, home)).toBeUndefined()
+    expect(cloudKeyValue({ OLLAMA_CLOUD_KEY: 'from-env' }, home)).toBe('from-env')
+    writeFileSync(join(home, '.env'), ['OLLAMA_API_KEY=ollama', 'OLLAMA_CLOUD_KEY = "from-file"', ''].join('\r\n'))
+    expect(cloudKeyValue({ OLLAMA_CLOUD_KEY: '' }, home)).toBe('from-file')
+    writeFileSync(join(home, '.env'), '# OLLAMA_CLOUD_KEY=x\n')
+    expect(cloudKeyValue({}, home)).toBeUndefined()
   })
 })

@@ -22,7 +22,7 @@ pnpm -C air run voice
 
 The first launch downloads the three model files (Silero VAD, SenseVoice, and the tokenizer) into `air/apps/voice/models/` if they are not present. The voice home is created at `$DSH_HOME` (or `apps/desktop/.desktop-build/development/home`) by `scripts/setup-home.ts`, which writes the voice profile patch, adds `OLLAMA_API_KEY=ollama` to the `.env`, and pins the memory rows for the local route.
 
-For the cloud routes, add `OPENROUTER_API_KEY=<key>` to the same `.env` file. The `screen` route also needs a Playwright browser install (`npx playwright install chromium`).
+For the cloud routes, add `OLLAMA_CLOUD_KEY=<key>` (an Ollama account key from ollama.com/settings/keys) to the same `.env` file. The `screen` route also needs a Playwright browser install (`npx playwright install chromium`).
 
 ## Using the voice agent
 
@@ -64,6 +64,6 @@ The renderer captures audio with an `AudioWorklet` and sends raw frames to the m
 - Wake matching is text-based on the full transcript; there is no trained wake-word model.
 - Audio and dropped transcripts are never stored.
 - Windows only: SAPI for speech output, PowerShell for the listener worker, and the Electron target is `win32`.
-- The cloud routes need an OpenRouter API key and a Playwright browser install; the `screen` route is untested.
+- The cloud routes need an Ollama Cloud key and a Playwright browser install; the `screen` route is untested.
 - Nobody can answer an approval prompt by voice: requests that need one are rejected (the voice profile sets `approval.policy: never`).
 - The voice agent shares its dsh home with the desktop app; session logs are written to the same home.

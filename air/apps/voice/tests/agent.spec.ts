@@ -75,11 +75,11 @@ function setup(options: { env?: Record<string, string | undefined>; envFile?: st
 }
 
 describe('AgentBridge', () => {
-  it('maps routes to OpenRouter and Ollama models', () => {
+  it('maps routes to local Ollama and Ollama Cloud models', () => {
     expect(ROUTES).toEqual({
       local: { provider: 'ollama', model: 'qwen3-8b-32k', patches: ['voice.cordis.patch.yml'], cloud: false },
-      cloud: { provider: 'openrouter', model: 'anthropic/claude-haiku-5.5', patches: ['voice.cordis.patch.yml'], cloud: true },
-      screen: { provider: 'openrouter', model: 'anthropic/claude-sonnet-5.5', patches: ['voice.cordis.patch.yml', 'screen.cordis.patch.yml'], cloud: true },
+      cloud: { provider: 'ollama-cloud', model: 'minimax-m3.1-flash', patches: ['voice.cordis.patch.yml'], cloud: true },
+      screen: { provider: 'ollama-cloud', model: 'minimax-m3.1-flash', patches: ['voice.cordis.patch.yml', 'screen.cordis.patch.yml'], cloud: true },
     })
   })
 
@@ -115,29 +115,62 @@ describe('AgentBridge', () => {
     ])
   })
 
-  it('refuses a cloud route without the OpenRouter key and stays local', () => {
-    const { bridge } = setup({ env: { OPENROUTER_API_KEY: '' } })
+  it('refuses a cloud route without the cloud key and stays local', () => {
+    const { bridge } = setup({ env: { OLLAMA_CLOUD_KEY: '' } })
     expect(bridge.setRoute('cloud')).toEqual({ ok: false, reason: 'missing-key' })
     expect(bridge.setRoute('screen')).toEqual({ ok: false, reason: 'missing-key' })
     expect(bridge.route).toBe('local')
   })
 
-  it('accepts the cloud route with the key in the environment and uses OpenRouter Haiku', async () => {
-    const { bridge, harnesses } = setup({ env: { OPENROUTER_API_KEY: 'test-value' } })
+  it('accepts the cloud route with the key in the environment and uses Ollama Cloud', async () => {
+    const { bridge, harnesses } = setup({ env: { OLLAMA_CLOUD_KEY: 'test-value' } })
     expect(bridge.setRoute('cloud')).toEqual({ ok: true })
     expect(bridge.route).toBe('cloud')
     await bridge.ask('hello')
-    expect(harnesses[0]!.options.provider).toBe('openrouter')
-    expect(harnesses[0]!.options.model).toBe('anthropic/claude-haiku-5.5')
+    expect(harnesses[0]!.options.provider).toBe('ollama-cloud')
+    expect(harnesses[0]!.options.model).toBe('minimax-m3.1-flash')
+  })
+
+  it('passes the cloud key to cloud launches as OLLAMA_API_KEY and keeps the local launch free of it', async () => {
+    const { bridge, harnesses } = setup({ env: { OLLAMA_CLOUD_KEY: 'test-value', PATH: 'p' } })
+    await bridge.ask('a')
+    bridge.setRoute('cloud')
+    await bridge.ask('b')
+    expect(harnesses[0]!.options.env).toEqual({ OLLAMA_CLOUD_KEY: 'test-value', PATH: 'p' })
+    expect(harnesses[1]!.options.env).toEqual({ OLLAMA_CLOUD_KEY: 'test-value', PATH: 'p', OLLAMA_API_KEY: 'test-value' })
+  })
+
+  it('reads the cloud key from the process environment when no env is given and passes only the injected key', async () => {
+    const before = process.env.OLLAMA_CLOUD_KEY
+    process.env.OLLAMA_CLOUD_KEY = 'test-value'
+    try {
+      const launches: HarnessOptions[] = []
+      const bridge = new AgentBridge({
+        dshHome: tempHome(),
+        cwd: 'C:/ws',
+        dshBin: 'bin.js',
+        profileDir: 'C:/voice/profile',
+        harnessFactory: (options) => {
+          launches.push(options)
+          return { session: () => ({ id: 's', run: async () => ({ finalResponse: 'ok', events: [] }) }), close: async () => {} }
+        },
+      })
+      expect(bridge.setRoute('cloud')).toEqual({ ok: true })
+      await bridge.ask('x')
+      expect(launches[0]!.env).toEqual({ OLLAMA_API_KEY: 'test-value' })
+    } finally {
+      if (before === undefined) delete process.env.OLLAMA_CLOUD_KEY
+      else process.env.OLLAMA_CLOUD_KEY = before
+    }
   })
 
   it('accepts the cloud route with the key in the voice home .env file', () => {
-    const { bridge } = setup({ envFile: 'OLLAMA_API_KEY=ollama\n# OPENROUTER_API_KEY=old\nOPENROUTER_API_KEY = "x"\n' })
+    const { bridge } = setup({ envFile: 'OLLAMA_API_KEY=ollama\n# OLLAMA_CLOUD_KEY=old\nOLLAMA_CLOUD_KEY = "x"\n' })
     expect(bridge.setRoute('screen')).toEqual({ ok: true })
   })
 
   it('treats an empty assignment in .env as missing', () => {
-    const { bridge } = setup({ envFile: 'OPENROUTER_API_KEY=\n' })
+    const { bridge } = setup({ envFile: 'OLLAMA_CLOUD_KEY=\n' })
     expect(bridge.setRoute('cloud')).toEqual({ ok: false, reason: 'missing-key' })
   })
 
@@ -147,7 +180,7 @@ describe('AgentBridge', () => {
   })
 
   it('adds the screen patch on the screen route, one harness per route', async () => {
-    const { bridge, harnesses } = setup({ env: { OPENROUTER_API_KEY: 'test-value' } })
+    const { bridge, harnesses } = setup({ env: { OLLAMA_CLOUD_KEY: 'test-value' } })
     await bridge.ask('a')
     bridge.setRoute('screen')
     await bridge.ask('b')
@@ -155,7 +188,7 @@ describe('AgentBridge', () => {
     await bridge.ask('c')
     expect(harnesses).toHaveLength(2)
     expect(harnesses[1]!.options.patches).toEqual([join('C:/voice/profile', 'voice.cordis.patch.yml'), join('C:/voice/profile', 'screen.cordis.patch.yml')])
-    expect(harnesses[1]!.options.model).toBe('anthropic/claude-sonnet-5.5')
+    expect(harnesses[1]!.options.model).toBe('minimax-m3.1-flash')
     expect(harnesses[0]!.runs.map(run => run.sessionId)).toEqual(['session-1', 'session-1'])
   })
 

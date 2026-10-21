@@ -1,5 +1,5 @@
 # Screen route: adds Cua Driver computer-use tools (native SDK in the dsh host) on top of voice.cordis.patch.yml.
-# Used only with the OpenRouter Sonnet route, which accepts screenshots.
+# Used only with the Ollama Cloud route (minimax-m3.1-flash has vision), which accepts screenshots.
 - insert:
     - id: computer-use
       name: '@deepseek-ai/dsh-computer-use'

@@ -46,6 +46,20 @@ export function cloudKeyPresent(env: Record<string, string | undefined>, dshHome
   return existsSync(file) && envTextAssigns(readFileSync(file, 'utf8'), CLOUD_KEY_ENV)
 }
 
+/**
+ * @param env - environment to check first.
+ * @param dshHome - runtime home whose `.env` is the fallback.
+ * @returns the cloud key value for passing to a launch (never log it), or undefined when unset.
+ */
+export function cloudKeyValue(env: Record<string, string | undefined>, dshHome: string): string | undefined {
+  const fromEnv = env[CLOUD_KEY_ENV]
+  if (fromEnv !== undefined && fromEnv !== '') return fromEnv
+  const file = join(dshHome, '.env')
+  if (!existsSync(file)) return undefined
+  const match = new RegExp(`^[ \\t]*${CLOUD_KEY_ENV}[ \\t]*=[ \\t]*['"]?([^\\s'"#]+)`, 'm').exec(readFileSync(file, 'utf8'))
+  return match?.[1]
+}
+
 /** What {@link prepareVoiceHome} did. */
 export interface VoiceHomeReport {
   home: string
