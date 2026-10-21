@@ -50,12 +50,44 @@ export function parseVoiceCommand(command: string): VoiceCommand {
 const REMEMBER = /^(?:please )?(?:remember|note|don['’]?t forget)(?: that)? (.+)$/i
 const RECALL = /^(?:what do you remember about|do you remember) (.+)$/i
 
+const EMAIL_SEND = /^(?:send|write|compose)(?: (?:a|an|the))? (?:gmail|e-?mail|mail)\b[\s,]*(.*)$/i
+const EMAIL_OPEN = /^open(?: my)? (?:gmail|e-?mail|mail|inbox)$/i
+const EMAIL_CHECK = /^(?:check|read)(?: my)? (?:gmail|e-?mails?|mails?|inbox)$/i
+
+/** The exact line the send rewrite tells the model to end its reply with, instead of pressing Send. */
+export const CONFIRM_SEND = 'CONFIRM SEND'
+
+/** An email request that needs the browser tools. */
+export type EmailCommand = { kind: 'send'; details: string } | { kind: 'open' } | { kind: 'check' }
+
 function stripEnd(text: string): string {
   return text.trim().replace(/[.!?,\s]+$/, '')
 }
 
 /**
+ * Classify a spoken email request: send/write/compose a gmail, open gmail, or check/read mail.
+ * @param text - the ask text.
+ * @returns the email request, or null when the text is not one.
+ */
+export function matchEmailCommand(text: string): EmailCommand | null {
+  const trimmed = stripEnd(text)
+  const send = EMAIL_SEND.exec(trimmed)
+  if (send !== null) return { kind: 'send', details: captured(send).trim() }
+  if (EMAIL_OPEN.test(trimmed)) return { kind: 'open' }
+  if (EMAIL_CHECK.test(trimmed)) return { kind: 'check' }
+  return null
+}
+
+function emailInstruction(email: EmailCommand): string {
+  if (email.kind === 'open') return 'Use the browser tools to open https://mail.google.com. Reply in one sentence saying what the inbox shows. Do not click anything else.'
+  if (email.kind === 'check') return 'Use the browser tools to open https://mail.google.com and read the newest unread messages. Reply in two short sentences with sender and subject. Do not reply, delete, or send anything.'
+  const details = email.details === '' ? 'ask me who it is for and what it should say' : email.details
+  return `Use the browser tools to compose an email in Gmail at https://mail.google.com: ${details}. Fill in the recipient, a short subject, and the body, but do NOT press Send. End your reply with a one-sentence summary of the draft, then a final line that is exactly ${CONFIRM_SEND}`
+}
+
+/**
  * Turn memory phrases into explicit tool instructions, because a small model often answers "I'll remember" without calling the tool.
+ * Email phrases become explicit browser-tool instructions the same way.
  * @param text - the ask text.
  * @returns the instruction for the agent, or the text unchanged.
  */
@@ -65,6 +97,8 @@ export function rewriteForAgent(text: string): string {
   if (recall !== null) return `Use memory_search for: ${stripEnd(captured(recall))}. Answer in one sentence.`
   const remember = REMEMBER.exec(trimmed)
   if (remember !== null) return `Use the memory_write tool with type user to save this note: ${stripEnd(captured(remember))}. Then reply "Noted."`
+  const email = matchEmailCommand(trimmed)
+  if (email !== null) return emailInstruction(email)
   return text
 }
 

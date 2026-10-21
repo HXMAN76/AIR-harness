@@ -1,13 +1,7 @@
-# Screen route: adds the Playwright browser and Cua Driver computer-use tools (native SDK in the dsh host) on top of voice.cordis.patch.yml.
+# Screen route: adds the Cua Driver computer-use tools (native SDK in the dsh host) on top of voice.cordis.patch.yml and
+# browser.cordis.patch.yml (the Playwright browser tools, shared with the cloud route; see ROUTES in src/core/agent.ts).
 # Used only with the Ollama Cloud route (minimax-m3.1-flash has vision), which accepts screenshots.
 - insert:
-    - id: browser-use
-      name: '@deepseek-ai/dsh-browser-use'
-    - id: browser-use-playwright-mcp
-      name: '@deepseek-ai/dsh-experimental-browser-use-playwright-mcp'
-      config:
-        mode: launch
-        headless: true
     - id: computer-use
       name: '@deepseek-ai/dsh-computer-use'
     - id: computer-use-cua-driver-native

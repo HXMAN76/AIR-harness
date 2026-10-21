@@ -37,8 +37,10 @@ export type HarnessFactory = (options: HarnessOptions) => HarnessLike
 /** Model route table. Cloud routes call https://ollama.com/v1 (provider `ollama-cloud`) with a bearer key from the home `.env`, injected as `OLLAMA_API_KEY` for those launches. */
 export const ROUTES: Record<Route, { provider: string; model: string; patches: string[]; cloud: boolean }> = {
   local: { provider: 'ollama', model: 'qwen3-8b-32k', patches: ['voice.cordis.patch.yml'], cloud: false },
-  cloud: { provider: 'ollama-cloud', model: 'minimax-m3.1-flash', patches: ['voice.cordis.patch.yml'], cloud: true },
-  screen: { provider: 'ollama-cloud', model: 'minimax-m3.1-flash', patches: ['voice.cordis.patch.yml', 'screen.cordis.patch.yml'], cloud: true },
+  // Cloud and screen carry the Playwright browser tools (browser.cordis.patch.yml); the local route never
+  // loads them, because their ~3,700 prompt tokens would crowd the 8B model's 32K context.
+  cloud: { provider: 'ollama-cloud', model: 'minimax-m3.1-flash', patches: ['voice.cordis.patch.yml', 'browser.cordis.patch.yml'], cloud: true },
+  screen: { provider: 'ollama-cloud', model: 'minimax-m3.1-flash', patches: ['voice.cordis.patch.yml', 'browser.cordis.patch.yml', 'screen.cordis.patch.yml'], cloud: true },
 }
 
 /** Extra per-launch patch when memory is shared with the cloud (written by the memory track). */

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { parseVoiceCommand, rewriteForAgent } from '../src/core/commands.ts'
+import { CONFIRM_SEND, matchEmailCommand, parseVoiceCommand, rewriteForAgent } from '../src/core/commands.ts'
 
 describe('parseVoiceCommand', () => {
   it.each([
@@ -56,5 +56,47 @@ describe('language commands', () => {
 
   it('leaves other Tamil and English text for the agent', () => {
     expect(parseVoiceCommand('tamil movies near me')).toEqual({ kind: 'ask', text: 'tamil movies near me' })
+  })
+})
+
+describe('email commands', () => {
+  it.each([
+    ['send a gmail to asha@example.com saying running late', { kind: 'send', details: 'to asha@example.com saying running late' }],
+    ['Send an email to Ravi saying hello.', { kind: 'send', details: 'to Ravi saying hello' }],
+    ['write the mail to mum', { kind: 'send', details: 'to mum' }],
+    ['compose e-mail, to Bob', { kind: 'send', details: 'to Bob' }],
+    ['send gmail', { kind: 'send', details: '' }],
+    ['open gmail', { kind: 'open' }],
+    ['Open my email.', { kind: 'open' }],
+    ['open inbox', { kind: 'open' }],
+    ['check my mail', { kind: 'check' }],
+    ['Read my emails', { kind: 'check' }],
+    ['check gmail', { kind: 'check' }],
+    ['read my inbox!', { kind: 'check' }],
+  ])('matches %j', (text, expected) => {
+    expect(matchEmailCommand(text)).toEqual(expected)
+  })
+
+  it.each(['open notepad', 'send a text to Asha', 'mail the report', 'what is gmail', 'check the weather', 'sending gmail'])('does not match %j', (text) => {
+    expect(matchEmailCommand(text)).toBeNull()
+  })
+
+  it('rewrites a send into a compose-only instruction ending in the gate line', () => {
+    const out = rewriteForAgent('send a gmail to asha@example.com saying running late')
+    expect(out).toContain('compose an email in Gmail at https://mail.google.com: to asha@example.com saying running late.')
+    expect(out).toContain('do NOT press Send')
+    expect(out.endsWith(`exactly ${CONFIRM_SEND}`)).toBe(true)
+    expect(CONFIRM_SEND).toBe('CONFIRM SEND')
+  })
+
+  it('asks the model to find out the details when none were spoken', () => {
+    expect(rewriteForAgent('send an email')).toContain('ask me who it is for and what it should say')
+  })
+
+  it('rewrites open and check without any send language', () => {
+    expect(rewriteForAgent('open gmail')).toBe('Use the browser tools to open https://mail.google.com. Reply in one sentence saying what the inbox shows. Do not click anything else.')
+    const check = rewriteForAgent('check my mail')
+    expect(check).toContain('read the newest unread messages')
+    expect(check).toContain('Do not reply, delete, or send anything.')
   })
 })

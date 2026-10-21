@@ -18,8 +18,7 @@ export const VOICE_PLUGINS: readonly VoicePlugin[] = [
   { name: '@air/dsh-memory-index', dir: 'air/packages/memory-index' },
   { name: '@air/dsh-tool-memory', dir: 'air/packages/tool-memory' },
   { name: '@air/dsh-memory-context', dir: 'air/packages/memory-context' },
-  { name: '@deepseek-ai/dsh-browser-use', dir: 'packages/browser-use/browser-use' },
-  { name: '@deepseek-ai/dsh-experimental-browser-use-playwright-mcp', dir: 'packages/experimental/browser-use-playwright-mcp' },
+  { name: '@deepseek-ai/dsh-mcp-client', dir: 'packages/mcp/mcp-client' },
 ]
 
 /** Time allowed for one `plugin add` (it runs the package manager). */

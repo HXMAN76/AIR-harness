@@ -691,3 +691,123 @@ describe('confirmation edge paths', () => {
     expect(listener.listens).toBe(0)
   })
 })
+
+describe('email requests and the send gate', () => {
+  beforeEach(() => { vi.useFakeTimers() })
+  afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks() })
+
+  async function rig() {
+    const { VoiceController } = await import('../src/core/controller.ts')
+    const listener = new FakeListener()
+    const speaker = new FakeSpeaker()
+    const agent = new FakeAgent()
+    const states: VoiceState[] = []
+    const operated: OperatorIntent[] = []
+    const controller = new VoiceController({ listener, speaker, agent,
+      runOperator: async (intent) => { operated.push(intent); return { spoken: 'Opened.' } },
+      onState: (s) => { states.push(s) } })
+    return { controller, listener, speaker, agent, states, operated }
+  }
+
+  const DRAFT = 'Draft to Asha saying running late.\nCONFIRM SEND'
+
+  it('switches local to cloud, skips the operator for "open gmail", and asks the rewritten text', async () => {
+    const { controller, speaker, agent, operated } = await rig()
+    await controller.handleSpoken({ text: 'open gmail' })
+    expect(agent.routeChanges).toEqual(['cloud'])
+    expect(operated).toEqual([])
+    expect(agent.asks[0]).toContain('https://mail.google.com')
+    expect(speaker.spoken).toEqual(['Using the cloud model.', 'The time is 3 PM.'])
+  })
+
+  it('stays local and does not ask the model when the cloud key is missing', async () => {
+    const { controller, speaker, agent, states } = await rig()
+    agent.cloudKeyMissing = true
+    await controller.handleSpoken({ text: 'check my mail' })
+    expect(speaker.spoken).toEqual(['The cloud key is not set.'])
+    expect(agent.route).toBe('local')
+    expect(agent.asks).toEqual([])
+    expect(states.at(-1)).toMatchObject({ phase: 'idle', route: 'local' })
+  })
+
+  it('does not switch or announce when already on a cloud route', async () => {
+    const { controller, speaker, agent } = await rig()
+    agent.route = 'screen'
+    await controller.handleSpoken({ text: 'check my mail' })
+    expect(agent.routeChanges).toEqual([])
+    expect(speaker.spoken).toEqual(['The time is 3 PM.'])
+  })
+
+  it('speaks the draft without the gate line, then asks for a spoken yes and arms the listener', async () => {
+    const { controller, speaker, agent, listener, states } = await rig()
+    agent.replies = [{ reply: DRAFT, tools: ['browser'] }]
+    await controller.handleSpoken({ text: 'send a gmail to Asha saying running late' })
+    expect(agent.asks[0]).toContain('exactly CONFIRM SEND')
+    expect(speaker.spoken).toEqual(['Using the cloud model.', 'Draft to Asha saying running late.', 'Say yes to send it.'])
+    expect(states.find(s => s.reply?.startsWith('Draft'))?.reply).toBe('Draft to Asha saying running late.')
+    expect(listener.listens).toBe(1)
+    expect(states.at(-1)).toMatchObject({ phase: 'awake' })
+  })
+
+  it('presses Send after yes, with no second gate, and speaks the result', async () => {
+    const { controller, speaker, agent } = await rig()
+    agent.replies = [{ reply: DRAFT, tools: [] }, { reply: 'Sent to Asha.', tools: [] }]
+    await controller.handleSpoken({ text: 'send an email to Asha saying hi' })
+    await controller.handleSpoken({ text: 'Yes.' })
+    expect(agent.asks[1]).toBe('Now press Send and speak one sentence saying who it went to.')
+    expect(agent.asks).toHaveLength(2)
+    expect(speaker.spoken.at(-1)).toBe('Sent to Asha.')
+  })
+
+  it('does not gate the press-Send turn even if its reply repeats the gate line', async () => {
+    const { controller, speaker, agent } = await rig()
+    agent.replies = [{ reply: DRAFT, tools: [] }, { reply: 'Sent.\nCONFIRM SEND', tools: [] }]
+    await controller.handleSpoken({ text: 'send an email to Asha saying hi' })
+    await controller.handleSpoken({ text: 'yes' })
+    expect(speaker.spoken.filter(text => text === 'Say yes to send it.')).toHaveLength(1)
+  })
+
+  it('cancels with "Do not send it." on anything but yes', async () => {
+    const { controller, speaker, agent } = await rig()
+    agent.replies = [{ reply: DRAFT, tools: [] }]
+    await controller.handleSpoken({ text: 'send an email to Asha saying hi' })
+    await controller.handleSpoken({ text: 'no change the subject' })
+    expect(agent.asks[1]).toBe('Do not send it.')
+    expect(speaker.spoken.at(-1)).toBe('Cancelled.')
+  })
+
+  it('cancels the same way after the confirmation window passes in silence', async () => {
+    const { controller, speaker, agent } = await rig()
+    agent.replies = [{ reply: DRAFT, tools: [] }]
+    await controller.handleSpoken({ text: 'send an email to Asha saying hi' })
+    await vi.advanceTimersByTimeAsync(CONFIRM_WINDOW_MS)
+    expect(agent.asks[1]).toBe('Do not send it.')
+    expect(speaker.spoken.at(-1)).toBe('Cancelled.')
+  })
+
+  it('still says Cancelled when the Do-not-send turn fails', async () => {
+    const { controller, speaker, agent } = await rig()
+    agent.replies = [{ reply: DRAFT, tools: [] }]
+    await controller.handleSpoken({ text: 'send an email to Asha saying hi' })
+    agent.ask = async () => { throw new Error('offline') }
+    await controller.handleSpoken({ text: 'no' })
+    expect(speaker.spoken.at(-1)).toBe('Cancelled.')
+  })
+
+  it('speaks only the prompt when the reply is just the gate line', async () => {
+    const { controller, speaker, agent } = await rig()
+    agent.replies = [{ reply: 'CONFIRM SEND', tools: [] }]
+    await controller.handleSpoken({ text: 'send an email to Asha saying hi' })
+    expect(speaker.spoken).toEqual(['Using the cloud model.', 'Say yes to send it.'])
+  })
+
+  it('does not gate a reply that mentions the phrase mid-sentence, or a failed turn', async () => {
+    const { controller, speaker, agent } = await rig()
+    agent.replies = [{ reply: 'I will not say CONFIRM SEND yet.', tools: [] }]
+    await controller.handleSpoken({ text: 'check my mail' })
+    expect(speaker.spoken).toEqual(['Using the cloud model.', 'I will not say CONFIRM SEND yet.'])
+    agent.ask = async () => { throw new Error('browser failed') }
+    await controller.handleSpoken({ text: 'check my mail' })
+    expect(speaker.spoken.at(-1)).toBe('browser failed')
+  })
+})

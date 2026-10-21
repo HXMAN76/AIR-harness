@@ -78,8 +78,8 @@ describe('AgentBridge', () => {
   it('maps routes to local Ollama and Ollama Cloud models', () => {
     expect(ROUTES).toEqual({
       local: { provider: 'ollama', model: 'qwen3-8b-32k', patches: ['voice.cordis.patch.yml'], cloud: false },
-      cloud: { provider: 'ollama-cloud', model: 'minimax-m3.1-flash', patches: ['voice.cordis.patch.yml'], cloud: true },
-      screen: { provider: 'ollama-cloud', model: 'minimax-m3.1-flash', patches: ['voice.cordis.patch.yml', 'screen.cordis.patch.yml'], cloud: true },
+      cloud: { provider: 'ollama-cloud', model: 'minimax-m3.1-flash', patches: ['voice.cordis.patch.yml', 'browser.cordis.patch.yml'], cloud: true },
+      screen: { provider: 'ollama-cloud', model: 'minimax-m3.1-flash', patches: ['voice.cordis.patch.yml', 'browser.cordis.patch.yml', 'screen.cordis.patch.yml'], cloud: true },
     })
   })
 
@@ -179,6 +179,16 @@ describe('AgentBridge', () => {
     expect(bridge.setRoute('local')).toEqual({ ok: true })
   })
 
+  it('adds the browser patch on the cloud route and both on the screen route, never on local', async () => {
+    const { bridge, harnesses } = setup({ env: { OLLAMA_CLOUD_KEY: 'test-value' } })
+    bridge.setRoute('cloud')
+    await bridge.ask('a')
+    bridge.setRoute('local')
+    await bridge.ask('b')
+    expect(harnesses[0]!.options.patches).toEqual([join('C:/voice/profile', 'voice.cordis.patch.yml'), join('C:/voice/profile', 'browser.cordis.patch.yml')])
+    expect(harnesses[1]!.options.patches).toEqual([join('C:/voice/profile', 'voice.cordis.patch.yml')])
+  })
+
   it('adds the screen patch on the screen route, one harness per route', async () => {
     const { bridge, harnesses } = setup({ env: { OLLAMA_CLOUD_KEY: 'test-value' } })
     await bridge.ask('a')
@@ -187,7 +197,7 @@ describe('AgentBridge', () => {
     bridge.setRoute('local')
     await bridge.ask('c')
     expect(harnesses).toHaveLength(2)
-    expect(harnesses[1]!.options.patches).toEqual([join('C:/voice/profile', 'voice.cordis.patch.yml'), join('C:/voice/profile', 'screen.cordis.patch.yml')])
+    expect(harnesses[1]!.options.patches).toEqual([join('C:/voice/profile', 'voice.cordis.patch.yml'), join('C:/voice/profile', 'browser.cordis.patch.yml'), join('C:/voice/profile', 'screen.cordis.patch.yml')])
     expect(harnesses[1]!.options.model).toBe('minimax-m3.1-flash')
     expect(harnesses[0]!.runs.map(run => run.sessionId)).toEqual(['session-1', 'session-1'])
   })

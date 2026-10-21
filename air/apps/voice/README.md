@@ -31,11 +31,11 @@ Locations (all outside the repository):
 
 `scripts/setup-home.ts` creates the home and the workspace, adds `OLLAMA_API_KEY=ollama` to the `.env`, and installs the profile plugins. The voice profile patch and the memory rows for the local route ship in `profile/`.
 
-The voice profile loads plugins by name from the voice home's `sdk` profile. `setup-home.ts` installs them there with `dsh plugin --profile sdk add` (the `open` tool, the memory packages, and the Playwright browser, which only the `screen` route loads: its tool definitions cost about 3,700 prompt tokens), skipping any that are already installed. A plugin that is not installed is skipped at boot with a warning and the session runs without its tools.
+The voice profile loads plugins by name from the voice home's `sdk` profile. `setup-home.ts` installs them there with `dsh plugin --profile sdk add` (the `open` tool, the memory packages, and the MCP client that runs the Playwright browser server on the cloud and screen routes only: its tool definitions cost about 3,700 prompt tokens), skipping any that are already installed. A plugin that is not installed is skipped at boot with a warning and the session runs without its tools.
 
 Memory in the voice profile: `memory_write` normally asks the user, but nobody can answer a prompt by voice (`approval.policy: never`). With no one to ask, a note of type `user` is saved without a prompt and marked agent-inferred (trust low), while a `feedback` note is refused. The persona therefore tells the model to save with type `user`. Pinned notes appear at the start of each new conversation. The 8B model often says it will remember without calling the tool, so the controller rewrites "remember/note/don't forget (that) X" into an explicit memory_write instruction and "what do you remember about X" / "do you remember X" into a memory_search one (the window still shows what you said).
 
-For the cloud routes, add `OLLAMA_CLOUD_KEY=<key>` (an Ollama account key from ollama.com/settings/keys) to `%USERPROFILE%\.air\voice-home\.env`, or set it in the environment. The `screen` route also needs a Playwright browser install (`npx playwright install chromium`).
+For the cloud routes, add `OLLAMA_CLOUD_KEY=<key>` (an Ollama account key from ollama.com/settings/keys) to `%USERPROFILE%\.air\voice-home\.env`, or set it in the environment. The cloud and screen routes also need a Playwright browser install (`pnpm exec playwright install chromium` at the repository root); see "Web apps (Gmail)".
 
 ## Using the voice agent
 
@@ -86,6 +86,29 @@ Closing an app and locking the screen ask first: after "Say yes to confirm." the
 
 The text you speak never reaches a shell. Each action is a constant PowerShell script, and the one variable value, an app or URL from the whitelist, travels in the `AIR_OP_TARGET` environment variable; a search is percent-encoded into the URL. Targets are checked again before running: a whitelisted executable, `ms-settings:`, `spotify:`, or a plain `https:` URL. The whitelist and URL rules are the ones in `@air/dsh-tool-open`, shared with the agent's `open` tool.
 
+## Web apps (Gmail)
+
+"Jarvis, send a gmail to asha@example.com saying I am running late" drives a logged-in Gmail in a visible Chromium window and sends after one spoken confirmation. Nothing here has been run against a real browser or a real Gmail account yet; the steps below are untested.
+
+What is loaded: the cloud and screen routes add `profile/browser.cordis.patch.yml`, an MCP client row for the pinned Playwright MCP server (`@playwright/mcp@0.0.80`) started with `--browser chromium --user-data-dir <voice home>\browser-profile`. Without `--headless` the window is visible, and the profile directory keeps your login across conversations and restarts. The local route never loads these tools (about 3,700 prompt tokens). No upstream file is edited for this.
+
+First-login steps:
+
+1. Run `pnpm exec playwright install chromium` once at the repository root (`scripts/setup-home.ts` prints this reminder). The Playwright version there is the one the patch pins, so the download matches.
+2. Put `OLLAMA_CLOUD_KEY` in `%USERPROFILE%\.air\voice-home\.env`.
+3. Say "Jarvis, open gmail". The cloud model opens `mail.google.com` in the Chromium window. Sign in there by hand, including any two-step prompt. Google may refuse a sign-in from an automated browser; if it does, this route does not work for that account.
+4. Say "Jarvis, check my mail" to confirm the login stuck. Close and restart the app and try again: you should still be signed in.
+
+| Say | Does |
+|---|---|
+| send, write, or compose a gmail (email, mail) to X saying Y | composes the message in Gmail and stops before Send |
+| open gmail (also open email, open my inbox) | opens Gmail and describes the inbox |
+| check or read my mail (emails, gmail, inbox) | reads the newest unread messages aloud |
+
+Cloud switch: these phrases need the browser tools, so on the local route the app switches to the cloud model first and says "Using the cloud model." With no cloud key it says "The cloud key is not set.", stays on the local route, and does not call the model. This replaces the operator's plain "open gmail" site opener; other sites still use the operator.
+
+Send gate: the compose instruction tells the model to fill in the recipient, subject, and body, not to press Send, and to end its reply with the exact line `CONFIRM SEND`. The app speaks the draft summary without that line, then says "Say yes to send it." and opens the 6 second follow-up window. "Yes" (or "confirm") sends the follow-up "Now press Send and speak one sentence saying who it went to." Any other answer, or silence, sends "Do not send it." and speaks "Cancelled." The gate is an instruction to the model plus this check, not a hard block: a model that presses Send without printing the line would still send. Watch the window the first few times.
+
 ## Architecture
 
 ```
@@ -119,7 +142,7 @@ The renderer captures audio with an `AudioWorklet` and sends raw frames to the m
 - The wake word is spotted by a small general English model with keywords set in a file, not a model trained for "Jarvis"; accents and noise change how reliably it fires (see the tuning in `src/keywords.txt`). Speech that starts right after the word can lose its first syllable.
 - Audio and dropped transcripts are never stored. The console shows wake events and commands only; `AIR_VOICE_DEBUG=1` also prints state changes with transcripts and replies.
 - Windows only: SAPI for speech output, PowerShell for the listener worker, and the Electron target is `win32`.
-- The cloud routes need an Ollama Cloud key and a Playwright browser install; the `screen` route is untested. The model id `minimax-m3.1-flash` is the catalog name at ollama.com/api/tags as of 2026-10-21; the earlier `minimax/M3-1-Flash` is not in it.
+- The cloud routes need an Ollama Cloud key and a Playwright browser install; the browser tools and the `screen` route are untested. The model id `minimax-m3.1-flash` is the catalog name at ollama.com/api/tags as of 2026-10-21; the earlier `minimax/M3-1-Flash` is not in it.
 - Tamil is the secondary language: its recogniser is untested on real Tamil speech, its replies are not spoken, and the operator does not run in Tamil mode.
 - The operator is English only and matches whole phrases: "open notepad and write my list" goes to the model. Closing an app by name stops every process of that name (after the spoken confirmation).
 - Nobody can answer an approval prompt by voice: requests that need one are rejected (the voice profile sets `approval.policy: never`).

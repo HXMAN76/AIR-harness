@@ -2,7 +2,7 @@
 import type { EventEmitter } from 'node:events'
 import type { Command } from './listener.ts'
 import type { Lang } from './frames.ts'
-import { parseVoiceCommand, rewriteForAgent, type Route } from './commands.ts'
+import { CONFIRM_SEND, matchEmailCommand, parseVoiceCommand, rewriteForAgent, type Route } from './commands.ts'
 import { REPLY_ON_SCREEN, hasTamilScript, toSpokenText } from './speech-text.ts'
 import { matchOperatorIntent, runOperatorIntent, type OperatorIntent, type OperatorResult } from './operator.ts'
 
@@ -58,7 +58,16 @@ const DESTRUCTIVE: ReadonlySet<OperatorIntent['kind']> = new Set(['close', 'lock
 export const CONFIRM_WINDOW_MS = 6_000
 
 const CONFIRM_PROMPT = 'Say yes to confirm.'
+const CONFIRM_SEND_PROMPT = 'Say yes to send it.'
 const CANCELLED = 'Cancelled.'
+const CLOUD_KEY_MISSING = 'The cloud key is not set.'
+const USING_CLOUD = 'Using the cloud model.'
+/** The model's reply carries this line on its own when a draft is ready and Send is not yet pressed. */
+const CONFIRM_SEND_LINE = new RegExp(`^\s*${CONFIRM_SEND}\s*$`, 'm')
+/** Sent to the same session after a spoken yes. */
+const PRESS_SEND = 'Now press Send and speak one sentence saying who it went to.'
+/** Sent to the same session after anything but a yes, or silence. */
+const DO_NOT_SEND = 'Do not send it.'
 const CONFIRM_WORDS = /^(?:yes|yeah|yep|confirm|confirmed|yes confirm|yes please|confirm it)$/
 
 /** Spoken when the operator could not do what was asked. */
@@ -91,8 +100,8 @@ export class VoiceController {
   private lang: Lang = 'en'
   private busy = false
   private watchdogTimer: ReturnType<typeof setTimeout> | undefined
-  /** A destructive operator command waiting for "yes". */
-  private confirming: { text: string; intent: OperatorIntent; timer: ReturnType<typeof setTimeout> | undefined } | undefined
+  /** A destructive operator command, or (no intent) an email draft, waiting for "yes". */
+  private confirming: { text: string; intent: OperatorIntent | undefined; timer: ReturnType<typeof setTimeout> | undefined } | undefined
 
   constructor(deps: VoiceControllerDeps) {
     this.listener = deps.listener
@@ -193,8 +202,10 @@ export class VoiceController {
         break
       case 'ask': {
         // The operator's patterns are English; Tamil goes to the agent.
-        const intent = lang === 'en' ? matchOperatorIntent(command.text) : null
-        if (intent === null) await this.handleAsk(command.text)
+        // Email requests go to the browser tools, so they skip the operator's "open gmail" fast path.
+        const browser = matchEmailCommand(command.text) !== null
+        const intent = lang === 'en' && !browser ? matchOperatorIntent(command.text) : null
+        if (intent === null) await this.handleAsk(command.text, browser)
         else if (DESTRUCTIVE.has(intent.kind)) await this.askConfirmation(command.text, intent)
         else await this.handleOperator(command.text, intent)
         break
@@ -205,7 +216,7 @@ export class VoiceController {
   private async handleRoute(route: Route): Promise<void> {
     const result = this.agent.setRoute(route)
     if (!result.ok) {
-      await this.speak('The cloud key is not set.')
+      await this.speak(CLOUD_KEY_MISSING)
       this.phase = 'idle'
       this.emit()
       return
@@ -238,12 +249,13 @@ export class VoiceController {
   }
 
   /** Ask for a spoken yes before a destructive command; the follow-up needs no wake word. */
-  private async askConfirmation(text: string, intent: OperatorIntent): Promise<void> {
+  private async askConfirmation(text: string, intent: OperatorIntent | undefined): Promise<void> {
+    const prompt = intent === undefined ? CONFIRM_SEND_PROMPT : CONFIRM_PROMPT
     const pending: NonNullable<VoiceController['confirming']> = { text, intent, timer: undefined }
     this.confirming = pending
     this.phase = 'speaking'
-    this.emit({ transcript: text, reply: CONFIRM_PROMPT, tools: [OPERATOR_TOOL] })
-    await this.speak(CONFIRM_PROMPT)
+    this.emit({ transcript: text, reply: prompt, tools: [OPERATOR_TOOL] })
+    await this.speak(prompt)
     if (this.confirming !== pending) return
     this.phase = 'awake'
     this.emit({ transcript: text })
@@ -260,7 +272,8 @@ export class VoiceController {
     const answer = spoken.toLowerCase().replaceAll(/[^a-z ]/g, '').trim()
     if (CONFIRM_WORDS.test(answer)) {
       this.dropConfirmation()
-      await this.handleOperator(pending.text, pending.intent)
+      if (pending.intent === undefined) await this.handleAsk(PRESS_SEND, false, true)
+      else await this.handleOperator(pending.text, pending.intent)
     } else {
       await this.cancelConfirmation()
     }
@@ -269,11 +282,12 @@ export class VoiceController {
   private async cancelConfirmation(): Promise<void> {
     /* v8 ignore next -- a confirmation timer or answer always clears the field first; this guards re-entrant calls. */
     if (this.confirming === undefined) return
-    const { text } = this.confirming
+    const { text, intent } = this.confirming
     this.dropConfirmation()
     this.phase = 'idle'
     this.emit({ transcript: text, reply: CANCELLED, tools: [OPERATOR_TOOL] })
     await this.speak(CANCELLED)
+    if (intent === undefined) await this.agent.ask(DO_NOT_SEND).catch(() => undefined)
   }
 
   private dropConfirmation(): void {
@@ -304,24 +318,41 @@ export class VoiceController {
     }
   }
 
-  private async handleAsk(text: string): Promise<void> {
+  /**
+   * Run one agent turn. `browser` marks a request that needs the browser tools, which only the cloud
+   * routes carry; `followUp` sends the text as written and skips the send gate.
+   */
+  private async handleAsk(text: string, browser = false, followUp = false): Promise<void> {
+    if (browser && this.agent.route === 'local') {
+      const switched = this.agent.setRoute('cloud')
+      await this.speak(switched.ok ? USING_CLOUD : CLOUD_KEY_MISSING)
+      if (!switched.ok) {
+        this.phase = 'idle'
+        this.emit()
+        return
+      }
+    }
     this.phase = 'thinking'
     this.busy = true
     this.emit({ transcript: text })
 
     this.startWatchdog()
+    let gated = false
 
     try {
-      const result = await this.agent.ask(rewriteForAgent(text))
+      const result = await this.agent.ask(followUp ? text : rewriteForAgent(text))
       this.clearWatchdog()
 
-      const spoken = hasTamilScript(result.reply) ? REPLY_ON_SCREEN : toSpokenText(result.reply)
+      gated = !followUp && CONFIRM_SEND_LINE.test(result.reply)
+      const reply = gated ? result.reply.replace(CONFIRM_SEND_LINE, '').trim() : result.reply
+      const spoken = hasTamilScript(reply) ? REPLY_ON_SCREEN : toSpokenText(reply)
       this.phase = 'speaking'
-      this.emit({ transcript: text, reply: result.reply, tools: result.tools })
+      this.emit({ transcript: text, reply, tools: result.tools })
 
-      await this.speaker.speak(spoken)
+      if (!gated || reply !== '') await this.speaker.speak(spoken)
     } catch (error) {
       this.clearWatchdog()
+      gated = false
       const message = error instanceof Error ? error.message : String(error)
       this.phase = 'idle'
       this.emit({ transcript: text, error: message })
@@ -333,6 +364,7 @@ export class VoiceController {
         this.emit()
       }
     }
+    if (gated) await this.askConfirmation(text, undefined)
   }
 
   private startWatchdog(): void {
