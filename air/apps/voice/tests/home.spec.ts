@@ -92,3 +92,15 @@ describe('cloudKeyValue', () => {
     expect(cloudKeyValue({}, home)).toBeUndefined()
   })
 })
+
+describe('documentsDir profile fallback', () => {
+  it('uses the OS home when USERPROFILE is absent', () => {
+    const saved = process.env.USERPROFILE
+    delete process.env.USERPROFILE
+    try {
+      expect(documentsDir({ ask: () => '' }).endsWith('Documents')).toBe(true)
+    } finally {
+      if (saved !== undefined) process.env.USERPROFILE = saved
+    }
+  })
+})

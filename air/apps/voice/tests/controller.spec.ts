@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { EventEmitter } from 'node:events'
 import type { Route } from '../src/core/commands.ts'
 import type { OperatorIntent } from '../src/core/operator.ts'
+import { CONFIRM_WINDOW_MS } from '../src/core/controller.ts'
 
 // ── fakes ──────────────────────────────────────────────────────────────────
 
@@ -644,5 +645,49 @@ describe('VoiceController', () => {
     expect(agent.memoryShares).toContain(true)
     expect(agent.memoryShared).toBe(true)
     expect(states.some(s => s.memoryShared)).toBe(true)
+  })
+})
+
+describe('confirmation edge paths', () => {
+  beforeEach(() => { vi.useFakeTimers() })
+  afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks() })
+
+  async function rig(runOperator?: (intent: OperatorIntent) => Promise<{ spoken: string }>) {
+    const { VoiceController } = await import('../src/core/controller.ts')
+    const listener = new FakeListener()
+    const speaker = new FakeSpeaker()
+    const agent = new FakeAgent()
+    const states: VoiceState[] = []
+    const controller = new VoiceController({ listener, speaker, agent,
+      ...runOperator === undefined ? {} : { runOperator }, onState: (s) => { states.push(s) } })
+    return { controller, listener, speaker, agent, states }
+  }
+
+  it('cancels when the confirmation window passes unanswered', async () => {
+    const { controller, speaker } = await rig(async () => ({ spoken: 'Closing Notepad.' }))
+    await controller.handleSpoken({ text: 'close notepad' })
+    expect(speaker.spoken).toEqual(['Say yes to confirm.'])
+    await vi.advanceTimersByTimeAsync(CONFIRM_WINDOW_MS)
+    expect(speaker.spoken).toEqual(['Say yes to confirm.', 'Cancelled.'])
+    expect(speaker.spoken).toHaveLength(2)
+  })
+
+  it('drops a confirmation prompt that a later answer already settled', async () => {
+    const intents: OperatorIntent[] = []
+    const { controller, speaker } = await rig(async (intent) => { intents.push(intent); return { spoken: 'Closing Notepad.' } })
+    const first = controller.handleSpoken({ text: 'close notepad' })
+    await Promise.resolve()
+    await controller.handleSpoken({ text: 'no thanks' })
+    await first
+    expect(intents).toEqual([])
+    expect(speaker.spoken).toEqual(['Say yes to confirm.', 'Cancelled.'])
+  })
+
+  it('asks confirmation when the listener cannot arm a follow-up', async () => {
+    const { controller, speaker, listener } = await rig(async () => ({ spoken: 'Locked.' }))
+    Object.defineProperty(listener, 'listen', { value: undefined, configurable: true })
+    await controller.handleSpoken({ text: 'lock screen' })
+    expect(speaker.spoken).toEqual(['Say yes to confirm.'])
+    expect(listener.listens).toBe(0)
   })
 })

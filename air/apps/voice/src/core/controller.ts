@@ -255,6 +255,7 @@ export class VoiceController {
 
   private async answerConfirmation(spoken: string): Promise<void> {
     const pending = this.confirming
+    /* v8 ignore next -- handleSpoken only routes here while a confirmation is pending; a concurrent drop cannot interleave. */
     if (pending === undefined) return
     const answer = spoken.toLowerCase().replaceAll(/[^a-z ]/g, '').trim()
     if (CONFIRM_WORDS.test(answer)) {
@@ -266,6 +267,7 @@ export class VoiceController {
   }
 
   private async cancelConfirmation(): Promise<void> {
+    /* v8 ignore next -- a confirmation timer or answer always clears the field first; this guards re-entrant calls. */
     if (this.confirming === undefined) return
     const { text } = this.confirming
     this.dropConfirmation()

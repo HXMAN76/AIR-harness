@@ -286,7 +286,7 @@ describe('WorkerEngine kws mode', () => {
     recognizers[0]!.text = 'Jarvis.'
     vad.segments.push({ samples: new Float32Array(160) })
     engine.push(FRAME)
-    expect(sent.filter(m => m.type === 'timeout' || m.type === 'command')).toEqual([])
+    expect(sent.filter(m => 'type' in m && (m.type === 'timeout' || m.type === 'command'))).toEqual([])
     recognizers[0]!.text = 'Hey Jarvis, open notepad.'
     vad.segments.push({ samples: new Float32Array(160) })
     engine.push(FRAME)
