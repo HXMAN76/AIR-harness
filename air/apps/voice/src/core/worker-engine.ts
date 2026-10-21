@@ -128,8 +128,8 @@ export class WorkerEngine {
         },
         maxActivePaths: 4,
         numTrailingBlanks: 1,
-        keywordsScore: config.keywordsScore ?? 1.5,
-        keywordsThreshold: config.keywordsThreshold ?? 0.25,
+        keywordsScore: config.keywordsScore ?? 2.5,
+        keywordsThreshold: config.keywordsThreshold ?? 0.15,
         keywordsFile: config.keywordsFile,
       })
       this.spotterStream = this.spotter.createStream()

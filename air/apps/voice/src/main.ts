@@ -108,6 +108,26 @@ function startVoice(): void {
   debug('voice agent started (listener, speaker, bridge, controller)')
 }
 
+/** Debug-only microphone level: peak and RMS over each 2 s, so a silent or clipping input is visible. */
+let meterPeak = 0
+let meterSquares = 0
+let meterSamples = 0
+let meterAt = Date.now()
+function meterFrame(frame: Float32Array): void {
+  if (process.env['AIR_VOICE_DEBUG'] !== '1') return
+  for (const sample of frame) {
+    meterPeak = Math.max(meterPeak, Math.abs(sample))
+    meterSquares += sample * sample
+  }
+  meterSamples += frame.length
+  if (Date.now() - meterAt < 2_000) return
+  debug(`mic peak ${meterPeak.toFixed(3)} rms ${Math.sqrt(meterSquares / meterSamples).toFixed(4)}`)
+  meterPeak = 0
+  meterSquares = 0
+  meterSamples = 0
+  meterAt = Date.now()
+}
+
 function setupIpc(): void {
   ipcMain.on('frames', (_event, buffers: ArrayBuffer[]) => {
     if (!listener) return
@@ -115,6 +135,7 @@ function setupIpc(): void {
       const frame = new Float32Array(buffer)
       if (frame.length === FRAME_SIZE) {
         listener.push(frame)
+        meterFrame(frame)
       }
     }
   })
