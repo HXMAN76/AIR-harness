@@ -5,6 +5,7 @@
  */
 import { join } from 'node:path'
 import type { Lang, WorkerMessage } from './frames.ts'
+import { SpotterGain } from './gain.ts'
 import { matchWake, TEXT_FALLBACK_WAKE_PHRASES } from './wake.ts'
 
 /** A speech segment from the VAD. */
@@ -83,6 +84,7 @@ export class WorkerEngine {
   private readonly vad: Vad
   private readonly spotter: Spotter | undefined
   private readonly spotterStream: Stream | undefined
+  private readonly gain = new SpotterGain()
   private readonly recognizers: Partial<Record<Lang, Recognizer>> = {}
   private lang: Lang = 'en'
   /** kws mode: speech is being captured after a wake. Text mode: always true. */
@@ -214,7 +216,7 @@ export class WorkerEngine {
   private listen(samples: Float32Array): void {
     const spotter = this.spotter as Spotter
     const stream = this.spotterStream as Stream
-    stream.acceptWaveform({ sampleRate: SAMPLE_RATE, samples })
+    stream.acceptWaveform({ sampleRate: SAMPLE_RATE, samples: this.gain.apply(samples) })
     while (spotter.isReady(stream)) spotter.decode(stream)
     if (spotter.getResult(stream).keyword === '') return
     spotter.reset(stream)
