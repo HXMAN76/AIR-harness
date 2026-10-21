@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { DEFAULT_WAKE_PHRASES, TEXT_FALLBACK_WAKE_PHRASES, matchWake } from '../src/core/wake.ts'
+import { DEFAULT_WAKE_PHRASES, TEXT_WAKE_PHRASES, matchWake } from '../src/core/wake.ts'
 
 describe('matchWake', () => {
   it.each([
@@ -37,7 +37,7 @@ describe('matchWake', () => {
     expect(DEFAULT_WAKE_PHRASES).toEqual(['jarvis', 'hey jarvis', 'ok jarvis'])
   })
 
-  describe('text fallback list', () => {
+  describe('text wake list', () => {
     it.each([
       ['Jervis: new conversation', { wake: true, command: 'new conversation' }],
       ['Jarvas, cancel', { wake: true, command: 'cancel' }],
@@ -47,12 +47,16 @@ describe('matchWake', () => {
       ['Jrvis, openNotepad.', { wake: true, command: 'openNotepad' }],
       ['Javis open notad', { wake: true, command: 'open notad' }],
       ['Jvis.', { wake: true, command: '' }],
+      // The owner's real mic, transcribed by Parakeet (2026-10-22).
+      ['Hey Javis, open the notepad.', { wake: true, command: 'open the notepad' }],
+      ['OK Jervis, what time is it', { wake: true, command: 'what time is it' }],
+      ['I told hey javis yesterday', { wake: false, command: '' }],
     ])('%j', (transcript, expected) => {
-      expect(matchWake(transcript, TEXT_FALLBACK_WAKE_PHRASES)).toEqual(expected)
+      expect(matchWake(transcript, TEXT_WAKE_PHRASES)).toEqual(expected)
     })
 
     it('includes every default phrase', () => {
-      for (const phrase of DEFAULT_WAKE_PHRASES) expect(TEXT_FALLBACK_WAKE_PHRASES).toContain(phrase)
+      for (const phrase of DEFAULT_WAKE_PHRASES) expect(TEXT_WAKE_PHRASES).toContain(phrase)
     })
   })
 })

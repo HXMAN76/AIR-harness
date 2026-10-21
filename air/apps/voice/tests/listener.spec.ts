@@ -20,7 +20,7 @@ function setup(): Rig {
   const ready: number[] = []
   const events: string[] = []
   listener.on('command', (command: Command) => commands.push(command))
-  for (const name of ['wake', 'timeout', 'language']) listener.on(name, (info?: unknown) => events.push(info === undefined ? name : `${name} ${JSON.stringify(info)}`))
+  for (const name of ['wake', 'timeout', 'heard', 'language']) listener.on(name, (info?: unknown) => events.push(info === undefined ? name : `${name} ${JSON.stringify(info)}`))
   listener.on('error', (error: Error) => errors.push(error))
   listener.on('ready', (loadMs: number) => ready.push(loadMs))
   return { listener, fake, commands, errors, ready, events }
@@ -73,10 +73,10 @@ describe('Listener', () => {
     const { listener, fake, commands, ready, events } = setup()
     listener.start()
     fake.children[0]!.out('{"ready":true,"loadMs":4100}\n{"type":"wake"}\r\n')
-    fake.children[0]!.out('{"type":"command","text":"open notepad","lang":"en","audioMs":1800,"decodeMs":90}\n{"type":"timeout"}\n{"type":"language","lang":"ta","loadMs":1500}\n')
+    fake.children[0]!.out('{"type":"command","text":"open notepad","lang":"en","audioMs":1800,"decodeMs":90}\n{"type":"timeout"}\n{"type":"heard"}\n{"type":"language","lang":"ta","loadMs":1500}\n')
     expect(ready).toEqual([4100])
     expect(commands).toEqual([{ text: 'open notepad', lang: 'en', audioMs: 1800, decodeMs: 90 }])
-    expect(events).toEqual(['wake', 'timeout', 'language {"lang":"ta","loadMs":1500}'])
+    expect(events).toEqual(['wake', 'timeout', 'heard', 'language {"lang":"ta","loadMs":1500}'])
   })
 
   it('reports a worker error message as an error', () => {

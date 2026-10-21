@@ -73,6 +73,10 @@ function startVoice(): void {
   listener.on('wake', () => {
     console.log('wake')
   })
+  // Text wake: speech that did not start with a wake phrase. Its text is never kept; only this marker is logged.
+  listener.on('heard', () => {
+    debug('heard (no wake)')
+  })
   listener.on('command', (command: { text: string; lang: string; decodeMs: number }) => {
     console.log(`command (${command.lang}):`, command.text)
     debug(`decoded in ${command.decodeMs}ms`)

@@ -49,7 +49,7 @@ function toMessage(value: unknown): WorkerMessage | undefined {
   if (typeof value !== 'object' || value === null) return undefined
   const r = value as Record<string, unknown>
   if (r.ready === true && isNumber(r.loadMs)) return { ready: true, loadMs: r.loadMs }
-  if (r.type === 'wake' || r.type === 'timeout') return { type: r.type }
+  if (r.type === 'wake' || r.type === 'timeout' || r.type === 'heard') return { type: r.type }
   if (r.type === 'command' && typeof r.text === 'string' && isLang(r.lang) && isNumber(r.audioMs) && isNumber(r.decodeMs)) {
     return { type: 'command', text: r.text, lang: r.lang, audioMs: r.audioMs, decodeMs: r.decodeMs }
   }
@@ -59,7 +59,7 @@ function toMessage(value: unknown): WorkerMessage | undefined {
 }
 
 /**
- * Emits `'wake'`, `'command'` ({@link Command}), `'timeout'` (no speech after a wake), `'language'` ({ lang, loadMs }),
+ * Emits `'wake'`, `'command'` ({@link Command}), `'timeout'` (no speech after a wake), `'heard'` (text wake: speech without a wake phrase, no text), `'language'` ({ lang, loadMs }),
  * `'ready'` (model load time in ms), and `'error'` (Error).
  * Protocol: frames on the worker's stdin (audio and control, see `frames.ts`); one JSON object per line on its stdout.
  */
@@ -162,6 +162,7 @@ export class Listener extends EventEmitter {
     if ('ready' in message) this.emit('ready', message.loadMs)
     else if (message.type === 'wake') this.emit('wake')
     else if (message.type === 'timeout') this.emit('timeout')
+    else if (message.type === 'heard') this.emit('heard')
     else if (message.type === 'command') this.emit('command', { text: message.text, lang: message.lang, audioMs: message.audioMs, decodeMs: message.decodeMs } satisfies Command)
     else if (message.type === 'language') this.emit('language', { lang: message.lang, loadMs: message.loadMs })
     else this.emit('error', new Error(message.message))

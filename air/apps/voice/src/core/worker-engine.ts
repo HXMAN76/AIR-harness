@@ -1,12 +1,14 @@
 /**
  * The listener worker's logic with the sherpa-onnx classes injected, so it is testable without models.
- * Wake mode `kws`: a streaming keyword spotter runs on every frame; speech is decoded only after a wake.
- * Wake mode `text` (fallback): every VAD segment is decoded and matched against the wake phrases.
+ * Wake mode `text` (the default): every VAD segment of at most {@link MAX_WAKE_SEGMENT_S} seconds is decoded by the
+ * recogniser and matched against the wake phrases at its start; longer speech is not decoded, and a transcript
+ * without a wake phrase is dropped, never stored or sent on (only a content-free `heard` marker goes out).
+ * Wake mode `kws` (opt-in): a streaming keyword spotter runs on every frame; speech is decoded only after a wake.
  */
 import { join } from 'node:path'
 import type { Lang, WorkerMessage } from './frames.ts'
 import { SpotterGain } from './gain.ts'
-import { matchWake, TEXT_FALLBACK_WAKE_PHRASES } from './wake.ts'
+import { matchWake, TEXT_WAKE_PHRASES } from './wake.ts'
 
 /** A speech segment from the VAD. */
 export interface SpeechSegment {
@@ -76,6 +78,8 @@ export const SAMPLE_RATE = 16_000
 const WINDOW = 512
 /** Seconds to wait for speech after a wake before giving up. */
 export const NO_SPEECH_TIMEOUT_S = 6
+/** Text wake: a segment longer than this is not decoded unless a command is awaited. */
+export const MAX_WAKE_SEGMENT_S = 4
 
 /** Builds the offline recognisers lazily and runs the wake and capture loop. */
 export class WorkerEngine {
@@ -257,6 +261,10 @@ export class WorkerEngine {
       const samples = this.vad.front(false).samples
       this.vad.pop()
       const audioMs = Math.round(samples.length / (SAMPLE_RATE / 1000))
+      if (this.c.wake === 'text' && !this.awaiting() && samples.length > MAX_WAKE_SEGMENT_S * SAMPLE_RATE) {
+        this.c.send({ type: 'heard' })
+        continue
+      }
       const started = this.now()
       const text = this.decode(samples)
       const decodeMs = Math.round(this.now() - started)
@@ -273,13 +281,19 @@ export class WorkerEngine {
     }
   }
 
-  /** Fallback wake: a segment is a command when it starts with a wake phrase or follows a bare wake phrase. */
+  /** Whether a command is awaited (after a bare wake or an {@link arm}). */
+  private awaiting(): boolean {
+    return this.deadline > 0 && this.clock <= this.deadline
+  }
+
+  /** Text wake: a segment is a command when it starts with a wake phrase or follows a bare wake phrase. */
   private textWake(text: string, audioMs: number, decodeMs: number): void {
-    const awaiting = this.deadline > 0 && this.clock <= this.deadline
+    const awaiting = this.awaiting()
     this.deadline = 0
-    const match = matchWake(text, TEXT_FALLBACK_WAKE_PHRASES)
+    const match = matchWake(text, TEXT_WAKE_PHRASES)
     if (!match.wake) {
       if (awaiting) this.c.send({ type: 'command', text, lang: this.lang, audioMs, decodeMs })
+      else this.c.send({ type: 'heard' })
       return
     }
     this.c.send({ type: 'wake' })

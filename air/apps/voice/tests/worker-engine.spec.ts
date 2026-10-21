@@ -1,7 +1,7 @@
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import type { WorkerMessage } from '../src/core/frames.ts'
-import { NO_SPEECH_TIMEOUT_S, SAMPLE_RATE, WorkerEngine, type EngineConfig, type Recognizer, type Sherpa, type SpeechSegment, type Spotter, type Stream, type Vad } from '../src/core/worker-engine.ts'
+import { MAX_WAKE_SEGMENT_S, NO_SPEECH_TIMEOUT_S, SAMPLE_RATE, WorkerEngine, type EngineConfig, type Recognizer, type Sherpa, type SpeechSegment, type Spotter, type Stream, type Vad } from '../src/core/worker-engine.ts'
 
 class FakeVad implements Vad {
   windows = 0
@@ -338,10 +338,41 @@ describe('WorkerEngine text mode', () => {
     expect(r.sent.slice(1)).toEqual([{ type: 'wake' }, { type: 'command', text: 'open notepad', lang: 'en', audioMs: 100, decodeMs: 10 }])
   })
 
-  it('drops speech without a wake phrase', () => {
+  it('wakes on the owner-mic transcript "Hey Javis, ..."', () => {
+    const r = textRig()
+    say(r, 'Hey Javis, open the notepad.')
+    expect(r.sent.slice(1)).toMatchObject([{ type: 'wake' }, { type: 'command', text: 'open the notepad' }])
+  })
+
+  it('drops speech without a wake phrase, sending only a marker without text', () => {
     const r = textRig()
     say(r, 'just talking')
-    expect(r.sent).toHaveLength(1)
+    expect(r.sent.slice(1)).toEqual([{ type: 'heard' }])
+    expect(JSON.stringify(r.sent)).not.toContain('just talking')
+  })
+
+  it('does not decode a segment longer than the wake limit, and decodes it when a command is awaited', () => {
+    const r = textRig()
+    r.recognizers[0]!.text = 'Jarvis long speech'
+    r.vad.segments.push({ samples: new Float32Array((MAX_WAKE_SEGMENT_S + 1) * SAMPLE_RATE) })
+    r.engine.push(FRAME)
+    expect(r.recognizers[0]!.decoded).toBe(0)
+    expect(r.sent.slice(1)).toEqual([{ type: 'heard' }])
+    r.engine.arm()
+    r.recognizers[0]!.text = 'a long answer'
+    r.vad.segments.push({ samples: new Float32Array((MAX_WAKE_SEGMENT_S + 1) * SAMPLE_RATE) })
+    r.engine.push(FRAME)
+    expect(r.sent.at(-1)).toMatchObject({ type: 'command', text: 'a long answer' })
+  })
+
+  it('keeps the kws mode unlimited in segment length', () => {
+    const r = rig({ wake: 'kws' })
+    r.spotter.fired = true
+    r.engine.push(FRAME)
+    r.recognizers[0]!.text = 'open notepad'
+    r.vad.segments.push({ samples: new Float32Array((MAX_WAKE_SEGMENT_S + 1) * SAMPLE_RATE) })
+    r.engine.push(FRAME)
+    expect(r.sent.at(-1)).toMatchObject({ type: 'command', text: 'open notepad' })
   })
 
   it('takes the next segment as the command after a bare wake', () => {

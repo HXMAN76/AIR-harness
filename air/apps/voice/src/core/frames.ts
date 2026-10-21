@@ -20,6 +20,8 @@ export type WorkerMessage =
   | { type: 'wake' }
   | { type: 'command'; text: string; lang: Lang; audioMs: number; decodeMs: number }
   | { type: 'timeout' }
+  /** Text wake: speech was heard but did not start with a wake phrase; carries no text. */
+  | { type: 'heard' }
   | { type: 'language'; lang: Lang; loadMs: number }
   | { type: 'error'; message: string }
 
