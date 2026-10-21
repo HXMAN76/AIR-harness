@@ -9,7 +9,7 @@ export default defineConfig({
     testTimeout: 20_000,
     coverage: {
       provider: 'v8',
-      include: ['src/core/**'],
+      include: ['src/core/**/*.ts'],
       thresholds: { 100: true },
     },
   },

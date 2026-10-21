@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { loadModelAssets, modelPaths, verifyModels, type ModelAssets } from '../src/core/models.ts'
+import { fileMatches, loadModelAssets, loadModelLock, modelDir, modelPaths, modelRoot, verifyEntry, verifyModels, type ModelAssets } from '../src/core/models.ts'
 
 const dirs: string[] = []
 afterEach(() => {
@@ -61,5 +61,39 @@ describe('verifyModels', () => {
     writeFileSync(paths.tokens, 'toolong')
     writeFileSync(paths.vad, 'vad?')
     await expect(verifyModels(paths, assets)).resolves.toEqual({ ok: false, missing: [paths.model, paths.tokens, paths.vad] })
+  })
+})
+
+describe('model lock', () => {
+  it('pins the four voice models with hashes, sizes, and licences', () => {
+    const lock = loadModelLock()
+    expect(Object.keys(lock.models)).toEqual(['kws', 'asr-en', 'asr-ta', 'vad'])
+    for (const [name, entry] of Object.entries(lock.models)) {
+      expect(entry.license, name).not.toBe('')
+      for (const file of entry.files) {
+        expect(file.sha256, `${name}/${file.path}`).toMatch(/^[0-9a-f]{64}$/)
+        expect(file.bytes).toBeGreaterThan(0)
+        expect(file.url ?? entry.archive?.url, `${name}/${file.path}`).toMatch(/^https:\/\//)
+      }
+    }
+    expect(lock.models.kws!.archive!.url).toContain('kws-models')
+    expect(lock.models['asr-en']!.archive!.url).toContain('parakeet-tdt-0.6b-v2-int8')
+    expect(lock.models['asr-ta']!.files[0]!.url).toContain('/ta/model.int8.onnx')
+  })
+
+  it('puts each model in its own folder under ~/.air/voice-models', () => {
+    expect(modelRoot()).toBe(join(homedir(), '.air', 'voice-models'))
+    expect(modelDir('kws', '/h')).toBe(join('/h', '.air', 'voice-models', 'kws'))
+  })
+
+  it('verifyEntry checks every file of an entry; fileMatches checks one', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'voice-entry-'))
+    dirs.push(dir)
+    writeFileSync(join(dir, 'a.bin'), 'aaa')
+    writeFileSync(join(dir, 'b.bin'), 'bbbb')
+    const entry = { title: 't', license: 'l', files: [{ path: 'a.bin', bytes: 3, sha256: sha('aaa') }, { path: 'b.bin', bytes: 4, sha256: sha('xxxx') }, { path: 'c.bin', bytes: 1, sha256: sha('c') }] }
+    await expect(verifyEntry(dir, entry)).resolves.toEqual({ ok: false, missing: [join(dir, 'b.bin'), join(dir, 'c.bin')] })
+    await expect(verifyEntry(dir, { ...entry, files: [entry.files[0]!] })).resolves.toEqual({ ok: true })
+    await expect(fileMatches(join(dir, 'a.bin'), { bytes: 3, sha256: sha('aaa') })).resolves.toBe(true)
   })
 })
