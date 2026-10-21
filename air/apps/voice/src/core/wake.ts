@@ -1,10 +1,16 @@
 /** Wake-phrase matching for speech transcripts. Pure; no state. */
 
+/** Phrases that start a command. With the keyword spotter (the default) only these three are spotted. */
+export const DEFAULT_WAKE_PHRASES: readonly string[] = ['jarvis', 'hey jarvis', 'ok jarvis']
+
 /**
- * Phrases that start a command: "Jarvis" with its greetings and the ways SenseVoice mis-hears it.
- * javis, jrvis, and jvis are what SenseVoice returned for SAPI speech of "Jarvis" on 2026-10-21.
+ * Phrases for the `AIR_VOICE_WAKE=text` fallback only, where every segment is decoded: the defaults plus the ways
+ * SenseVoice mis-heard "Jarvis" for SAPI speech on 2026-10-21 (javis, jrvis, jvis) and other close hearings.
+ * Loose on purpose; never used with the keyword spotter, because common names such as "Davis" would wake it.
  */
-export const DEFAULT_WAKE_PHRASES: readonly string[] = ['jarvis', 'hey jarvis', 'ok jarvis', 'jervis', 'jarvas', 'travis', 'javis', 'jrvis', 'jvis', 'davis', 'hey davis', 'jarvis is', 'charvis', 'jarviss'] // SenseVoice mis-hearings of "Jarvis" seen on Windows
+export const TEXT_FALLBACK_WAKE_PHRASES: readonly string[] = [
+  ...DEFAULT_WAKE_PHRASES, 'jervis', 'jarvas', 'travis', 'javis', 'jrvis', 'jvis', 'davis', 'hey davis', 'jarvis is', 'charvis', 'jarviss',
+]
 
 /** Result of {@link matchWake}. */
 export interface WakeMatch {

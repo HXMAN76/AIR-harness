@@ -5,7 +5,7 @@
  */
 import { join } from 'node:path'
 import type { Lang, WorkerMessage } from './frames.ts'
-import { matchWake } from './wake.ts'
+import { matchWake, TEXT_FALLBACK_WAKE_PHRASES } from './wake.ts'
 
 /** A speech segment from the VAD. */
 export interface SpeechSegment {
@@ -261,7 +261,7 @@ export class WorkerEngine {
   private textWake(text: string, audioMs: number, decodeMs: number): void {
     const awaiting = this.deadline > 0 && this.clock <= this.deadline
     this.deadline = 0
-    const match = matchWake(text)
+    const match = matchWake(text, TEXT_FALLBACK_WAKE_PHRASES)
     if (!match.wake) {
       if (awaiting) this.c.send({ type: 'command', text, lang: this.lang, audioMs, decodeMs })
       return

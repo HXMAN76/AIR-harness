@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { DEFAULT_WAKE_PHRASES, matchWake } from '../src/core/wake.ts'
+import { DEFAULT_WAKE_PHRASES, TEXT_FALLBACK_WAKE_PHRASES, matchWake } from '../src/core/wake.ts'
 
 describe('matchWake', () => {
   it.each([
@@ -11,13 +11,8 @@ describe('matchWake', () => {
     ['', { wake: false, command: '' }],
     ['JARVIS!!! search weather', { wake: true, command: 'search weather' }],
     ['OK Jarvis. Use cloud.', { wake: true, command: 'Use cloud' }],
-    ['Jervis: new conversation', { wake: true, command: 'new conversation' }],
-    ['Jarvas, cancel', { wake: true, command: 'cancel' }],
-    ['Travis open the browser', { wake: true, command: 'open the browser' }],
-    // Heard by SenseVoice from SAPI speech of "Jarvis" (2026-10-21).
-    ['Jrvis, openNotepad.', { wake: true, command: 'openNotepad' }],
-    ['Javis open notad', { wake: true, command: 'open notad' }],
-    ['Jvis.', { wake: true, command: '' }],
+    ['Travis open the browser', { wake: false, command: '' }],
+    ['Davis, open notepad.', { wake: false, command: '' }],
     ['jarvisville tickets', { wake: false, command: '' }],
     ['  ...  ', { wake: false, command: '' }],
   ])('%j', (transcript, expected) => {
@@ -38,8 +33,26 @@ describe('matchWake', () => {
     expect(matchWake('anything', ['', '  '])).toEqual({ wake: false, command: '' })
   })
 
-  it('ships the default phrases', () => {
-    expect(DEFAULT_WAKE_PHRASES).toEqual(['jarvis', 'hey jarvis', 'ok jarvis', 'jervis', 'jarvas', 'travis', 'javis', 'jrvis', 'jvis', 'davis', 'hey davis', 'jarvis is', 'charvis', 'jarviss'])
-    expect(matchWake('Davis, open notepad.')).toEqual({ wake: true, command: 'open notepad' })
+  it('ships a tight default list', () => {
+    expect(DEFAULT_WAKE_PHRASES).toEqual(['jarvis', 'hey jarvis', 'ok jarvis'])
+  })
+
+  describe('text fallback list', () => {
+    it.each([
+      ['Jervis: new conversation', { wake: true, command: 'new conversation' }],
+      ['Jarvas, cancel', { wake: true, command: 'cancel' }],
+      ['Travis open the browser', { wake: true, command: 'open the browser' }],
+      ['Davis, open notepad.', { wake: true, command: 'open notepad' }],
+      // Heard by SenseVoice from SAPI speech of "Jarvis" (2026-10-21).
+      ['Jrvis, openNotepad.', { wake: true, command: 'openNotepad' }],
+      ['Javis open notad', { wake: true, command: 'open notad' }],
+      ['Jvis.', { wake: true, command: '' }],
+    ])('%j', (transcript, expected) => {
+      expect(matchWake(transcript, TEXT_FALLBACK_WAKE_PHRASES)).toEqual(expected)
+    })
+
+    it('includes every default phrase', () => {
+      for (const phrase of DEFAULT_WAKE_PHRASES) expect(TEXT_FALLBACK_WAKE_PHRASES).toContain(phrase)
+    })
   })
 })
