@@ -4,6 +4,7 @@
  * (a whitelisted target) in an environment variable, so user text is never parsed as a command.
  * The app and site whitelist and the URL rules live in `@air/dsh-tool-open`, shared with the agent's `open` tool.
  */
+import { readNews, type FetchLike } from './news.ts'
 import { nodeExec, runPowerShell, startTarget, TARGET_ENV, type ExecLike } from '@air/dsh-tool-open/exec'
 import {
   findApp, findSite, GOOGLE_HOME, googleSearchUrl, isAllowedProcessList, youtubeSearchUrl,
@@ -26,6 +27,7 @@ export type OperatorIntent =
   | { kind: 'lock' }
   | { kind: 'time' }
   | { kind: 'date' }
+  | { kind: 'news'; topic?: string }
 
 const VOLUME =
   /^(?:turn |put )?(?:the )?volume (up|down)$|^turn (up|down) the volume$|^(increase|raise|decrease|lower|reduce) (?:the )?volume$/
@@ -47,6 +49,15 @@ function clean(command: string): string {
 /** The text of the one capture group that took part in a match. */
 function captured(match: RegExpExecArray): string {
   return match.slice(1).join('')
+}
+
+const NEWS_TOPIC = /^(?:(?:read|tell|give) me )?(?:the |todays |today s )?(?:latest )?(?:news|headlines) (?:about|on|for|of) (.+)$/
+const NEWS_ALL = /^(?:(?:read|tell|give) me )?(?:what is |whats )?(?:the |todays |today s )?(?:latest |top )?(?:news|headlines)(?: today)?$|^(?:read|tell me) (?:the |todays )?(?:latest |top )?(?:news|headlines)$/
+
+function matchNews(lower: string): OperatorIntent | null {
+  const topic = NEWS_TOPIC.exec(lower)
+  if (topic !== null) return { kind: 'news', topic: captured(topic).trim() }
+  return NEWS_ALL.test(lower) ? { kind: 'news' } : null
 }
 
 function matchOpen(name: string): OperatorIntent | null {
@@ -88,6 +99,8 @@ export function matchOperatorIntent(command: string): OperatorIntent | null {
   const lower = text.toLowerCase().replaceAll(/['’]/g, '')
   if (/^(?:what time is it(?: now| right now)?|(?:whats|what is) the time(?: now)?|tell me the time)$/.test(lower)) return { kind: 'time' }
   if (/^(?:(?:whats|what is) (?:the |todays )?date(?: today)?|what day is it(?: today)?)$/.test(lower)) return { kind: 'date' }
+  const news = matchNews(lower)
+  if (news !== null) return news
   if (/^lock (?:the |my )?(?:screen|computer|pc|laptop)$/.test(lower)) return { kind: 'lock' }
   const volume = VOLUME.exec(lower)
   if (volume !== null) {
@@ -129,6 +142,7 @@ const VOLUME_SPEECH = { up: 'Volume up.', down: 'Volume down.', mute: 'Muted.' }
  * @param intent - from {@link matchOperatorIntent}; targets are checked again before anything runs.
  * @param exec - process runner; the default spawns for real.
  * @param now - clock for time and date answers.
+ * @param fetchFn - HTTP client for the news feed.
  * @returns the short sentence to speak.
  * @throws when the target is not allowed or the process fails.
  */
@@ -136,6 +150,7 @@ export async function runOperatorIntent(
   intent: OperatorIntent,
   exec: ExecLike = nodeExec,
   now: () => Date = () => new Date(),
+  fetchFn: FetchLike = fetch,
 ): Promise<OperatorResult> {
   switch (intent.kind) {
     case 'open':
@@ -160,6 +175,8 @@ export async function runOperatorIntent(
       return { spoken: 'Locking the screen.' }
     case 'time':
       return { spoken: `It's ${now().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}.` }
+    case 'news':
+      return { spoken: await readNews({ fetchFn, ...intent.topic === undefined ? {} : { topic: intent.topic }, env: process.env }) }
     case 'date':
       return { spoken: `Today is ${now().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}.` }
   }

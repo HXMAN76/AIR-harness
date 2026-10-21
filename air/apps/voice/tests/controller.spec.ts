@@ -972,6 +972,15 @@ describe('conversation mode', () => {
     expect(agent.asks).toEqual([])
   })
 
+  it('answers the news suggestion through the operator, and the mail suggestion through the agent', async () => {
+    const { controller, agent } = await rig()
+    await controller.handleSpoken({ text: 'open notepad' })
+    await controller.handleSpoken({ text: 'the news' })
+    await controller.handleSpoken({ text: 'important mail' })
+    expect(agent.asks).toHaveLength(1)
+    expect(agent.asks[0]).toContain('up to 5 unread messages')
+  })
+
   it('sends anything that is not a suggestion to the agent in the follow-up window', async () => {
     const { controller, agent } = await rig()
     await controller.handleSpoken({ text: 'open notepad' })
