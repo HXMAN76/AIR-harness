@@ -73,6 +73,8 @@
               maxBytes: 32768
           - id: time-context
             name: '@deepseek-ai/dsh-time-context'
+          - id: air-memory-context
+            name: '@air/dsh-memory-context'
           - id: tool-bash
             name: '@deepseek-ai/dsh-tool-bash'
             disabled: !!js process.platform === 'win32'
@@ -228,6 +230,8 @@
           - id: tool-plugin-market
             name: '@deepseek-ai/dsh-plugin-market/tools'
             disabled: true
+          - id: air-tool-memory
+            name: '@air/dsh-tool-memory'
 
     # The same plugin list without the tools that cost the most context on a
     # small local window: schedule, delegation (subagents and workflow), and
@@ -255,6 +259,8 @@
               maxBytes: 32768
           - id: time-context
             name: '@deepseek-ai/dsh-time-context'
+          - id: air-memory-context
+            name: '@air/dsh-memory-context'
           - id: tool-bash
             name: '@deepseek-ai/dsh-tool-bash'
             disabled: !!js process.platform === 'win32'
@@ -377,6 +383,8 @@
           - id: tool-plugin-market
             name: '@deepseek-ai/dsh-plugin-market/tools'
             disabled: true
+          - id: air-tool-memory
+            name: '@air/dsh-tool-memory'
           # END generated
 
     # Host rows: each mounts per-Agent children through createScope.
@@ -426,6 +434,19 @@
       name: '@air/dsh-effort-session-only'
       config:
         enabled: true
+    # AIR memory, tier 1 (FTS5 only, no vector search). Files under
+    # $DSH_HOME/air/memory are the truth (one git commit per write, plain files
+    # when git fails); the index under $DSH_HOME/cache/air is derived and may
+    # be deleted. The pinned core and the search and read results reach only
+    # the model routes in `shareWith` (provider ids; the default is the local
+    # Ollama route). To use memory with another route, add its id in a profile
+    # patch:
+    #   - { id: air-memory-store, config: { shareWith: [ollama, deepseek] } }
+    # Disable all four `air-memory-*`/`air-tool-memory` rows for a no-memory arm.
+    - id: air-memory-store
+      name: '@air/dsh-memory-store'
+    - id: air-memory-index
+      name: '@air/dsh-memory-index'
 
 # New sessions use the lean AIR preset; the full one stays selectable. The registry row's only non-volatile Config
 # field is `default`, so replacing its config loses nothing.

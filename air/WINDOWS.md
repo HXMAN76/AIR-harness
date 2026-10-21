@@ -1,6 +1,6 @@
 # AIR on native Windows
 
-Nobody on this project has yet run these steps on a Windows machine. The commands below are derived from upstream's documentation, the project scripts, and the Windows job of the fork's CI. The first teammate to run them should record the result with the report template at the end of this page.
+These steps were run once on a Windows 11 machine on 2026-10-20, up to a first answered prompt in the desktop app; the result and the problems seen are in [CHECKS.md](CHECKS.md). The commands come from upstream's documentation, the project scripts, and the Windows job of the fork's CI. Record further runs with the report template at the end of this page.
 
 This guide uses PowerShell and no WSL. Upstream supports native Windows development and treats WSL 2 as optional ([docs/development.md](../docs/development.md), section "Windows and WSL 2"). Keep the checkout and all tools in one environment; do not mix a Windows checkout with WSL tools.
 
@@ -92,7 +92,7 @@ pnpm -C air run desktop:setup
 pnpm -C air run desktop
 ```
 
-`desktop:setup` is idempotent. It adds the AIR bundles to the desktop profile, writes the Ollama route patch when none exists, adds `OLLAMA_API_KEY=ollama` to the `.env` of the harness home, and backs up every file it changes as `<name>.bak-<timestamp>`. The first launch downloads and builds a Node, pnpm, and Python runtime payload (about 128 MB downloaded, about 455 MB on disk; measured on Linux). Upstream supports a Windows x64 target for the desktop app, so the development launch is expected to pick the Windows payload; this has not been run.
+`desktop:setup` is idempotent. It adds the AIR bundles to the desktop profile, writes the Ollama route patch when none exists, adds `OLLAMA_API_KEY=ollama` to the `.env` of the harness home, and backs up every file it changes as `<name>.bak-<timestamp>`. The first launch downloads and builds a Node, pnpm, and Python runtime payload (about 128 MB downloaded, about 455 MB on disk; measured on Linux). On Windows the launch picked the `win-x64` payload. The first launch on 2026-10-20 failed once with `EPERM, Permission denied` on `apps\desktop\.desktop-build\targets\win-x64\runtime\primary-runtime`; running `pnpm -C air run desktop` again succeeded.
 
 Where things live, derived from `air/scripts/setup-desktop-profile.ts` and `apps/desktop/scripts/dev.ts`:
 
@@ -124,7 +124,42 @@ pnpm dsh --profile air
 
 The Web UI opens on `http://127.0.0.1:3080`. This has not been run on Windows either. Run the first command only once: since `dsh-v0.2.1-rc.2`, `--from-default-profile` replaces an existing profile, which removes the added bundle and the copied patch.
 
-## 10. Troubleshooting
+## 10. Voice agent
+
+The voice agent (`air/apps/voice`) is a Windows-only preview. It captures the microphone, spots the wake word "Jarvis" locally with a small keyword model, transcribes the command after it (English: Parakeet; Tamil: IndicConformer), and drives a dsh session through the SDK. Replies are spoken by Windows SAPI.
+
+### Setup
+
+Run the steps in this order:
+
+```powershell
+pnpm -C air/apps/voice install
+pnpm -C air/apps/voice exec tsx scripts/fetch-models.ts
+pnpm -C air/apps/voice exec tsx scripts/setup-home.ts
+pnpm -C air/apps/voice build
+pnpm -C air run voice
+```
+
+Models are fetched only by `fetch-models.ts` (about 1 GB) into `%USERPROFILE%\.air\voice-models\<name>\`; the app never downloads them. `setup-home.ts` creates the voice home `%USERPROFILE%\.air\voice-home` (not shared with the desktop app) and the agent workspace `<Documents>\AIR Voice` (OneDrive-redirected Documents works). The agent works in the workspace, so the home's `.env`, memory and profile are outside its sandbox. For the cloud routes, add `OLLAMA_CLOUD_KEY=<key>` (an Ollama account key) to `%USERPROFILE%\.air\voice-home\.env`. Closing an app and locking the screen ask for a spoken "yes" first. Set `AIR_VOICE_DEBUG=1` for extra console output.
+
+### Windows-specific requirements
+
+- **SAPI voices.** At least one SAPI 5 voice must be installed. Windows 11 ships with several; add more in Settings > Time & language > Speech > Add voices. The speaker child (`speaker.ps1`) uses the system default voice; change it in the same Speech settings.
+- **Microphone permissions.** The Electron app needs microphone access. Allow it in Settings > Privacy & security > Microphone > Let desktop apps access your microphone. If the app shows "listening" but no transcript appears, check that the microphone is not muted or in use by another app.
+- **PowerShell execution policy.** The speaker child runs `speaker.ps1` with `-ExecutionPolicy Bypass`; no system-wide policy change is needed.
+- **Node for the listener worker.** The listener spawns a Node child (not Electron) to load `sherpa-onnx-node`'s native addon. The Node version must match the one the addon was built for (the AIR workspace pins Node `^22.19` or `>=24`).
+
+### Troubleshooting
+
+| Symptom | Cause | What to do |
+|---|---|---|
+| "listening" but no transcript after speaking | Microphone muted, wrong device selected, or permissions denied | Check Windows microphone privacy settings; select the correct input device in Settings > Sound |
+| Speaker says nothing | No SAPI voice installed, or the voice is set to a device with no output | Install a SAPI voice in Windows Speech settings; check the default audio output |
+| "listener unavailable" on start | The worker child crashed twice (native addon mismatch or missing model files) | Run `fetch-models.ts` again (it skips models that are intact) and relaunch; confirm Node version matches the addon build |
+| Wake phrase not recognised | The keyword spotter did not fire | Say "Jarvis", "hey Jarvis" or "OK Jarvis" clearly; tune with `AIR_VOICE_KWS_SCORE` and `AIR_VOICE_KWS_THRESHOLD` (see the voice README). `AIR_VOICE_WAKE=text` switches to text matching with looser aliases |
+| Cloud route returns "API key missing" | `OLLAMA_CLOUD_KEY` not in the voice home's `.env` or the environment | Add the key to `%USERPROFILE%\.air\voice-home\.env` and relaunch |
+
+## 11. Troubleshooting
 
 The rows on pnpm, path case, 8.3 names, `ENOENT`, `EPERM`/`EBUSY`, and the nested lint config come from failures seen in this project's Windows CI and the fixes made for them; the line-ending row follows from `.gitattributes` and the CI setting and was not itself seen as a failure. The last row records that upstream documents no further Windows issues.
 

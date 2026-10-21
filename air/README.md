@@ -8,7 +8,7 @@ AIR is a local-first personal agent. It is built on a fork of an MIT-licensed up
 
 ## Status
 
-Last verification dates and the environment of each check are in [CHECKS.md](CHECKS.md). Nobody has run anything on native Windows yet; the Windows column below is what the Windows CI job covers.
+Last verification dates and the environment of each check are in [CHECKS.md](CHECKS.md). On native Windows only setup and a first prompt in the desktop app were run by hand (2026-10-20); the Windows row below says what else is covered.
 
 | Capability | Desktop app | Web UI | Headless | Checked how |
 |---|---|---|---|---|
@@ -18,7 +18,9 @@ Last verification dates and the environment of each check are in [CHECKS.md](CHE
 | Preset `air-lean` by default, `air` by hand or by model | Works | Works | Lean only | Run by hand; selection logic also unit tested |
 | Compaction with a chronological log, visible row | Works | Same client | Compaction only | Run by hand on `qwen3-8b-32k` |
 | Thinking off by default, "Medium" per session | Works | Works | Off | Run by hand |
-| Windows | Not yet run by a person | Not yet run by a person | Not yet run by a person | Windows CI leg: install, build, typecheck, lint, tests, profile smokes |
+| Voice agent (preview) | Windows only; not on Linux | n/a | n/a | Unit tests and parts run by hand on Windows; the four review scenarios are not recorded ([apps/voice/README.md](apps/voice/README.md)) |
+| Memory (trimmed plan 04) | Rows in the `air` bundle | Same | Not checked | Unit tests |
+| Windows | Launch and first prompt work; features not checked by hand | Not yet run by a person | Not yet run by a person | Run by hand once (2026-10-20); Windows CI leg: install, build, typecheck, lint, tests, profile smokes |
 | Installer, tray, menus, updater | Not done | n/a | n/a | No installer on any OS; tray, menus, and updater unchecked on Linux |
 | Hosted (cloud) models | Untested | Untested | Untested | Not run |
 
@@ -202,11 +204,17 @@ From the command line, the `air-mcp` profile uses the bundle `bundles/mcp-server
 | `packages/preset-by-model` | Picks `air-lean` or `air` from the selected model's context window |
 | `packages/effort-session-only` | Keeps a reasoning-effort pick in the session, not in the saved default |
 | `packages/compaction-log` | Compaction engine whose summaries keep a chronological log and the first request |
+| `packages/memory-store` | Memory files: Markdown with frontmatter in a git repository |
+| `packages/memory-index` | Derived SQLite FTS5 index with BM25 keyword search |
+| `packages/tool-memory` | memory_search, memory_read, memory_write, memory_forget |
+| `packages/tool-open` | `open` tool (app, url, search) and the app and URL whitelist shared with the voice app |
+| `packages/memory-context` | Pinned memory core, injected once per session |
 | `bundles/air` | Product defaults as a Cordis patch (Web and desktop) |
 | `bundles/air-desktop` | Layered after `air` in the desktop profile; keeps the two account rows the desktop app needs at boot |
 | `bundles/air-headless` | AIR defaults and plugins for a profile made from the headless template |
 | `bundles/air-mcp` | The `air-mcp` command-line profile |
 | `bundles/mcp-servers` | The MCP trust row shared by `air` and `air-mcp` |
+| `apps/voice` | Wake-word voice companion: Electron, keyword spotter, Parakeet and IndicConformer, Windows SAPI |
 | `scripts/` | Generators, smoke tests, `setup-desktop-profile.ts`, `desktop-drive.mjs` |
 | `examples/` | Profile-patch examples, such as the local Ollama route |
 | `plans/` | Roadmap, implementation plans, and API spikes |
@@ -238,9 +246,46 @@ node air/scripts/desktop-drive.mjs title
 node air/scripts/desktop-drive.mjs send "/mcp-trust status"
 ```
 
+## Memory
+
+AIR remembers through files. Each note is a Markdown file with frontmatter under `$DSH_HOME/air/memory/` (default `~/.dsh/air/memory/`, `%USERPROFILE%\.dsh\air\memory\` on Windows), and that directory is a git repository with one commit per write: `git -C <that folder> log -p` is the audit trail, `git revert` the undo. If git is missing or fails, notes are still saved as plain files and the tool result says so. The search index at `$DSH_HOME/cache/air/memory-index.sqlite` is derived and can be deleted.
+
+The model writes a note only through `memory_write`. In the Read Only, Workspace Write, and Auto review access modes the user confirms each write and each `memory_forget` in the approval panel; in Full access nobody can be asked, so notes are stored as low-trust (`agent-inferred`), `feedback` notes and permanent deletes are refused. Every session starts with a pinned core of the user's notes (about 1,500 tokens at most, frozen for the session); deeper recall goes through `memory_search`, which uses keyword (BM25) ranking through the FTS5 index.
+
+Memory text is sent to the active model, so it is shared only with the model routes in `shareWith` on the `air-memory-store` row (default: the local `ollama` route). A session on a hosted model gets no pinned core and cannot search or read notes until its provider id is added there.
+
+Back up or move notes with `pnpm -C air run memory:transfer export <file>` and `import <file>`. Rows: `air-memory-store`, `air-memory-index` (host), `air-tool-memory`, `air-memory-context` (inside the `air` preset). Forgetting a note does not remove text that already entered a session log; delete the session for that.
+
+## Voice agent (preview)
+
+A voice companion that captures the microphone, spots the wake word "Jarvis" with a small keyword model (speech without it is never transcribed), transcribes the command after it (English: Parakeet; Tamil: IndicConformer), sends it to a dsh session through the SDK, and speaks the reply through Windows SAPI. The default route is local Ollama; the cloud routes (Ollama Cloud, model `minimax-m3.1-flash`, with computer use on the screen route) are opt-in and need `OLLAMA_CLOUD_KEY`.
+
+```powershell
+pnpm -C air/apps/voice install
+pnpm -C air/apps/voice exec tsx scripts/fetch-models.ts
+pnpm -C air/apps/voice exec tsx scripts/setup-home.ts
+pnpm -C air/apps/voice build
+pnpm -C air run voice
+```
+
+Models live in `%USERPROFILE%\.air\voice-models\<name>\` and are never downloaded at launch. The voice home is `%USERPROFILE%\.air\voice-home` (separate from the desktop app); the agent works in `<Documents>\AIR Voice`.
+
+Four voice commands are handled by the app itself (the model never sees them):
+
+| Command | Phrases |
+|---|---|
+| Switch route | "use the local model", "use the cloud model", "use the screen model" |
+| New conversation | "new conversation", "start a new conversation" |
+| Cancel | "cancel", "cancel that", "never mind" |
+| Memory sharing | "share memory with the cloud", "stop sharing memory" |
+
+Simple PC commands ("open notepad", "volume up", "lock screen") run locally without the model; closing an app and locking the screen ask for a spoken "yes" first. Anything else after the wake word ("Jarvis", "hey Jarvis", "OK Jarvis") is sent to the agent. The model's reply is spoken aloud and shown in the transcript pane.
+
+Windows only; requires SAPI voices and microphone permissions. Details, setup for cloud routes, and troubleshooting: [apps/voice/README.md](apps/voice/README.md).
+
 ## Known limitations
 
-- No person has run any of this on native Windows; the desktop app has never been launched on Windows by this project. macOS is out of scope.
+- On native Windows the desktop app was launched and answered one prompt (2026-10-20); MCP trust, skills, commands, compaction, and the Web UI are not checked there. macOS is out of scope.
 - On Linux the desktop app is a development launch from source. There is no installer on any OS, no menu entry, and the window shows upstream's name and icon. Tray, menus, and updater are unchecked on Linux.
 - The desktop app keeps its data in its own development home, separate from the Web profile's `~/.dsh`.
 - Hosted (cloud) models are untested.
@@ -250,6 +295,7 @@ node air/scripts/desktop-drive.mjs send "/mcp-trust status"
 - Models not listed in the variants table get no compaction until they have a table entry.
 - One reply in one 7-turn session was cut off with "Output token limit reached" (before the compaction fixes); it did not repeat and its cause is not known.
 - Headless: no presets, no schedule tool, no answerable MCP prompt, no resume of preset sessions.
+- The voice agent is a Windows-only preview: the wake word is a general keyword model, not one trained for "Jarvis", the cloud and screen routes are untested by a person, and nobody can answer an approval prompt by voice.
 - Not covered by any check: path-scoped rules, `revoke` in the app, a pinned server that later changes its tools, and the benchmark raw data from 2026-10-10, which was lost (the figures are summaries).
 
 ## Where to read more

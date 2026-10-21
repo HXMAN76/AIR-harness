@@ -1,0 +1,106 @@
+{
+  "models": {
+    "kws": {
+      "title": "sherpa-onnx KWS zipformer GigaSpeech 3.3M (2024-01-01), int8, English wake words",
+      "license": "Apache-2.0 (model card); trained on GigaSpeech",
+      "archive": {
+        "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/kws-models/sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01.tar.bz2",
+        "bytes": 17626723,
+        "sha256": "f170013b4716e41b62b9bfd809687c207cef798ef9bc6534d524e17af9b6561a",
+        "root": "sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01"
+      },
+      "files": [
+        {
+          "path": "encoder.int8.onnx",
+          "from": "encoder-epoch-12-avg-2-chunk-16-left-64.int8.onnx",
+          "bytes": 4807159,
+          "sha256": "1e721676515bcd42a186979733981213c66c80db680e1cc582dfedf3be76e678"
+        },
+        {
+          "path": "decoder.int8.onnx",
+          "from": "decoder-epoch-12-avg-2-chunk-16-left-64.int8.onnx",
+          "bytes": 277985,
+          "sha256": "e40ff43297abe815e8898494c17e71bba2152d9d40fa3eb803f75d0f7533329a"
+        },
+        {
+          "path": "joiner.int8.onnx",
+          "from": "joiner-epoch-12-avg-2-chunk-16-left-64.int8.onnx",
+          "bytes": 163380,
+          "sha256": "eae9da0c7e1e6c6a3f4cc42d167899c388f6c6701b94cb96320e4f55df79624c"
+        },
+        {
+          "path": "tokens.txt",
+          "bytes": 5006,
+          "sha256": "fd2ded4050a55d2b1578870ba8697d02371980217806b7558bd0a5cc60f3ba53"
+        },
+        {
+          "path": "bpe.model",
+          "bytes": 244837,
+          "sha256": "c8a2a0129c4ab8e463164c142f82d25649661b122c8cd0b7aab5c9e80b90ad24"
+        }
+      ]
+    },
+    "asr-en": {
+      "title": "NVIDIA Parakeet TDT 0.6B v2, int8, English (sherpa-onnx nemo_transducer)",
+      "license": "CC-BY-4.0 (NVIDIA)",
+      "archive": {
+        "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8.tar.bz2",
+        "bytes": 482468385,
+        "sha256": "157c157bc51155e03e37d2466522a3a737dd9c72bb25f36eb18912964161e1ad",
+        "root": "sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8"
+      },
+      "files": [
+        {
+          "path": "encoder.int8.onnx",
+          "bytes": 652184296,
+          "sha256": "a32b12d17bbbc309d0686fbbcc2987b5e9b8333a7da83fa6b089f0a2acd651ab"
+        },
+        {
+          "path": "decoder.int8.onnx",
+          "bytes": 7257753,
+          "sha256": "b6bb64963457237b900e496ee9994b59294526439fbcc1fecf705b31a15c6b4e"
+        },
+        {
+          "path": "joiner.int8.onnx",
+          "bytes": 1739080,
+          "sha256": "7946164367946e7f9f29a122407c3252b680dbae9a51343eb2488d057c3c43d2"
+        },
+        {
+          "path": "tokens.txt",
+          "bytes": 9384,
+          "sha256": "ec182b70dd42113aff6c5372c75cac58c952443eb22322f57bbd7f53977d497d"
+        }
+      ]
+    },
+    "asr-ta": {
+      "title": "AI4Bharat IndicConformer Tamil, int8 (sherpa-onnx nemo CTC export by parismitaglobalsolutions)",
+      "license": "Apache-2.0 (export model card); source model AI4Bharat IndicConformer, MIT",
+      "files": [
+        {
+          "path": "model.int8.onnx",
+          "url": "https://huggingface.co/parismitaglobalsolutions/indicconformer-sherpa-onnx/resolve/9721eb71eea141fae0982cfcdb9dd2e3d4953c4a/ta/model.int8.onnx",
+          "bytes": 197595513,
+          "sha256": "abb7b59d706b8d27ba3fb5e5e3db7671c9e1a09bf7bc6122de507c60030e65fb"
+        },
+        {
+          "path": "tokens.txt",
+          "url": "https://huggingface.co/parismitaglobalsolutions/indicconformer-sherpa-onnx/resolve/9721eb71eea141fae0982cfcdb9dd2e3d4953c4a/tokens.txt",
+          "bytes": 67605,
+          "sha256": "ee60967630213f31951817ac8b402b92ec18cce80718a24a49b388e56672dfb2"
+        }
+      ]
+    },
+    "vad": {
+      "title": "Silero VAD (pinned by upstream SenseVoice package)",
+      "license": "MIT",
+      "files": [
+        {
+          "path": "silero_vad.onnx",
+          "url": "https://huggingface.co/csukuangfj/vad/resolve/fba88cd2e921609e7675c3aaf51e0b9b295da4bc/silero_vad.onnx",
+          "bytes": 1807522,
+          "sha256": "a35ebf52fd3ce5f1469b2a36158dba761bc47b973ea3382b3186ca15b1f5af28"
+        }
+      ]
+    }
+  }
+}

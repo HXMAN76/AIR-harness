@@ -1,6 +1,6 @@
 # Verification log
 
-Dated record of what was checked by hand and what the result was. The README links here instead of repeating it. Add a section for every new check; do not rewrite old sections. Nothing in this log was run on native Windows by a person.
+Dated record of what was checked by hand and what the result was. The README links here instead of repeating it. Add a section for every new check; do not rewrite old sections. The first native Windows run by a person is the 2026-10-20 section.
 
 ## 2026-10-12: desktop app
 
@@ -53,6 +53,29 @@ Environment: the same machine.
 - F4: over 11 file-read messages two summary requests (2,048 output tokens) were recorded; the last summary instruction contained "Chronological Log" and "First request", and the summary (957 tokens) listed f1.txt to f8.txt in order. "Which file did you read first?" was answered "f1.txt", and the ordered list of read files was right for all 10 files. The "Context compacted" row was at the top level with the "Completed in Ns" disclosures collapsed, and expanding it showed the summary with its log. No "Output token limit" message appeared and every other request kept `max_tokens` 4096.
 - F5: the headless profile steps in the README created a profile under an empty `DSH_HOME`, and one task from a project with `.claude/CLAUDE.md` created `notes.md` whose first line was `# AIR`.
 
+## 2026-10-20: first native Windows run
+
+Environment: Windows 11 Home 10.0.26200, NVIDIA GeForce RTX 4060 Laptop GPU (8 GB), 31 GB RAM, Node 26.12.0, pnpm 11.28.5, Git 2.56.0.windows.2, Ollama 0.40.6, Windows PowerShell 5.1 and Git Bash, checkout on drive G:. Steps from [WINDOWS.md](WINDOWS.md).
+
+Passed:
+
+- Root `pnpm install` and `pnpm run build`, and `pnpm -C air install` and `build` (run by the owner before this check; times not recorded).
+- `pnpm -C air run typecheck`, `lint`, and `smoke` (all three profile smokes printed "ok").
+- `pnpm -C air run test`: all ten packages passed on a quiet machine. A first run while `graphify update .` was using the CPU failed one test in `mcp-conventions` ("does not wait for a reviewer by default", "expected 'error' to be 'success'"); that test gives the server a 500 ms start-up timeout. It passed three times in a row alone and in the next full run.
+- `ollama create` for `qwen3-8b-32k` and `qwen3-8b-16k`; `ollama list` showed both.
+- `pnpm -C air run desktop:setup` created the desktop profile under `apps\desktop\.desktop-build\development\home`, added both bundles, wrote the Ollama route, and added `OLLAMA_API_KEY` to `.env`.
+- `pnpm -C air run desktop` started on the second attempt (see below). The app page, opened from the `dsh web` address the launch printed, showed "AIR Lean", `qwen3-8b-32k`, effort Off, and no sign-in wall, behind a "Preview Notice" dialog dismissed with "Continue". "say hello in one sentence" was answered "Hello! How can I assist you today?" in 14 seconds including the model load, at 17 tokens per second, with 4.8K tokens in the request.
+
+Problems:
+
+- The first `pnpm -C air run desktop` failed while preparing the runtime payload with `EPERM, Permission denied: 'G:\AIR-harness\apps\desktop\.desktop-build\targets\win-x64\runtime\primary-runtime'`; the copied payload had `dependencies\python` but no `node` or `pnpm`. The same preparation run again succeeded with no change, so the cause is taken to be a file held for a moment by another process (the `EPERM` row of the troubleshooting table in WINDOWS.md); this is not proven.
+- Ollama reported `qwen3-8b-32k` at 10.3 GB with 6.3 GB in GPU memory, so part of the model ran on the CPU.
+- `desktop:setup` ran the profile's `pnpm install` with pnpm 12.14.0, not the pinned 11.28.5, and printed Node's `DEP0190` warning about shell arguments. The install succeeded.
+- The system Git config had `core.autocrlf true`; the working tree was still clean. `core.autocrlf false` and `core.longpaths true` were then set globally as WINDOWS.md asks. Windows long paths were already enabled.
+- Native build tools: none were installed, and no step needed them.
+
+Not covered: the Electron window itself (the check used the page it serves), the Web UI fallback, MCP trust, skills, commands, and compaction on Windows.
+
 ## 2026-10-20: upstream sync to `dsh-v0.2.1-rc.2`
 
 Environment: Windows 11 Home, Node 26.12.0, pnpm 11.28.5, branch `air/sync/dsh-v0.2.1-rc.2`. Details of the merge are in [research.md](../research/research.md) section 2b (fifth sync) and [UPSTREAM-DELTA.md](UPSTREAM-DELTA.md).
@@ -71,11 +94,50 @@ Not run: the desktop app and the Web UI on the merged tree.
 
 ## Continuous integration
 
-The fork's `air` workflow runs on Linux and Windows: root install and build, AIR install, build, typecheck, lint, tests, the repository text gates, and the profile smokes. This is the only Windows signal so far. The Windows leg found the failures listed in the troubleshooting table of [WINDOWS.md](WINDOWS.md).
+The fork's `air` workflow runs on Linux and Windows: root install and build, AIR install, build, typecheck, lint, tests, the repository text gates, and the profile smokes. This is the only Windows signal so far. Because `pnpm -r` also reaches `apps/voice`, CI covers its typecheck, lint, and unit tests (the live listener spec is excluded); it does not build `apps/voice` (tsdown plus copy), run the Electron entry, or run the renderer, so run `pnpm -C air/apps/voice run build` by hand. The workflow file is not edited (repository rule). The Windows leg found the failures listed in the troubleshooting table of [WINDOWS.md](WINDOWS.md).
+
+## 2026-10-21: voice agent automated checks
+
+Environment: Windows 11 Home, branch `air/feat/voice-agent-track-a`, worktree build.
+
+| Command | Result |
+|---|---|
+| `pnpm -C air run typecheck` | Passed (all 11 packages) |
+| `pnpm -C air run lint` | Passed (generated-file checks and oxlint clean) |
+| `pnpm -C air run test` | Passed (all packages; voice app 9 files, 115 tests, 100% coverage) |
+| `pnpm -C air/apps/voice test` | Passed (9 files, 115 tests, 100% statements, branches, functions, lines) |
+| `pnpm run verify-concrete-terms` | Passed |
+| `pnpm run verify-repository-references` | Failed on `python/sdk/uv.lock:113` (pre-existing commit hash in a lockfile; not from the voice agent work) |
+
+## 2026-10-21: voice agent manual scenarios
+
+Environment: Windows 11 Home. These scenarios require the Electron app running with a live microphone and speakers, which is not available in this environment.
+
+| # | Scenario | Result | Time to first spoken word | Error text |
+|---|---|---|---|---|
+| 1 | Open Notepad and write a todo list (spoken reply) | NOT RUN — requires Windows desktop with audio | — | — |
+| 2 | Search weather in Chennai (spoken web summary) | NOT RUN — requires Windows desktop with audio | — | — |
+| 3 | Remember a preference, recall it in a new session | NOT RUN — requires Windows desktop with audio | — | — |
+| 4 | Switch model routes by voice or toggle | NOT RUN — requires Windows desktop with audio | — | — |
+
+## 2026-10-21: voice operator, open tool, Ollama Cloud route
+
+Environment: Windows 11 Home, branch `air/feat/voice-agent-track-a`, local Ollama with `qwen3-8b-32k`. Run: `pnpm -C air run typecheck` (passed), `pnpm -C air run lint` (passed), `pnpm -C air/apps/voice test` (10 files, 207 tests, 100% statements, branches, functions, lines), `pnpm -C air/apps/voice run build` (passed), `pnpm -r --no-bail --if-present run test` in `air` (all packages passed, `tool-open` 46 tests at 100% coverage).
+
+- Operator by hand: through the real runner, "open notepad" started Notepad and "close notepad" stopped it. Not run by hand: the other operator actions (volume keys, lock, search URLs, apps other than Notepad), a spoken end-to-end command with a microphone, and the Ollama Cloud route (no key was used; the route and the model id `minimax-m3.1-flash`, taken from the public model list at ollama.com/api/tags, were not called).
+- One real SDK turn, `scripts/ask.ts "open notepad"` on the local route after installing `@air/dsh-tool-open` into the voice home's `sdk` profile: one tool call, `open` with `{"kind":"app","value":"notepad"}`, result "Opened Notepad.", reply in 6.5 s, Notepad running afterwards (then stopped). First request: 2,878 prompt tokens (1,522 new plus 1,356 read from cache, from the usage event). Before the tool existed, the same prompt gave 2,776 prompt tokens, no tool call, and a prose reply, in 15 s. The profile's memory and browser rows were not installed in the voice home, so those tools were absent from both runs; they are skipped at boot with a warning.
+
+Voice home wiring, same day: `scripts/setup-home.ts` installed the open tool, memory packages, and browser packages into `~/.air/voice-home/profiles/sdk`; boot then printed one warning, the `permission` entry, instead of six; a `voice` preset (workspace-write with approval never) as the default preset removed it, and a second boot printed no warning. Memory by hand on the local route: "use the memory_write tool to save ..." made one `memory_write` call (committed, no prompt) and a new conversation answered "how do I like answers?" from the pinned note; the plain phrase "remember that I like short answers" did not call the tool in four tries. With the browser rows installed the first request is about 6,650 prompt tokens, against about 2,880 without them.
+
+Browser rows moved to the screen patch, local route, "open notepad": first request 3,389 prompt tokens (2,971 new plus 418 cached), one `open` call, against about 6,650 with the browser rows. Remember rewrite on the local route: "remember that I like short answers" became the memory_write instruction and the model called `memory_write` and replied "Noted."; a follow-up in a new conversation answered from the pinned note without a `memory_search` call.
 
 ## Not checked
 
-- Native Windows by a person: any step.
-- The desktop app on Windows; an installer; tray, menus, and updater on Linux.
-- Hosted (cloud) models.
+- Native Windows by a person: everything after the first prompt (MCP trust, skills, commands, compaction), the Web UI fallback, and the Electron window itself.
+- An installer; tray, menus, and updater on Linux.
+- Hosted (cloud) models, including the voice cloud and screen routes (Ollama Cloud), which exist but have not been run by a person.
 - Benchmark raw data from 2026-10-10 was lost; the figures in the research notes are summaries.
+
+## 2026-10-21: voice wake word and English/Tamil recognisers
+
+Environment: Windows 11 Home, branch `air/feat/voice-agent-track-a`. Checks run: `pnpm -C air/apps/voice test` (13 files, 268 tests, 100% coverage of `src/core`), `pnpm -C air run lint` and `typecheck` (passed), `pnpm -C air/apps/voice run build` (passed; the built `lib/listener-worker.cjs` loads and switches to Tamil). Live (`AIR_VOICE_LIVE=1`, SAPI speech fed in real time, voices David and Zira): the keyword spotter woke on "Jarvis, open notepad." and "Jarvis, search weather in Chennai." in all four runs, with 0.10 to 0.28 s between the end of the spoken word and the wake event; the commands were "Open Notepad" and "Search weather in Chennai" (Zira once heard "Jana"); decode took 50 to 110 ms for 1 to 1.2 s of speech (real-time factor 0.05 to 0.09); speech without "Jarvis" produced no wake and no decode; worker start took about 2 s; the Tamil model loaded in about 330 ms on the first switch and decoded a silent clip. Not run: any real Tamil speech (no source), a microphone, the Electron app end to end, the `screen` route.

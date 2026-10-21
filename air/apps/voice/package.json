@@ -1,0 +1,21 @@
+{
+  "name": "@air/voice",
+  "description": "Wake-phrase voice companion for Windows that drives a dsh session through the SDK",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run --coverage",
+    "build": "tsdown && node -e \"require('fs').copyFileSync('src/preload.cjs','lib/preload.cjs')\" && node -e \"require('fs').copyFileSync('src/speaker.ps1','lib/speaker.ps1')\" && node -e \"require('fs').copyFileSync('src/keywords.txt','lib/keywords.txt')\" && node -e \"require('fs').cpSync('src/renderer','lib/renderer',{recursive:true})\"",
+    "start": "electron lib/main.cjs"
+  },
+  "dependencies": {
+    "@air/dsh-tool-open": "workspace:*",
+    "@deepseek-ai/dsh-sdk-client": "link:../../../packages/sdk/client"
+  },
+  "devDependencies": {
+    "electron": "link:../../../apps/desktop/node_modules/electron"
+  }
+}

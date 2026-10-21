@@ -1,0 +1,182 @@
+{
+  "experiment": "e1-token-census",
+  "startedAt": "2026-10-20T22:05:25.266Z",
+  "gitBranch": "worktree-agent-aaf2fb12dbd863848",
+  "upstreamTag": "dsh-v0.2.1-rc.2",
+  "commitsSinceTag": 116,
+  "workingTreeDirty": false,
+  "os": {
+    "platform": "win32",
+    "release": "10.0.26200",
+    "version": "Windows 11 Home",
+    "arch": "x64"
+  },
+  "node": "v26.12.0",
+  "finishedAt": "2026-10-20T22:06:34.232Z",
+  "prompt": "Reply OK.",
+  "presets": [
+    "standard",
+    "air",
+    "air-lean"
+  ],
+  "capturesPerPreset": 3,
+  "profile": {
+    "template": "web",
+    "bundle": "air/bundles/air",
+    "route": "air/examples/ollama.profile.cordis.patch.yml (baseURL pointed at the proxy)",
+    "disabledRows": [
+      "air-preset-by-model"
+    ]
+  },
+  "workspace": "empty temporary directory, replaced by <WORKSPACE> in normalized bodies",
+  "capture": "recording proxy on 127.0.0.1 answers each /chat/completions request with a canned reply; no model ran during capture",
+  "counting": {
+    "ollama": "replay of each captured body to /v1/chat/completions with stream false and max_tokens 1; usage.prompt_tokens",
+    "heuristic": "packages/llm/token-meter/src/estimate.ts density: ceil(chars / 4) + framing; tools priced over the OpenAI tools JSON",
+    "offlineTokenizer": "none installed in this repository; token counts are Ollama-only"
+  },
+  "ollama": {
+    "baseUrl": "http://127.0.0.1:11434",
+    "version": "0.40.6",
+    "model": "qwen3-8b-32k",
+    "digest": "832ec0a2bf635292efd0e049165dfbaaddd50e0e5b209c4e1c150239c8d0eeac",
+    "details": {
+      "parent_model": "qwen3:8b",
+      "format": "gguf",
+      "family": "qwen3",
+      "families": [
+        "qwen3"
+      ],
+      "parameter_size": "8.2B",
+      "quantization_level": "Q4_K_M",
+      "runner": "llamacpp"
+    },
+    "parameters": "num_ctx                        32768\nrepeat_penalty                 1\nstop                           \"<|im_start|>\"\nstop                           \"<|im_end|>\"\ntemperature                    0.6\ntop_k                          20\ntop_p                          0.95"
+  },
+  "determinism": [
+    {
+      "preset": "standard",
+      "captures": 3,
+      "identicalBodies": false,
+      "identicalNormalizedBodies": true,
+      "identicalOllamaCounts": true
+    },
+    {
+      "preset": "air",
+      "captures": 3,
+      "identicalBodies": false,
+      "identicalNormalizedBodies": true,
+      "identicalOllamaCounts": true
+    },
+    {
+      "preset": "air-lean",
+      "captures": 3,
+      "identicalBodies": false,
+      "identicalNormalizedBodies": true,
+      "identicalOllamaCounts": true
+    }
+  ],
+  "toolNames": [
+    {
+      "preset": "standard",
+      "toolNames": [
+        "ask_user_question",
+        "create_goal",
+        "edit",
+        "exit_plan_mode",
+        "get_goal",
+        "glob",
+        "grep",
+        "interrupt_agent",
+        "job_kill",
+        "job_list",
+        "job_output",
+        "list_agents",
+        "present",
+        "pwsh",
+        "read",
+        "read_image",
+        "schedule_create",
+        "schedule_delete",
+        "schedule_list",
+        "schedule_update",
+        "send_message",
+        "skill",
+        "subagent",
+        "subagent_fork",
+        "todo_write",
+        "update_goal",
+        "web_fetch",
+        "web_search",
+        "workflow",
+        "working_directory",
+        "write"
+      ]
+    },
+    {
+      "preset": "air",
+      "toolNames": [
+        "ask_user_question",
+        "create_goal",
+        "edit",
+        "exit_plan_mode",
+        "get_goal",
+        "glob",
+        "grep",
+        "interrupt_agent",
+        "job_kill",
+        "job_list",
+        "job_output",
+        "list_agents",
+        "present",
+        "pwsh",
+        "read",
+        "read_image",
+        "schedule_create",
+        "schedule_delete",
+        "schedule_list",
+        "schedule_update",
+        "send_message",
+        "skill",
+        "subagent",
+        "subagent_fork",
+        "todo_write",
+        "update_goal",
+        "web_fetch",
+        "web_search",
+        "workflow",
+        "working_directory",
+        "write"
+      ]
+    },
+    {
+      "preset": "air-lean",
+      "toolNames": [
+        "ask_user_question",
+        "edit",
+        "exit_plan_mode",
+        "glob",
+        "grep",
+        "job_kill",
+        "job_list",
+        "job_output",
+        "present",
+        "pwsh",
+        "read",
+        "read_image",
+        "skill",
+        "todo_write",
+        "web_fetch",
+        "web_search",
+        "working_directory",
+        "write"
+      ]
+    }
+  ],
+  "files": [
+    "census.csv",
+    "tools.csv",
+    "composed-profile.txt",
+    "requests/"
+  ]
+}
