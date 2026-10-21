@@ -359,7 +359,7 @@ describe('WorkerEngine text mode', () => {
     r.engine.arm()
     r.vad.segments.push({ samples: new Float32Array(160) })
     r.engine.push(FRAME)
-    expect(r.sent.filter(message => 'type' in message)).toEqual([{ type: 'command', text: expect.any(String), lang: 'en', audioMs: 10, decodeMs: 10 }])
+    expect(r.sent.filter(message => 'type' in message)).toEqual([{ type: 'command', text: 'yes', lang: 'en', audioMs: 10, decodeMs: 10 }])
     r.sent.length = 0
     r.engine.arm()
     frames(r.engine, NO_SPEECH_TIMEOUT_S * 10 + 2)

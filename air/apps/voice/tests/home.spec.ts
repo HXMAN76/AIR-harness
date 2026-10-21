@@ -35,11 +35,11 @@ describe('voice locations', () => {
 
   it('never puts the workspace at, under, or around the voice home', () => {
     const home = voiceHome('/u')
-    expect(() => assertWorkspaceOutsideHome(home, home)).toThrow()
-    expect(() => assertWorkspaceOutsideHome(join(home, 'ws'), home)).toThrow()
-    expect(() => assertWorkspaceOutsideHome('/u', home)).toThrow()
-    expect(() => assertWorkspaceOutsideHome(voiceWorkspace(join('/u', 'Documents')), home)).not.toThrow()
-    expect(() => assertWorkspaceOutsideHome(voiceWorkspace(documentsDir({ ask: () => '', profile: '/u' })), home)).not.toThrow()
+    expect(() => { assertWorkspaceOutsideHome(home, home) }).toThrow()
+    expect(() => { assertWorkspaceOutsideHome(join(home, 'ws'), home) }).toThrow()
+    expect(() => { assertWorkspaceOutsideHome('/u', home) }).toThrow()
+    expect(() => { assertWorkspaceOutsideHome(voiceWorkspace(join('/u', 'Documents')), home) }).not.toThrow()
+    expect(() => { assertWorkspaceOutsideHome(voiceWorkspace(documentsDir({ ask: () => '', profile: '/u' })), home) }).not.toThrow()
   })
 })
 

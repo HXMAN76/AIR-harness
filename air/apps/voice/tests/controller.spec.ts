@@ -555,7 +555,7 @@ describe('VoiceController', () => {
     it.each(['yes', 'Yes.', 'confirm', 'Yeah!'])('runs the command on %j without another wake', async (answer) => {
       const { controller, speaker, intents, agent } = await ask('close notepad')
       await controller.handleSpoken({ text: answer })
-      expect(intents).toEqual([{ kind: 'close', names: expect.any(Array), label: 'Notepad' }])
+      expect(intents).toMatchObject([{ kind: 'close', label: 'Notepad' }])
       expect(speaker.spoken).toEqual(['Say yes to confirm.', 'Closing Notepad.'])
       expect(agent.asks).toEqual([])
       await vi.advanceTimersByTimeAsync(10_000)
