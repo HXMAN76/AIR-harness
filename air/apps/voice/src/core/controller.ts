@@ -3,6 +3,7 @@ import type { EventEmitter } from 'node:events'
 import { matchWake } from './wake.ts'
 import { parseVoiceCommand, type Route } from './commands.ts'
 import { toSpokenText } from './speech-text.ts'
+import { matchOperatorIntent, runOperatorIntent, type OperatorIntent, type OperatorResult } from './operator.ts'
 
 /** One frame of the voice state machine, pushed to the UI. */
 export interface VoiceState {
@@ -42,6 +43,12 @@ const FOLLOW_UP_WINDOW_MS = 8_000
 /** How long a thinking turn may run before the controller says "Still working." */
 const WATCHDOG_MS = 120_000
 
+/** Tool name shown in the state for commands the operator handled. */
+const OPERATOR_TOOL = 'operator'
+
+/** Spoken when the operator could not do what was asked. */
+const OPERATOR_FAILED = "I couldn't do that."
+
 /** Constructor options. */
 export interface VoiceControllerDeps {
   listener: ListenerLike
@@ -49,6 +56,8 @@ export interface VoiceControllerDeps {
   agent: AgentLike
   /** Wall-clock source; defaults to `Date.now`. Tests inject a fake. */
   now?: () => number
+  /** Runs a matched operator intent; defaults to {@link runOperatorIntent}. Tests inject a fake. */
+  runOperator?: (intent: OperatorIntent) => Promise<OperatorResult>
   /** Called on every state change. */
   onState: (state: VoiceState) => void
 }
@@ -63,6 +72,7 @@ export class VoiceController {
   private readonly speaker: SpeakerLike
   private readonly agent: AgentLike
   private readonly now: () => number
+  private readonly runOperator: (intent: OperatorIntent) => Promise<OperatorResult>
   private readonly onState: (state: VoiceState) => void
 
   private phase: 'idle' | 'awake' | 'thinking' | 'speaking' = 'idle'
@@ -75,6 +85,7 @@ export class VoiceController {
     this.speaker = deps.speaker
     this.agent = deps.agent
     this.now = deps.now ?? (() => Date.now())
+    this.runOperator = deps.runOperator ?? (intent => runOperatorIntent(intent))
     this.onState = deps.onState
 
     this.listener.on('segment', (seg: { text: string; durationMs: number }) => {
@@ -165,9 +176,12 @@ export class VoiceController {
         this.phase = 'idle'
         this.emit()
         break
-      case 'ask':
-        await this.handleAsk(command.text)
+      case 'ask': {
+        const intent = matchOperatorIntent(command.text)
+        if (intent === null) await this.handleAsk(command.text)
+        else await this.handleOperator(command.text, intent)
         break
+      }
     }
   }
 
@@ -196,6 +210,29 @@ export class VoiceController {
     this.phase = 'idle'
     this.busy = false
     this.emit()
+  }
+
+  /** Local fast path: no agent call; a failure is spoken and not retried through the agent. */
+  private async handleOperator(text: string, intent: OperatorIntent): Promise<void> {
+    this.phase = 'thinking'
+    this.busy = true
+    this.emit({ transcript: text })
+    try {
+      const result = await this.runOperator(intent)
+      this.phase = 'speaking'
+      this.emit({ transcript: text, reply: result.spoken, tools: [OPERATOR_TOOL] })
+      await this.speak(result.spoken)
+    } catch {
+      this.phase = 'idle'
+      this.emit({ transcript: text, reply: OPERATOR_FAILED, tools: [OPERATOR_TOOL], error: OPERATOR_FAILED })
+      await this.speak(OPERATOR_FAILED)
+    } finally {
+      this.busy = false
+      if (this.phase !== 'idle') {
+        this.phase = 'idle'
+        this.emit()
+      }
+    }
   }
 
   private async handleAsk(text: string): Promise<void> {
