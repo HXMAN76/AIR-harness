@@ -136,6 +136,13 @@ Speaker (PowerShell SAPI)
 
 The renderer captures audio with an `AudioWorklet` and sends raw frames to the main process. The main process pipes them to the listener child as framed audio (a control frame carries the language switch). The child runs the keyword spotter on every frame; after a wake it uses Silero VAD to find the next utterance and the active recogniser to transcribe it. The command text is classified by `parseVoiceCommand`; `ask` commands first try the operator and otherwise go through the SDK harness to a dsh session, and the reply is spoken by the speaker child.
 
+## Troubleshooting: "Jarvis" does not wake
+
+1. Run `pnpm -C air/apps/voice exec tsx scripts/mic-check.ts 6 mic.wav` and say "Jarvis, open notepad" about two seconds in. It records the default microphone through the app's own capture path, then prints per-frame RMS and peak (`*` marks a clipped frame) and whether the spotter fires at thresholds 0.05, 0.08, 0.10, 0.15, and 0.25. `--say "Jarvis, open notepad." --volume 60` plays Windows speech through the speakers while recording (only useful if the microphone can hear the speakers); `AIR_RECORD_RAW=1` turns off echo cancellation and noise suppression; `score-kws.ts <file.wav> --asr` scores an existing clip and also prints what Parakeet transcribes from it.
+2. Transcript right but nothing fires: the spotter is the problem. Quiet speech was one measured cause (a clip with peak 0.07 never fired at any threshold); the spotter is now fed through a boost (`src/core/gain.ts`, up to 8x towards a peak of 0.3, never attenuating), and `--no-gain` scores without it. You can also lower `AIR_VOICE_KWS_THRESHOLD` (default 0.15; 0.05 gave no false wake on the recorded room noise) or raise `AIR_VOICE_KWS_SCORE` (default 2.5).
+3. Transcript wrong or empty: the recording is the problem. Check the Windows default input device and its level, and keep the microphone away from the speakers.
+4. Nothing works in a noisy room: set `AIR_VOICE_WAKE=text`. Every utterance is decoded by Parakeet and matched against the wake phrases. It is slower and also accepts loose matches such as "Davis" and "Travis", but it wakes whenever the transcriber hears the word.
+
 ## Known Limitations
 
 - Work in progress; see the plan for the parts that exist.

@@ -141,3 +141,22 @@ Browser rows moved to the screen patch, local route, "open notepad": first reque
 ## 2026-10-21: voice wake word and English/Tamil recognisers
 
 Environment: Windows 11 Home, branch `air/feat/voice-agent-track-a`. Checks run: `pnpm -C air/apps/voice test` (13 files, 268 tests, 100% coverage of `src/core`), `pnpm -C air run lint` and `typecheck` (passed), `pnpm -C air/apps/voice run build` (passed; the built `lib/listener-worker.cjs` loads and switches to Tamil). Live (`AIR_VOICE_LIVE=1`, SAPI speech fed in real time, voices David and Zira): the keyword spotter woke on "Jarvis, open notepad." and "Jarvis, search weather in Chennai." in all four runs, with 0.10 to 0.28 s between the end of the spoken word and the wake event; the commands were "Open Notepad" and "Search weather in Chennai" (Zira once heard "Jana"); decode took 50 to 110 ms for 1 to 1.2 s of speech (real-time factor 0.05 to 0.09); speech without "Jarvis" produced no wake and no decode; worker start took about 2 s; the Tamil model loaded in about 330 ms on the first switch and decoded a silent clip. Not run: any real Tamil speech (no source), a microphone, the Electron app end to end, the `screen` route.
+
+## 2026-10-22: voice wake word on the real microphone
+
+Environment: Windows 11 Home, branch `air/fix/voice-mic-wake`. Tools: `scripts/record-mic.ts` (headless Electron capture with the app's getUserMedia, echo cancellation, noise suppression and worklet), `scripts/score-kws.ts` (offline `KeywordSpotter`, per-threshold verdicts, per-frame RMS and peak, optional Parakeet transcript), `scripts/mic-check.ts` (record, optionally speak through SAPI, score). Clips are in `%USERPROFILE%\.air\voice-samples\` (not committed). Keyword score 2.5.
+
+| Clip | Peak / RMS | Parakeet hears | Fires at 0.05 / 0.08 / 0.10 / 0.15 / 0.25, before | After the gain |
+|---|---|---|---|---|
+| a: room, nobody speaking | 0.28 / 0.03 | other people's speech in the room | 0 / 0 / 0 / 0 / 0 | 0 / 0 / 0 / 0 / 0 |
+| b: SAPI "Jarvis, open notepad." at volume 60 through the speakers | 0.27 / 0.029 | unrelated room speech | 0 / 0 / 0 / 0 / 0 | 0 / 0 / 0 / 0 / 0 |
+| b raw (no echo cancellation), SAPI volume 70 and 100 | 0.05 / 0.010 | nothing | 0 / 0 / 0 / 0 / 0 | not rescored |
+| c: SAPI at volume 15 through the speakers | 0.42 / 0.038 | unrelated room speech | 0 / 0 / 0 / 0 / 0 | 0 / 0 / 0 / 0 / 0 |
+| Earlier SAPI file, normal level | 0.60 / - | "Jarvis, open notepad." | 1 / 1 / 1 / 1 / 1 | 1 / 1 / 1 / 1 / 1 |
+| Earlier SAPI file, quiet | 0.07 / - | "Jarvis, open notepad." | 0 / 0 / 0 / 0 / 0 | 1 / 1 / 1 / 1 / 1 (at 1.2 s) |
+
+Findings, as measured. (1) SAPI played through this PC's speakers did not reach the microphone (raw capture RMS 0.01, empty transcript), so clips b and c hold room sound, not the wake phrase; they show only that no threshold from 0.05 to 0.25 gives a false wake on 6 s of room noise that contains speech. (2) The owner's real-microphone miss was not reproduced, because no clip of a person saying "Jarvis" was available to an agent. (3) Reproduced: a quiet utterance (peak 0.07) that Parakeet transcribes exactly fires the spotter at none of the five thresholds; the same samples amplified 2x, 4x or 8x fire at all five, and the normal-level clip still fires when attenuated to 0.5x and 0.25x. Level, not threshold, was the failing variable.
+
+Fix chosen (one): a boost on the spotter's input only (`src/core/gain.ts`, `SpotterGain`). Gain is 0.3 divided by a decaying peak tracker (3% decay per 100 ms chunk), limited to 1 to 8, so quiet speech is lifted and loud audio passes untouched. Threshold, keyword score, VAD and recogniser path are unchanged. Voice tests: 299 pass, 100% statements, branches, functions and lines on `src/core` (`gain.spec.ts` plus a spotter-input test in `worker-engine.spec.ts`).
+
+Not run: any clip of a person speaking "Jarvis" into the real microphone (so whether this fixes the owner's miss is unconfirmed), any speaker-to-microphone capture that worked, and a live wake in the app after the change. If the owner's voice still does not wake, use `AIR_VOICE_WAKE=text` (README, troubleshooting) and record a clip with `mic-check.ts` for rescoring.
