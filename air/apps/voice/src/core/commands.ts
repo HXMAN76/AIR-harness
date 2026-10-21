@@ -51,7 +51,8 @@ export function parseVoiceCommand(command: string): VoiceCommand {
   return { kind: 'ask', text: command.trim() }
 }
 
-const SUGGEST_MAIL = /^(?:(?:my |the |your )?(?:important )?(?:mail|e-?mails?|inbox)|(?:read |check )?(?:my |the )?important (?:mail|e-?mails?))$/
+const SUGGEST_MAIL =
+  /^(?:(?:my |the |your )?(?:important )?(?:mail|e-?mails?|inbox)|(?:read |check )?(?:my |the )?important (?:mail|e-?mails?))$/
 const SUGGEST_NEWS = /^(?:(?:read )?(?:me )?(?:today s |the |todays )?(?:news|headlines)(?: please)?)$/
 
 /**
@@ -66,7 +67,11 @@ export function suggestionFor(text: string): string | null {
   return null
 }
 
-const GUI = /\b(?:click|scroll|type (?:into|in)|press the|select the|on (?:the )?screen|this window|the button|drag)\b|\bfill (?:out |in )?the form\b/i
+const GUI = new RegExp(
+  String.raw`\b(?:click|scroll|type (?:into|in)|press the|select the|on (?:the )?screen|this window|the button|drag)\b`
+  + String.raw`|\bfill (?:out |in )?the form\b`,
+  'i',
+)
 
 /**
  * @param text - an ask text.

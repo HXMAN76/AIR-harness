@@ -23,7 +23,12 @@ function tempHome(envFile?: string): string {
   return home
 }
 
-function setup(options: { env?: Record<string, string | undefined>; envFile?: string; reply?: () => Promise<string>; extraEvents?: Array<{ type: string; data?: unknown }> } = {}): {
+function setup(options: {
+  env?: Record<string, string | undefined>
+  envFile?: string
+  reply?: () => Promise<string>
+  extraEvents?: Array<{ type: string; data?: unknown }>
+} = {}): {
   bridge: AgentBridge
   harnesses: FakeHarness[]
   home: string

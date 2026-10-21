@@ -52,7 +52,10 @@ function captured(match: RegExpExecArray): string {
 }
 
 const NEWS_TOPIC = /^(?:(?:read|tell|give) me )?(?:the |todays |today s )?(?:latest )?(?:news|headlines) (?:about|on|for|of) (.+)$/
-const NEWS_ALL = /^(?:(?:read|tell|give) me )?(?:what is |whats )?(?:the |todays |today s )?(?:latest |top )?(?:news|headlines)(?: today)?$|^(?:read|tell me) (?:the |todays )?(?:latest |top )?(?:news|headlines)$/
+const NEWS_ALL = new RegExp(
+  '^(?:(?:read|tell|give) me )?(?:what is |whats )?(?:the |todays |today s )?(?:latest |top )?(?:news|headlines)(?: today)?$'
+  + '|^(?:read|tell me) (?:the |todays )?(?:latest |top )?(?:news|headlines)$',
+)
 
 function matchNews(lower: string): OperatorIntent | null {
   const topic = NEWS_TOPIC.exec(lower)

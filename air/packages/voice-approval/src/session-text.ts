@@ -13,7 +13,10 @@ function textOf(message: unknown): string {
   if (typeof content === 'string') return content
   if (!Array.isArray(content)) return ''
   return content
-    .map((block: unknown) => (typeof block === 'object' && block !== null && (block as { type?: unknown }).type === 'text' ? String((block as { text?: unknown }).text ?? '') : ''))
+    .map((block: unknown) => {
+      const record = typeof block === 'object' && block !== null ? block as { type?: unknown; text?: unknown } : {}
+      return record.type === 'text' && typeof record.text === 'string' ? record.text : ''
+    })
     .join('\n')
 }
 

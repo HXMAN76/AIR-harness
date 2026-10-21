@@ -72,7 +72,8 @@ export function createVoiceApproval(config: Config): {
       if (!isEscalation(execution.arguments)) return undefined
       const session = execution.agent?.session
       const said = session === undefined ? undefined : latestUserText(session)
-      const token = said === undefined ? undefined : findApprovalToken(config.tokenDir, said, approvalDigest(execution.name, execution.arguments))
+      const digest = approvalDigest(execution.name, execution.arguments)
+      const token = said === undefined ? undefined : findApprovalToken(config.tokenDir, said, digest)
       if (token === undefined) return `${DENIAL_PREFIX}${escalationSummary(execution.arguments)}.`
       pending.set(execution.callId, token)
       return undefined

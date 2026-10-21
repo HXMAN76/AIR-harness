@@ -60,7 +60,8 @@ function toMessage(value: unknown): WorkerMessage | undefined {
 }
 
 /**
- * Emits `'wake'` (argument `true` for a bare wake phrase in text mode), `'command'` ({@link Command}), `'timeout'` (no speech after a wake), `'heard'` (text wake: speech without a wake phrase, no text), `'language'` ({ lang, loadMs }),
+ * Emits `'wake'` (argument `true` for a bare wake phrase in text mode), `'command'` ({@link Command}),
+ * `'timeout'` (no speech after a wake), `'heard'` (text wake: speech without a wake phrase, no text), `'language'` ({ lang, loadMs }),
  * `'ready'` (model load time in ms), and `'error'` (Error).
  * Protocol: frames on the worker's stdin (audio and control, see `frames.ts`); one JSON object per line on its stdout.
  */

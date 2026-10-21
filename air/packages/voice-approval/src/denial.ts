@@ -36,7 +36,8 @@ function toolCalls(event: EventLike): ToolCallBlock[] {
 
 /**
  * @param events - the events of one run.
- * @returns the denied escalation (the last escalating tool call), or undefined when the run carries no denial text outside the model's own messages.
+ * @returns the denied escalation (the last escalating tool call), or undefined when no event other than the model's own
+ *   messages carries the denial text.
  */
 export function findApprovalDenial(events: readonly EventLike[]): ApprovalDenial | undefined {
   const denied = events.some(event => event.type !== 'assistant/message' && JSON.stringify(event.data ?? null).includes(DENIAL_PREFIX))
