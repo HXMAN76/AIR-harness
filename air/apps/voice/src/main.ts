@@ -20,6 +20,13 @@ let controller: VoiceController | undefined
 
 const FRAME_SIZE = 1_600 // 100 ms at 16 kHz
 
+/** Extra console output (state changes with transcripts and replies, model load times); off unless `AIR_VOICE_DEBUG=1`. */
+const DEBUG = process.env.AIR_VOICE_DEBUG === '1'
+
+function debug(...args: unknown[]): void {
+  if (DEBUG) console.log(...args)
+}
+
 /** Repository root — four levels up from `lib/` (`air/apps/voice/lib` → worktree root). */
 const REPO_ROOT = join(__dirname, '..', '..', '..', '..')
 /** Voice app root — one level up from `lib/`. */
@@ -67,13 +74,14 @@ function startVoice(): void {
     console.log('wake')
   })
   listener.on('command', (command: { text: string; lang: string; decodeMs: number }) => {
-    console.log(`heard (${command.lang}, ${command.decodeMs}ms):`, command.text)
+    console.log(`command (${command.lang}):`, command.text)
+    debug(`decoded in ${command.decodeMs}ms`)
   })
   listener.on('language', (info: { lang: string; loadMs: number }) => {
-    console.log(`language ${info.lang} (${info.loadMs}ms)`)
+    debug(`language ${info.lang} (${info.loadMs}ms)`)
   })
   listener.on('ready', (ms: number) => {
-    console.log(`listener ready (${ms}ms)`)
+    debug(`listener ready (${ms}ms)`)
   })
 
   speaker = new Speaker(undefined, join(__dirname, 'speaker.ps1'))
@@ -91,13 +99,13 @@ function startVoice(): void {
     speaker,
     agent,
     onState: (state) => {
-      console.log('state:', state.phase, state.transcript ?? '', state.reply ?? '', state.error ?? '')
+      debug('state:', state.phase, state.transcript ?? '', state.reply ?? '', state.error ?? '')
       mainWindow?.webContents.send('state', state)
     },
   })
 
   listener.start()
-  console.log('voice agent started (listener, speaker, bridge, controller)')
+  debug('voice agent started (listener, speaker, bridge, controller)')
 }
 
 function setupIpc(): void {
@@ -122,8 +130,6 @@ function setupIpc(): void {
 }
 
 void app.whenReady().then(() => {
-  console.log('AIR voice agent starting…')
-
   // Grant only the media permission (microphone)
   session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {
     callback(permission === 'media')
@@ -134,7 +140,6 @@ void app.whenReady().then(() => {
 
   try {
     startVoice()
-    console.log('voice agent running')
   } catch (err) {
     console.error('voice agent failed to start:', err)
   }
