@@ -48,7 +48,7 @@ function decode(text: string): string {
 export function parseHeadlines(xml: string, limit = NEWS_COUNT): string[] {
   const titles: string[] = []
   for (const item of xml.matchAll(/<item\b[^>]*>([\s\S]*?)<\/item>/gi)) {
-    const raw = /<title\b[^>]*>([\s\S]*?)<\/title>/i.exec(item[1] ?? '')?.[1]
+    const raw = /<title\b[^>]*>([\s\S]*?)<\/title>/i.exec(item[1] as string)?.[1]
     if (raw === undefined) continue
     const unwrapped = raw.replace(/^\s*<!\[CDATA\[([\s\S]*?)\]\]>\s*$/, '$1')
     const title = decode(unwrapped.replaceAll(/<[^>]*>/g, '')).replaceAll(/\s+/g, ' ').trim()
