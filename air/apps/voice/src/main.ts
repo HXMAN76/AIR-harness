@@ -8,7 +8,8 @@ import { Listener } from './core/listener.ts'
 import { Speaker } from './core/speaker.ts'
 import { AgentBridge } from './core/agent.ts'
 import { VoiceController } from './core/controller.ts'
-import { voiceHome } from './core/home.ts'
+import { mkdirSync } from 'node:fs'
+import { assertWorkspaceOutsideHome, voiceHome, voiceWorkspace } from './core/home.ts'
 import { modelRoot } from './core/models.ts'
 
 let mainWindow: BrowserWindow | undefined
@@ -48,6 +49,9 @@ function createWindow(): void {
 
 function startVoice(): void {
   const home = voiceHome()
+  const workspace = voiceWorkspace()
+  assertWorkspaceOutsideHome(workspace, home)
+  mkdirSync(workspace, { recursive: true })
 
   const models = modelRoot()
   const sherpaFrom = join(REPO_ROOT, 'packages', 'experimental', 'speech-to-text-sensevoice', 'package.json')
@@ -77,7 +81,7 @@ function startVoice(): void {
 
   agent = new AgentBridge({
     dshHome: home,
-    cwd: home,
+    cwd: workspace,
     dshBin: join(REPO_ROOT, 'apps', 'cli', 'lib', 'bin.js'),
     profileDir: join(VOICE_APP, 'profile'),
   })

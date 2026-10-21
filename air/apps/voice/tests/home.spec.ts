@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, 
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { cloudKeyValue, prepareVoiceHome, voiceHome, voiceWorkspace } from '../src/core/home.ts'
+import { assertWorkspaceOutsideHome, cloudKeyValue, documentsDir, prepareVoiceHome, voiceHome, voiceWorkspace } from '../src/core/home.ts'
 
 const dirs: string[] = []
 afterEach(() => {
@@ -18,8 +18,28 @@ function temp(): string {
 describe('voice locations', () => {
   it('puts the runtime home under ~/.air and the workspace under Documents', () => {
     expect(voiceHome()).toBe(join(homedir(), '.air', 'voice-home'))
-    expect(voiceWorkspace('/u')).toBe(join('/u', 'Documents', 'AIR Voice'))
-    expect(voiceWorkspace()).toBe(join(homedir(), 'Documents', 'AIR Voice'))
+    expect(voiceWorkspace('/d')).toBe(join('/d', 'AIR Voice'))
+  })
+
+  it('uses the Documents folder Windows reports, including a OneDrive one', () => {
+    const onedrive = join(tmpdir(), 'OneDrive', 'Documents')
+    expect(documentsDir({ ask: () => `${onedrive}
+`, profile: '/u' })).toBe(onedrive)
+  })
+
+  it('falls back to <profile>/Documents when Windows cannot answer', () => {
+    expect(documentsDir({ ask: () => { throw new Error('no powershell') }, profile: '/u' })).toBe(join('/u', 'Documents'))
+    expect(documentsDir({ ask: () => '', profile: '/u' })).toBe(join('/u', 'Documents'))
+    expect(documentsDir({ ask: () => 'Documents', profile: '/u' })).toBe(join('/u', 'Documents'))
+  })
+
+  it('never puts the workspace at, under, or around the voice home', () => {
+    const home = voiceHome('/u')
+    expect(() => assertWorkspaceOutsideHome(home, home)).toThrow()
+    expect(() => assertWorkspaceOutsideHome(join(home, 'ws'), home)).toThrow()
+    expect(() => assertWorkspaceOutsideHome('/u', home)).toThrow()
+    expect(() => assertWorkspaceOutsideHome(voiceWorkspace(join('/u', 'Documents')), home)).not.toThrow()
+    expect(() => assertWorkspaceOutsideHome(voiceWorkspace(documentsDir({ ask: () => '', profile: '/u' })), home)).not.toThrow()
   })
 })
 
