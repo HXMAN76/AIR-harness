@@ -106,6 +106,8 @@ Environment: Windows 11 Home, branch `air/feat/voice-agent-track-a`, local Ollam
 
 Voice home wiring, same day: `scripts/setup-home.ts` installed the open tool, memory packages, and browser packages into `~/.air/voice-home/profiles/sdk`; boot then printed one warning, the `permission` entry, instead of six; a `voice` preset (workspace-write with approval never) as the default preset removed it, and a second boot printed no warning. Memory by hand on the local route: "use the memory_write tool to save ..." made one `memory_write` call (committed, no prompt) and a new conversation answered "how do I like answers?" from the pinned note; the plain phrase "remember that I like short answers" did not call the tool in four tries. With the browser rows installed the first request is about 6,650 prompt tokens, against about 2,880 without them.
 
+Browser rows moved to the screen patch, local route, "open notepad": first request 3,389 prompt tokens (2,971 new plus 418 cached), one `open` call, against about 6,650 with the browser rows. Remember rewrite on the local route: "remember that I like short answers" became the memory_write instruction and the model called `memory_write` and replied "Noted."; a follow-up in a new conversation answered from the pinned note without a `memory_search` call.
+
 ## Not checked
 
 - Native Windows by a person: any step.

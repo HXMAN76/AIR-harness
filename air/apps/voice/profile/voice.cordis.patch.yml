@@ -2,7 +2,8 @@
 # Routes: local Ollama (default) and Ollama Cloud (https://ollama.com/v1, bearer key) for the cloud and screen routes.
 # Put `OLLAMA_API_KEY=ollama` in the voice home's .env (scripts/setup-home.ts does) and, for the cloud,
 # `OLLAMA_CLOUD_KEY` (the agent bridge passes it as OLLAMA_API_KEY to cloud launches only). The tool set is kept lean to save prompt tokens on the local model:
-# the base file and working-directory tools, pwsh, web fetch, and the browser (memory rows are added by the memory track).
+# the base file and working-directory tools, pwsh, web fetch, open, and memory. The browser (Playwright, about 3,700 prompt
+# tokens of tool definitions) is only in screen.cordis.patch.yml; the local operator already opens sites and searches.
 
 # The Ollama route, as in air/examples/ollama.profile.cordis.patch.yml (see that file for the reasons).
 # Ollama Cloud serves the same OpenAI-compatible API at ollama.com with an account key; model ids are the names
@@ -97,7 +98,7 @@
 - id: web-deepseek-api
   disabled: true
 
-# Web: fetch only; search goes through the browser.
+# Web: fetch only; searches go through the operator or the open tool.
 - id: tool-web
   config:
     search: false
@@ -141,15 +142,8 @@
 - id: tool-todo
   disabled: true
 
-# Browser for search and pages (Playwright MCP, launched headless per session).
+# Rows loaded on every route: the open tool and memory.
 - insert:
-    - id: browser-use
-      name: '@deepseek-ai/dsh-browser-use'
-    - id: browser-use-playwright-mcp
-      name: '@deepseek-ai/dsh-experimental-browser-use-playwright-mcp'
-      config:
-        mode: launch
-        headless: true
     # AIR memory, tier 1 (FTS5 only). The voice agent remembers notes for the
     # local Ollama route by default; toggle memory-share in the UI or via the
     # voice command to also share with the cloud route (see memory-share.cordis.patch.yml).
