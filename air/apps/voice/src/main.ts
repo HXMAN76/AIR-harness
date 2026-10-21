@@ -7,6 +7,8 @@ import { join } from 'node:path'
 import { Listener } from './core/listener.ts'
 import { Speaker } from './core/speaker.ts'
 import { AgentBridge } from './core/agent.ts'
+import { issueSendToken } from '@air/dsh-send-guard/token'
+import { issueApprovalToken } from '@air/dsh-voice-approval/token'
 import { VoiceController, followUpMsFromEnv } from './core/controller.ts'
 import { mkdirSync } from 'node:fs'
 import { assertWorkspaceOutsideHome, voiceHome, voiceWorkspace } from './core/home.ts'
@@ -103,6 +105,8 @@ function startVoice(): void {
     speaker,
     agent,
     followUpMs: followUpMsFromEnv(process.env),
+    issueSendToken: () => issueSendToken(join(home, 'send-tokens')),
+    issueApprovalToken: digest => issueApprovalToken(join(home, 'approve-tokens'), digest),
     onState: (state) => {
       debug('state:', state.phase, state.transcript ?? '', state.reply ?? '', state.error ?? '')
       mainWindow?.webContents.send('state', state)

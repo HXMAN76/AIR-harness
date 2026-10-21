@@ -42,7 +42,7 @@ describe('installVoicePlugins', () => {
     const result = await installVoicePlugins({ home: dir, repoRoot: 'R', exec })
     expect(result.skipped).toEqual([])
     expect(result.installed).toEqual(VOICE_PLUGINS.map(plugin => plugin.name))
-    expect(calls).toHaveLength(6)
+    expect(calls).toHaveLength(8)
     expect(calls[0]).toEqual({
       file: process.execPath,
       args: [join('R', 'apps', 'cli', 'lib', 'bin.js'), 'plugin', '--profile', 'sdk', 'add', join('R', 'air', 'packages', 'tool-open')],
@@ -54,7 +54,7 @@ describe('installVoicePlugins', () => {
   it('names the memory, tool, and MCP client packages the patches load', () => {
     expect(VOICE_PLUGINS.map(plugin => plugin.name)).toEqual([
       '@air/dsh-tool-open', '@air/dsh-memory-store', '@air/dsh-memory-index', '@air/dsh-tool-memory', '@air/dsh-memory-context',
-      '@deepseek-ai/dsh-mcp-client',
+      '@air/dsh-send-guard', '@air/dsh-voice-approval', '@deepseek-ai/dsh-mcp-client',
     ])
   })
 
@@ -63,7 +63,7 @@ describe('installVoicePlugins', () => {
     const { calls, exec } = recorder()
     const result = await installVoicePlugins({ home: dir, repoRoot: 'R', exec })
     expect(result.skipped).toEqual(['@air/dsh-tool-open', '@air/dsh-memory-store'])
-    expect(calls).toHaveLength(4)
+    expect(calls).toHaveLength(6)
   })
 
   it('treats a manifest without dependencies as empty, and installs nothing when all are present', async () => {

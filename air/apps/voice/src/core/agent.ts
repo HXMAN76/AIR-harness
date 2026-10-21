@@ -1,6 +1,7 @@
 /** Drives dsh sessions through upstream's TypeScript SDK: one runtime per route, one session per conversation. */
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
+import { findApprovalDenial, type ApprovalDenial } from '@air/dsh-voice-approval/denial'
 import { sdkHarness } from '../sdk-harness.ts'
 import type { Route } from './commands.ts'
 import { cloudKeyPresent, cloudKeyValue } from './home.ts'
@@ -108,9 +109,9 @@ export class AgentBridge {
   /**
    * Run one prompt on the active route's conversation.
    * @param text - the command.
-   * @returns the final response and the names of the tools called.
+   * @returns the final response, the names of the tools called, and, when a tool was denied for lack of a spoken approval, what it wanted.
    */
-  async ask(text: string): Promise<{ reply: string; tools: string[] }> {
+  async ask(text: string): Promise<{ reply: string; tools: string[]; approval?: ApprovalDenial }> {
     const route = this.currentRoute
     const session = this.harnessFor(route).session(this.sessions.get(route))
     this.sessions.set(route, session.id)
@@ -119,7 +120,8 @@ export class AgentBridge {
       .filter(event => event.type === 'tool/call')
       .map(event => (event.data as { name?: unknown } | undefined)?.name)
       .filter((name): name is string => typeof name === 'string')
-    return { reply: result.finalResponse, tools }
+    const approval = findApprovalDenial(result.events)
+    return { reply: result.finalResponse, tools, ...approval === undefined ? {} : { approval } }
   }
 
   /** Forget the sessions; the next prompt starts a new conversation. */

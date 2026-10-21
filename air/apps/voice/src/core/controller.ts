@@ -32,7 +32,7 @@ interface AgentLike {
   route: Route
   memoryShared: boolean
   setRoute(route: Route): { ok: true } | { ok: false; reason: 'missing-key' }
-  ask(text: string): Promise<{ reply: string; tools: string[] }>
+  ask(text: string): Promise<{ reply: string; tools: string[]; approval?: { summary: string; digest: string } }>
   newConversation(): void
   setMemoryShare(on: boolean): Promise<void>
   cancel(): Promise<void>
@@ -61,6 +61,7 @@ export const CONFIRM_WINDOW_MS = 6_000
 
 const CONFIRM_PROMPT = 'Say yes to confirm.'
 const CONFIRM_SEND_PROMPT = 'Say yes to send it.'
+const ALLOW_PROMPT = 'Say yes to allow.'
 const CANCELLED = 'Cancelled.'
 const CLOUD_KEY_MISSING = 'The cloud key is not set.'
 const USING_CLOUD = 'Using the cloud model.'
@@ -68,6 +69,7 @@ const USING_CLOUD = 'Using the cloud model.'
 const CONFIRM_SEND_LINE = new RegExp(`^\s*${CONFIRM_SEND}\s*$`, 'm')
 /** Sent to the same session after a spoken yes. */
 const PRESS_SEND = 'Now press Send and speak one sentence saying who it went to.'
+const DO_NOT_RUN = 'Do not run it.'
 /** Sent to the same session after anything but a yes, or silence. */
 const DO_NOT_SEND = 'Do not send it.'
 const CONFIRM_WORDS = /^(?:yes|yeah|yep|confirm|confirmed|yes confirm|yes please|confirm it)$/
@@ -104,6 +106,10 @@ export interface VoiceControllerDeps {
   agent: AgentLike
   /** Runs a matched operator intent; defaults to {@link runOperatorIntent}. Tests inject a fake. */
   runOperator?: (intent: OperatorIntent) => Promise<OperatorResult>
+  /** Issues the one-time token that lets the next Send through; its file is what the send guard consumes. Without it Send stays locked. */
+  issueSendToken?: () => string
+  /** Issues the one-time token bound to a denied command's digest. Without it nothing can be approved by voice. */
+  issueApprovalToken?: (digest: string) => string
   /** Follow-up window in ms (see {@link followUpMsFromEnv}); 0 or omitted turns conversation mode off. */
   followUpMs?: number
   /** Clock for the time-of-day greeting. */
@@ -124,6 +130,8 @@ export class VoiceController {
   private readonly runOperator: (intent: OperatorIntent) => Promise<OperatorResult>
   private readonly onState: (state: VoiceState) => void
   private readonly followUpMs: number
+  private readonly issueSendToken: (() => string) | undefined
+  private readonly issueApprovalToken: ((digest: string) => string) | undefined
   private readonly now: () => Date
 
   private phase: 'idle' | 'awake' | 'thinking' | 'speaking' = 'idle'
@@ -135,7 +143,7 @@ export class VoiceController {
   private lastOpened: OperatorIntent | undefined
   private watchdogTimer: ReturnType<typeof setTimeout> | undefined
   /** A destructive operator command, or (no intent) an email draft, waiting for "yes". */
-  private confirming: { text: string; intent: OperatorIntent | undefined; timer: ReturnType<typeof setTimeout> | undefined } | undefined
+  private confirming: { text: string; intent: OperatorIntent | undefined; approval: { summary: string; digest: string } | undefined; timer: ReturnType<typeof setTimeout> | undefined } | undefined
 
   constructor(deps: VoiceControllerDeps) {
     this.listener = deps.listener
@@ -144,6 +152,8 @@ export class VoiceController {
     this.runOperator = deps.runOperator ?? (intent => runOperatorIntent(intent))
     this.onState = deps.onState
     this.followUpMs = deps.followUpMs ?? 0
+    this.issueSendToken = deps.issueSendToken
+    this.issueApprovalToken = deps.issueApprovalToken
     this.now = deps.now ?? (() => new Date())
 
     this.listener.on('wake', (bare?: boolean) => {
@@ -335,9 +345,9 @@ export class VoiceController {
   }
 
   /** Ask for a spoken yes before a destructive command; the follow-up needs no wake word. */
-  private async askConfirmation(text: string, intent: OperatorIntent | undefined): Promise<void> {
-    const prompt = intent === undefined ? CONFIRM_SEND_PROMPT : CONFIRM_PROMPT
-    const pending: NonNullable<VoiceController['confirming']> = { text, intent, timer: undefined }
+  private async askConfirmation(text: string, intent: OperatorIntent | undefined, approval?: { summary: string; digest: string }): Promise<void> {
+    const prompt = approval !== undefined ? `It wants to ${approval.summary}. ${ALLOW_PROMPT}` : intent === undefined ? CONFIRM_SEND_PROMPT : CONFIRM_PROMPT
+    const pending: NonNullable<VoiceController['confirming']> = { text, intent, approval, timer: undefined }
     this.confirming = pending
     this.phase = 'speaking'
     this.emit({ transcript: text, reply: prompt, tools: [OPERATOR_TOOL] })
@@ -358,8 +368,15 @@ export class VoiceController {
     const answer = spoken.toLowerCase().replaceAll(/[^a-z ]/g, '').trim()
     if (CONFIRM_WORDS.test(answer)) {
       this.dropConfirmation()
-      if (pending.intent === undefined) await this.handleAsk(PRESS_SEND, false, true)
-      else await this.handleOperator(pending.text, pending.intent)
+      if (pending.approval !== undefined) {
+        const token = this.issueApprovalToken?.(pending.approval.digest)
+        // Without a token source nothing can be approved: say so instead of running a prompt that cannot work.
+        if (token === undefined) await this.speak(CANCELLED)
+        else await this.handleAsk(`Approved. Run exactly that command again now. ${token}`, false, true)
+      } else if (pending.intent === undefined) {
+        const token = this.issueSendToken?.()
+        await this.handleAsk(token === undefined ? PRESS_SEND : `${PRESS_SEND} ${token}`, false, true)
+      } else await this.handleOperator(pending.text, pending.intent)
     } else {
       await this.cancelConfirmation()
     }
@@ -368,12 +385,13 @@ export class VoiceController {
   private async cancelConfirmation(): Promise<void> {
     /* v8 ignore next -- a confirmation timer or answer always clears the field first; this guards re-entrant calls. */
     if (this.confirming === undefined) return
-    const { text, intent } = this.confirming
+    const { text, intent, approval } = this.confirming
     this.dropConfirmation()
     this.phase = 'idle'
     this.emit({ transcript: text, reply: CANCELLED, tools: [OPERATOR_TOOL] })
     await this.speak(CANCELLED)
-    if (intent === undefined) await this.agent.ask(DO_NOT_SEND).catch(() => undefined)
+    if (approval !== undefined) await this.agent.ask(DO_NOT_RUN).catch(() => undefined)
+    else if (intent === undefined) await this.agent.ask(DO_NOT_SEND).catch(() => undefined)
   }
 
   private dropConfirmation(): void {
@@ -431,22 +449,26 @@ export class VoiceController {
     this.startWatchdog()
     let gated = false
     let spokeReply = false
+    let approval: { summary: string; digest: string } | undefined
 
     try {
       const result = await this.agent.ask(followUp ? text : rewriteForAgent(text))
       this.clearWatchdog()
 
-      gated = !followUp && CONFIRM_SEND_LINE.test(result.reply)
+      // A tool was denied for want of a spoken approval: ask for it instead of speaking the model's reply.
+      approval = result.approval
+      gated = !followUp && approval === undefined && CONFIRM_SEND_LINE.test(result.reply)
       const reply = gated ? result.reply.replace(CONFIRM_SEND_LINE, '').trim() : result.reply
       const spoken = hasTamilScript(reply) ? REPLY_ON_SCREEN : toSpokenText(reply)
       this.phase = 'speaking'
       this.emit({ transcript: text, reply, tools: result.tools })
 
-      if (!gated || reply !== '') await this.speaker.speak(spoken)
-      spokeReply = !gated && this.phase === 'speaking'
+      if (approval === undefined && (!gated || reply !== '')) await this.speaker.speak(spoken)
+      spokeReply = !gated && approval === undefined && this.phase === 'speaking'
     } catch (error) {
       this.clearWatchdog()
       gated = false
+      approval = undefined
       const message = error instanceof Error ? error.message : String(error)
       this.phase = 'idle'
       this.emit({ transcript: text, error: message })
@@ -458,7 +480,8 @@ export class VoiceController {
         this.emit()
       }
     }
-    if (gated) await this.askConfirmation(text, undefined)
+    if (approval !== undefined) await this.askConfirmation(text, undefined, approval)
+    else if (gated) await this.askConfirmation(text, undefined)
     else if (spokeReply) this.openFollowUp()
   }
 

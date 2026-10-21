@@ -63,7 +63,7 @@ class FakeAgent {
   route: Route = 'local'
   memoryShared = false
   asks: string[] = []
-  replies: Array<{ reply: string; tools: string[] }> = [{ reply: 'The time is 3 PM.', tools: [] }]
+  replies: Array<{ reply: string; tools: string[]; approval?: { summary: string; digest: string } }> = [{ reply: 'The time is 3 PM.', tools: [] }]
   cancelled = 0
   conversations = 0
   memoryShares: boolean[] = []
@@ -81,7 +81,7 @@ class FakeAgent {
     this.routeChanges.push(route)
     return { ok: true }
   }
-  async ask(text: string): Promise<{ reply: string; tools: string[] }> {
+  async ask(text: string): Promise<{ reply: string; tools: string[]; approval?: { summary: string; digest: string } }> {
     this.asks.push(text)
     if (this.askDelay) await this.askDelay()
     return this.replies[Math.min(this.asks.length - 1, this.replies.length - 1)] ?? { reply: 'Done.', tools: [] }
@@ -986,5 +986,111 @@ describe('conversation mode', () => {
     await controller.handleSpoken({ text: 'open notepad' })
     await controller.handleSpoken({ text: 'something else' })
     expect(agent.asks).toEqual(['something else'])
+  })
+})
+
+describe('send token and voice approval', () => {
+  beforeEach(() => { vi.useFakeTimers() })
+  afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks() })
+
+  async function rig(withTokens = true) {
+    const { VoiceController } = await import('../src/core/controller.ts')
+    const listener = new FakeListener()
+    const speaker = new FakeSpeaker()
+    const agent = new FakeAgent()
+    const states: VoiceState[] = []
+    const issued: string[] = []
+    const controller = new VoiceController({
+      listener, speaker, agent,
+      ...withTokens ? {
+        issueSendToken: () => { issued.push('send'); return '[AIR-SEND-0123456789abcdef]' },
+        issueApprovalToken: (digest: string) => { issued.push(`approve:${digest}`); return '[AIR-APPROVE-fedcba9876543210]' },
+      } : {},
+      runOperator: async () => ({ spoken: 'ok' }),
+      onState: (s: VoiceState) => { states.push(s) },
+    })
+    agent.route = 'cloud'
+    return { controller, listener, speaker, agent, states, issued }
+  }
+  const DRAFT = 'Draft to Asha saying hi.\nCONFIRM SEND'
+  const WANT = { summary: 'run Remove-Item C:/old (Clean up.)', digest: 'abc123' }
+
+  it('puts the send token only in the prompt after the spoken yes', async () => {
+    const { controller, agent, issued } = await rig()
+    agent.replies = [{ reply: DRAFT, tools: [] }, { reply: 'Sent to Asha.', tools: [] }]
+    await controller.handleSpoken({ text: 'send an email to Asha saying hi' })
+    expect(agent.asks[0]).not.toMatch(/AIR-SEND/)
+    expect(issued).toEqual([])
+    await controller.handleSpoken({ text: 'yes' })
+    expect(agent.asks[1]).toBe('Now press Send and speak one sentence saying who it went to. [AIR-SEND-0123456789abcdef]')
+    expect(issued).toEqual(['send'])
+  })
+
+  it('does not issue a send token on no, and sends the plain prompt when none can be issued', async () => {
+    const { controller, agent, issued } = await rig()
+    agent.replies = [{ reply: DRAFT, tools: [] }]
+    await controller.handleSpoken({ text: 'send an email to Asha saying hi' })
+    await controller.handleSpoken({ text: 'no' })
+    expect(issued).toEqual([])
+    expect(agent.asks[1]).toBe('Do not send it.')
+    const bare = await rig(false)
+    bare.agent.replies = [{ reply: DRAFT, tools: [] }]
+    await bare.controller.handleSpoken({ text: 'send an email to Asha saying hi' })
+    await bare.controller.handleSpoken({ text: 'yes' })
+    expect(bare.agent.asks[1]).toBe('Now press Send and speak one sentence saying who it went to.')
+  })
+
+  it('asks the person when a tool was denied for want of approval, instead of speaking the reply', async () => {
+    const { controller, speaker, agent, listener, states } = await rig()
+    agent.replies = [{ reply: 'I need approval.', tools: ['pwsh'], approval: WANT }]
+    await controller.handleSpoken({ text: 'clean up the old folder' })
+    expect(speaker.spoken).toEqual(['It wants to run Remove-Item C:/old (Clean up.). Say yes to allow.'])
+    expect(listener.listens).toBe(1)
+    expect(states.at(-1)).toMatchObject({ phase: 'awake' })
+  })
+
+  it('re-prompts with the approval token bound to the digest after yes, and never before', async () => {
+    const { controller, agent, issued } = await rig()
+    agent.replies = [{ reply: 'I need approval.', tools: [], approval: WANT }, { reply: 'Done.', tools: [] }]
+    await controller.handleSpoken({ text: 'clean up the old folder' })
+    expect(agent.asks).toEqual(['clean up the old folder'])
+    expect(issued).toEqual([])
+    await controller.handleSpoken({ text: 'yes' })
+    expect(issued).toEqual(['approve:abc123'])
+    expect(agent.asks[1]).toBe('Approved. Run exactly that command again now. [AIR-APPROVE-fedcba9876543210]')
+  })
+
+  it('cancels on anything but yes, and on silence, telling the model not to run it', async () => {
+    const no = await rig()
+    no.agent.replies = [{ reply: 'x', tools: [], approval: WANT }]
+    await no.controller.handleSpoken({ text: 'clean up' })
+    await no.controller.handleSpoken({ text: 'no way' })
+    expect(no.speaker.spoken.at(-1)).toBe('Cancelled.')
+    expect(no.agent.asks[1]).toBe('Do not run it.')
+    expect(no.issued).toEqual([])
+    const silent = await rig()
+    silent.agent.replies = [{ reply: 'x', tools: [], approval: WANT }]
+    await silent.controller.handleSpoken({ text: 'clean up' })
+    await vi.advanceTimersByTimeAsync(CONFIRM_WINDOW_MS)
+    expect(silent.speaker.spoken.at(-1)).toBe('Cancelled.')
+    expect(silent.agent.asks[1]).toBe('Do not run it.')
+  })
+
+  it('swallows a failure of the do-not-run prompt', async () => {
+    const { controller, agent, speaker } = await rig()
+    agent.replies = [{ reply: 'x', tools: [], approval: WANT }]
+    await controller.handleSpoken({ text: 'clean up' })
+    agent.ask = async () => { throw new Error('gone') }
+    await controller.handleSpoken({ text: 'no' })
+    expect(speaker.spoken.at(-1)).toBe('Cancelled.')
+  })
+
+  it('cannot approve without a token source: says Cancelled and asks nothing more', async () => {
+    const { controller, speaker, agent } = await rig(false)
+    agent.replies = [{ reply: 'x', tools: [], approval: WANT }]
+    await controller.handleSpoken({ text: 'clean up' })
+    await controller.handleSpoken({ text: 'yes' })
+    expect(speaker.spoken.at(-1)).toBe('Cancelled.')
+    expect(agent.asks).toEqual(['clean up'])
   })
 })
