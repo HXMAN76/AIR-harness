@@ -8,7 +8,7 @@ AIR is the working name of a local-first personal agent. It is built on a fork o
 
 ## Status
 
-Last verification dates and the environment of each check are in [CHECKS.md](CHECKS.md). Nobody has run anything on native Windows yet; the Windows column below is what the Windows CI job covers.
+Last verification dates and the environment of each check are in [CHECKS.md](CHECKS.md). On native Windows only setup and a first prompt in the desktop app were run by hand (2026-10-20); the Windows row below says what else is covered.
 
 | Capability | Desktop app | Web UI | Headless | Checked how |
 |---|---|---|---|---|
@@ -20,7 +20,7 @@ Last verification dates and the environment of each check are in [CHECKS.md](CHE
 | Thinking off by default, "Medium" per session | Works | Works | Off | Run by hand |
 | Voice agent (preview) | Windows only; not on Linux | n/a | n/a | Unit tests and parts run by hand on Windows; the four review scenarios are not recorded ([apps/voice/README.md](apps/voice/README.md)) |
 | Memory (trimmed plan 04) | Rows in the `air` bundle | Same | Not checked | Unit tests |
-| Windows | Not yet run by a person | Not yet run by a person | Not yet run by a person | Windows CI leg: install, build, typecheck, lint, tests, profile smokes |
+| Windows | Launch and first prompt work; features not checked by hand | Not yet run by a person | Not yet run by a person | Run by hand once (2026-10-20); Windows CI leg: install, build, typecheck, lint, tests, profile smokes |
 | Installer, tray, menus, updater | Not done | n/a | n/a | No installer on any OS; tray, menus, and updater unchecked on Linux |
 | Hosted (cloud) models | Untested | Untested | Untested | Not run |
 
@@ -285,7 +285,7 @@ Windows only; requires SAPI voices and microphone permissions. Details, setup fo
 
 ## Known limitations
 
-- No person has run any of this on native Windows; the desktop app has never been launched on Windows by this project. macOS is out of scope.
+- On native Windows the desktop app was launched and answered one prompt (2026-10-20); MCP trust, skills, commands, compaction, and the Web UI are not checked there. macOS is out of scope.
 - On Linux the desktop app is a development launch from source. There is no installer on any OS, no menu entry, and the window shows upstream's name and icon. Tray, menus, and updater are unchecked on Linux.
 - The desktop app keeps its data in its own development home, separate from the Web profile's `~/.dsh`.
 - Hosted (cloud) models are untested.
