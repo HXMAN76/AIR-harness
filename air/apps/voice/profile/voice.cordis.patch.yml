@@ -121,3 +121,13 @@
       config:
         mode: launch
         headless: true
+    # AIR memory, tier 1 (FTS5 only). The voice agent remembers notes for the
+    # local Ollama route by default; toggle memory-share in the UI or via the
+    # voice command to also share with the cloud route (see memory-share.cordis.patch.yml).
+    - id: air-memory-store
+      name: '@air/dsh-memory-store'
+      config:
+        shareWith:
+          - ollama
+    - id: air-memory-index
+      name: '@air/dsh-memory-index'

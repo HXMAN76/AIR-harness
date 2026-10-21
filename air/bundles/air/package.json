@@ -15,8 +15,12 @@
     "@air/dsh-instruction-conventions": "workspace:*",
     "@air/dsh-mcp-conventions": "workspace:*",
     "@air/dsh-mcp-trust": "workspace:*",
+    "@air/dsh-memory-context": "workspace:*",
+    "@air/dsh-memory-index": "workspace:*",
+    "@air/dsh-memory-store": "workspace:*",
     "@air/dsh-preset-by-model": "workspace:*",
-    "@air/dsh-skill-conventions": "workspace:*"
+    "@air/dsh-skill-conventions": "workspace:*",
+    "@air/dsh-tool-memory": "workspace:*"
   },
   "dsh": {
     "bundle": {

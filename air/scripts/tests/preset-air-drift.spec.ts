@@ -75,7 +75,9 @@ describe('AIR bundle composition', () => {
     const air = presetPlugins(airPatch, 'preset-air')
     expect(air.filter(isAirRow)).toEqual([
       { id: 'air-instruction-conventions', name: '@air/dsh-instruction-conventions', config: { maxBytes: 32768 } },
+      { id: 'air-memory-context', name: '@air/dsh-memory-context' },
       { id: 'air-skill-conventions', name: '@air/dsh-skill-conventions' },
+      { id: 'air-tool-memory', name: '@air/dsh-tool-memory' },
     ])
     // Declared changes: user skill roots off; the compaction row keeps its id and config and runs AIR's engine,
     // which only extends the summary instruction.
@@ -91,6 +93,8 @@ describe('AIR bundle composition', () => {
     const ids = presetPlugins(airPatch, 'preset-air').map(row => row['id'])
     expect(ids[ids.indexOf('agent-instructions') + 1]).toBe('air-instruction-conventions')
     expect(ids[ids.indexOf('skill-filesystem') + 1]).toBe('air-skill-conventions')
+    expect(ids[ids.indexOf('time-context') + 1]).toBe('air-memory-context')
+    expect(ids[ids.indexOf('tool-plugin-market') + 1]).toBe('air-tool-memory')
   })
 
   it('keeps the clock reading and the reminder tools', () => {
@@ -129,6 +133,8 @@ describe('AIR bundle composition', () => {
       ['air-command-conventions', '@air/dsh-command-conventions'],
       ['air-preset-by-model', '@air/dsh-preset-by-model'],
       ['air-effort-session-only', '@air/dsh-effort-session-only'],
+      ['air-memory-store', '@air/dsh-memory-store'],
+      ['air-memory-index', '@air/dsh-memory-index'],
     ])
   })
 
@@ -136,7 +142,7 @@ describe('AIR bundle composition', () => {
     const manifest: unknown = JSON.parse(readFileSync(join(bundleDir, 'package.json'), 'utf8'))
     const dependencies = isRow(manifest) && isRow(manifest['dependencies']) ? manifest['dependencies'] : {}
     const rowPackages = [...readFileSync(airPatch, 'utf8').matchAll(/name: '(@air\/[^']+)'/gu)].map(match => match[1])
-    expect(rowPackages).toHaveLength(11)
+    expect(rowPackages).toHaveLength(17)
     for (const packageName of rowPackages) expect(dependencies).toHaveProperty([String(packageName)], 'workspace:*')
   })
 })

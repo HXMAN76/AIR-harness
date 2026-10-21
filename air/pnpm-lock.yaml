@@ -72,12 +72,24 @@ importers:
       '@air/dsh-mcp-trust':
         specifier: workspace:*
         version: link:../../packages/mcp-trust
+      '@air/dsh-memory-context':
+        specifier: workspace:*
+        version: link:../../packages/memory-context
+      '@air/dsh-memory-index':
+        specifier: workspace:*
+        version: link:../../packages/memory-index
+      '@air/dsh-memory-store':
+        specifier: workspace:*
+        version: link:../../packages/memory-store
       '@air/dsh-preset-by-model':
         specifier: workspace:*
         version: link:../../packages/preset-by-model
       '@air/dsh-skill-conventions':
         specifier: workspace:*
         version: link:../../packages/skill-conventions
+      '@air/dsh-tool-memory':
+        specifier: workspace:*
+        version: link:../../packages/tool-memory
 
   bundles/air-desktop: {}
 

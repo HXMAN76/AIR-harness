@@ -202,6 +202,10 @@ From the command line, the `air-mcp` profile uses the bundle `bundles/mcp-server
 | `packages/preset-by-model` | Picks `air-lean` or `air` from the selected model's context window |
 | `packages/effort-session-only` | Keeps a reasoning-effort pick in the session, not in the saved default |
 | `packages/compaction-log` | Compaction engine whose summaries keep a chronological log and the first request |
+| `packages/memory-store` | Memory files: Markdown with frontmatter in a git repository |
+| `packages/memory-index` | Derived SQLite FTS5 index with BM25 keyword search |
+| `packages/tool-memory` | memory_search, memory_read, memory_write, memory_forget |
+| `packages/memory-context` | Pinned memory core, injected once per session |
 | `bundles/air` | Product defaults as a Cordis patch (Web and desktop) |
 | `bundles/air-desktop` | Layered after `air` in the desktop profile; keeps the two account rows the desktop app needs at boot |
 | `bundles/air-headless` | AIR defaults and plugins for a profile made from the headless template |
@@ -237,6 +241,16 @@ New packages follow the templates in [plans/spikes/01-toolchain.md](plans/spikes
 node air/scripts/desktop-drive.mjs title
 node air/scripts/desktop-drive.mjs send "/mcp-trust status"
 ```
+
+## Memory
+
+AIR remembers through files. Each note is a Markdown file with frontmatter under `$DSH_HOME/air/memory/` (default `~/.dsh/air/memory/`, `%USERPROFILE%\.dsh\air\memory\` on Windows), and that directory is a git repository with one commit per write: `git -C <that folder> log -p` is the audit trail, `git revert` the undo. If git is missing or fails, notes are still saved as plain files and the tool result says so. The search index at `$DSH_HOME/cache/air/memory-index.sqlite` is derived and can be deleted.
+
+The model writes a note only through `memory_write`. In the Read Only, Workspace Write, and Auto review access modes the user confirms each write and each `memory_forget` in the approval panel; in Full access nobody can be asked, so notes are stored as low-trust (`agent-inferred`), `feedback` notes and permanent deletes are refused. Every session starts with a pinned core of the user's notes (about 1,500 tokens at most, frozen for the session); deeper recall goes through `memory_search`, which uses keyword (BM25) ranking through the FTS5 index.
+
+Memory text is sent to the active model, so it is shared only with the model routes in `shareWith` on the `air-memory-store` row (default: the local `ollama` route). A session on a hosted model gets no pinned core and cannot search or read notes until its provider id is added there.
+
+Back up or move notes with `pnpm -C air run memory:transfer export <file>` and `import <file>`. Rows: `air-memory-store`, `air-memory-index` (host), `air-tool-memory`, `air-memory-context` (inside the `air` preset). Forgetting a note does not remove text that already entered a session log; delete the session for that.
 
 ## Known limitations
 
