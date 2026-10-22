@@ -268,7 +268,9 @@ export class VoiceController {
    * Called by the listener's command handler and exposed for direct testing.
    */
   async handleSpoken(command: { text: string; lang?: Lang; decodeMs?: number; audioMs?: number; receivedAt?: number }): Promise<void> {
-    this.heard = command.decodeMs === undefined ? undefined : { receivedAt: command.receivedAt ?? this.metrics.now(), decodeMs: command.decodeMs, audioMs: command.audioMs }
+    this.heard = command.decodeMs === undefined
+      ? undefined
+      : { receivedAt: command.receivedAt ?? this.metrics.now(), decodeMs: command.decodeMs, audioMs: command.audioMs }
     if (this.confirming !== undefined) {
       await this.answerConfirmation(command.text)
       return

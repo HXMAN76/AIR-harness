@@ -38,8 +38,10 @@ describe('Listener', () => {
     expect(() => new Listener()).not.toThrow()
     const fake = fakeSpawn()
     const listener = new Listener({ spawnFn: fake.spawn })
-    const commands: { receivedAt: number }[] = []
-    listener.on('command', command => commands.push(command))
+    const commands: Command[] = []
+    listener.on('command', (command: Command) => {
+      commands.push(command)
+    })
     listener.start()
     fake.children[0]!.out('{"type":"command","text":"x","lang":"en","audioMs":1,"decodeMs":1}\n')
     expect(commands[0]!.receivedAt).toBeGreaterThan(0)

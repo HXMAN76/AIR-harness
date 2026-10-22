@@ -241,7 +241,13 @@ describe('live progress', () => {
     // Use the fake-timer clock so elapsed time follows advanceTimers.
     const origin = Date.now()
     const slow = new MetricsRecorder({ now: () => Date.now() - origin })
-    const fresh = new VoiceController({ listener: new Listener(), speaker: new Speaker({ t: 0 }), agent, metrics: slow, onState: state => states.push(state) })
+    const fresh = new VoiceController({
+      listener: new Listener(),
+      speaker: new Speaker({ t: 0 }),
+      agent,
+      metrics: slow,
+      onState: state => states.push(state),
+    })
     void controller
     agent.progress = [{ kind: 'thinking' }, { kind: 'tool', name: 'open', args: { kind: 'app', value: 'notepad' } }]
     let release: (() => void) | undefined

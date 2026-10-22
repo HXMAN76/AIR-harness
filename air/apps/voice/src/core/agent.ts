@@ -156,7 +156,8 @@ export class AgentBridge {
    * Run one prompt on the active route's conversation.
    * @param text - the command.
    * @param onProgress - called with `thinking` at the start and with each tool call as it is made.
-   * @returns the final response, the names of the tools called, when a tool was denied for lack of a spoken approval what it wanted, and what the turn cost.
+   * @returns the final response, the names of the tools called, what a denied tool wanted when it was denied for lack of a
+   *   spoken approval, and what the turn cost.
    */
   async ask(text: string, onProgress?: (progress: AgentProgress) => void): Promise<AskResult> {
     const route = this.currentRoute

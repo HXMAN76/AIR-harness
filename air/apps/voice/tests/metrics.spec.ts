@@ -2,7 +2,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'no
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { MetricsRecorder, jsonlSink, recorderFromEnv, summarize, wordErrorRate, type MetricsRecord } from '../src/core/metrics.ts'
+import { MetricsRecorder, jsonlSink, recorderFromEnv, summarize, wordEdits, wordErrorRate, type MetricsRecord } from '../src/core/metrics.ts'
 
 const dirs: string[] = []
 afterEach(() => {
@@ -91,14 +91,17 @@ describe('jsonlSink and recorderFromEnv', () => {
     sink(record)
     sink({ ...record, at: '2026-10-23T00:00:01.000Z' })
     sink(record)
-    expect(readFileSync(join(dir, 'voice-2026-10-22.jsonl'), 'utf8').trim().split('\n').map(line => JSON.parse(line))).toEqual([record, record])
+    const lines = readFileSync(join(dir, 'voice-2026-10-22.jsonl'), 'utf8').trim().split('\n')
+    expect(lines.map((line): unknown => JSON.parse(line))).toEqual([record, record])
     expect(existsSync(join(dir, 'voice-2026-10-23.jsonl'))).toBe(true)
   })
 
   it('ignores a write that fails', () => {
     const blocked = join(temp(), 'file')
     writeFileSync(blocked, 'x')
-    expect(() => jsonlSink(join(blocked, 'metrics'))(record)).not.toThrow()
+    expect(() => {
+      jsonlSink(join(blocked, 'metrics'))(record)
+    }).not.toThrow()
   })
 
   it('writes only when AIR_VOICE_METRICS=1', () => {
@@ -127,6 +130,13 @@ describe('summarize', () => {
   it('handles one value and none', () => {
     expect(summarize([7])).toEqual({ n: 1, mean: 7, p50: 7, p90: 7, p95: 7, p99: 7, min: 7, max: 7 })
     expect(summarize([])).toBeUndefined()
+  })
+})
+
+describe('wordEdits', () => {
+  it('returns the edit count and the reference length', () => {
+    expect(wordEdits('a b c', 'a x c')).toEqual({ edits: 1, words: 3 })
+    expect(wordEdits('', '')).toEqual({ edits: 0, words: 0 })
   })
 })
 

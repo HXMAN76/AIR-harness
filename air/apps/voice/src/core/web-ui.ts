@@ -1,10 +1,9 @@
 /**
- * "Open in AIR": serves dsh's Web UI against the voice home (once, reused) so the user can watch the voice sessions and
- * continue in text. The Web UI has no session route: its token URL redirects to the clean root, and the session list
- * lives in the page, so the button opens the root and the sessions appear in the sidebar (newest first).
+ * "Open in AIR": serves dsh's shipped `web` profile against the voice home (once, reused) so the user can watch the voice
+ * sessions and continue in text. The shipped profile needs no setup: `--from-default-profile web` is refused for it, and
+ * the profile folder appears in the home on first start. The Web UI has no session route: its token URL redirects to the
+ * clean root, and the session list lives in the page, so the button opens the root and the sessions appear in the sidebar.
  */
-import { existsSync } from 'node:fs'
-import { join } from 'node:path'
 import type { ChildLike } from './child.ts'
 import { lineReader } from './child.ts'
 
@@ -64,8 +63,6 @@ export interface WebUiOptions {
   env?: Record<string, string | undefined>
   /** How long to wait for the server's URL line. */
   startTimeoutMs?: number
-  /** Whether a path exists; tests inject it. */
-  exists?: (path: string) => boolean
   /** Debug logger; receives only redacted URLs. */
   debug?: (message: string) => void
 }
@@ -81,26 +78,9 @@ export class WebUi {
     return { ...this.options.env ?? process.env, ELECTRON_RUN_AS_NODE: '1', DSH_HOME: this.options.home }
   }
 
-  /** Create the `web` profile once. `--from-default-profile` replaces an existing profile, so only when it is absent. */
-  private async ensureProfile(): Promise<void> {
-    const exists = this.options.exists ?? existsSync
-    if (exists(join(this.options.home, 'profiles', 'web'))) return
-    const child = this.options.spawnFn(this.options.node, [this.options.dshBin, '--profile', 'web', '--from-default-profile', 'web', '--dump-config'], this.env())
-    child.stdout.on('data', () => undefined)
-    await new Promise<void>((resolve, reject) => {
-      child.on('exit', (code) => {
-        if (code === 0) resolve()
-        else reject(new Error('could not create the web profile'))
-      })
-      child.on('error', () => {
-        reject(new Error('could not create the web profile'))
-      })
-    })
-  }
-
-  private async start(): Promise<string> {
-    await this.ensureProfile()
-    const child = this.options.spawnFn(this.options.node, [this.options.dshBin, '--profile', 'web', '--no-open', '--port', '0'], this.env())
+  private start(): Promise<string> {
+    const args = [this.options.dshBin, '--profile', 'web', '--no-open', '--port', '0']
+    const child = this.options.spawnFn(this.options.node, args, this.env())
     this.child = child
     return new Promise<string>((resolve, reject) => {
       const timer = setTimeout(() => {
@@ -127,7 +107,7 @@ export class WebUi {
 
   /**
    * Start the server if it is not running (once; later calls reuse it) and open its URL in the browser.
-   * @throws when the profile cannot be created, the server does not print its URL, or it exits.
+   * @throws when the server does not print its URL in time or exits.
    */
   async open(): Promise<void> {
     this.url ??= this.start()

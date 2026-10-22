@@ -36,7 +36,7 @@ interface Spawned {
   child: FakeChild
 }
 
-function rig(options: { profileExists?: boolean; startTimeoutMs?: number } = {}) {
+function rig(options: { startTimeoutMs?: number } = {}) {
   const spawned: Spawned[] = []
   const opened: string[] = []
   const debug: string[] = []
@@ -52,7 +52,6 @@ function rig(options: { profileExists?: boolean; startTimeoutMs?: number } = {})
     spawnFn,
     openExternal: (url) => { opened.push(url); return Promise.resolve() },
     env: { PATH: 'p', KEEP: 'yes' },
-    exists: () => options.profileExists ?? true,
     debug: message => debug.push(message),
     ...options.startTimeoutMs === undefined ? {} : { startTimeoutMs: options.startTimeoutMs },
   })
@@ -79,33 +78,6 @@ describe('WebUi', () => {
     expect(opened).toEqual(['http://127.0.0.1:4000/?token=SECRET', 'http://127.0.0.1:4000/?token=SECRET'])
     expect(debug).toEqual(['web ui at http://127.0.0.1:4000/?token=***'])
     expect(debug.join()).not.toContain('SECRET')
-  })
-
-  it('creates the web profile first when it is absent, and not otherwise', async () => {
-    const { ui, spawned } = rig({ profileExists: false })
-    const opening = ui.open()
-    await flush()
-    expect(spawned).toHaveLength(1)
-    expect(spawned[0]!.args).toEqual(['C:/repo/apps/cli/lib/bin.js', '--profile', 'web', '--from-default-profile', 'web', '--dump-config'])
-    spawned[0]!.child.out('profile dump')
-    spawned[0]!.child.exit(0)
-    await flush()
-    expect(spawned).toHaveLength(2)
-    spawned[1]!.child.out('dsh web: http://127.0.0.1:4001/?token=t\n')
-    await opening
-  })
-
-  it('fails when the profile cannot be created', async () => {
-    const exit = rig({ profileExists: false })
-    const a = exit.ui.open()
-    await flush()
-    exit.spawned[0]!.child.exit(1)
-    await expect(a).rejects.toThrow('could not create the web profile')
-    const error = rig({ profileExists: false })
-    const b = error.ui.open()
-    await flush()
-    error.spawned[0]!.child.emit('error', new Error('spawn failed'))
-    await expect(b).rejects.toThrow('could not create the web profile')
   })
 
   it('fails and can retry when the server exits before printing a URL', async () => {
@@ -179,11 +151,11 @@ describe('WebUi', () => {
     await second
   })
 
-  it('reads the process environment and the real filesystem by default', async () => {
+  it('reads the process environment by default', async () => {
     const spawned: Spawned[] = []
     const ui = new WebUi({
       dshBin: 'bin.js',
-      home: 'Z:/definitely/not/a/home',
+      home: 'Z:/home',
       node: 'node',
       spawnFn: (command, args, env) => {
         const child = new FakeChild()
@@ -194,11 +166,9 @@ describe('WebUi', () => {
     })
     const opening = ui.open()
     await flush()
-    expect(spawned[0]!.args).toContain('--from-default-profile')
-    expect(spawned[0]!.env['DSH_HOME']).toBe('Z:/definitely/not/a/home')
-    spawned[0]!.child.exit(0)
-    await flush()
-    spawned[1]!.child.out('dsh web: http://127.0.0.1:4007/?token=t\n')
+    expect(spawned[0]!.env['DSH_HOME']).toBe('Z:/home')
+    expect(spawned[0]!.env['ELECTRON_RUN_AS_NODE']).toBe('1')
+    spawned[0]!.child.out('dsh web: http://127.0.0.1:4007/?token=t\n')
     await opening
   })
 })

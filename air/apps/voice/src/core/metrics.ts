@@ -241,12 +241,11 @@ export function summarize(values: readonly number[]): Stats | undefined {
   }
 }
 
-/** Word-level Levenshtein distance divided by the reference length (word error rate). */
-export function wordErrorRate(reference: string, hypothesis: string): number {
+/** Word-level Levenshtein distance between a reference and a hypothesis, and the reference's word count. */
+export function wordEdits(reference: string, hypothesis: string): { edits: number; words: number } {
   const norm = (text: string): string[] => text.toLowerCase().replaceAll(/[^a-z0-9' ]+/g, ' ').split(/\s+/).filter(word => word !== '')
   const ref = norm(reference)
   const hyp = norm(hypothesis)
-  if (ref.length === 0) return hyp.length === 0 ? 0 : 1
   let previous = Array.from({ length: hyp.length + 1 }, (_, index) => index)
   for (let i = 1; i <= ref.length; i++) {
     const row = [i]
@@ -256,5 +255,12 @@ export function wordErrorRate(reference: string, hypothesis: string): number {
     }
     previous = row
   }
-  return (previous[hyp.length] as number) / ref.length
+  return { edits: previous[hyp.length] as number, words: ref.length }
+}
+
+/** Word error rate: {@link wordEdits} divided by the reference length (1 when a hypothesis follows an empty reference). */
+export function wordErrorRate(reference: string, hypothesis: string): number {
+  const { edits, words } = wordEdits(reference, hypothesis)
+  if (words === 0) return edits === 0 ? 0 : 1
+  return edits / words
 }
