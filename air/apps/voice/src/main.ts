@@ -28,7 +28,10 @@ let controller: VoiceController | undefined
 
 const FRAME_SIZE = 1_600 // 100 ms at 16 kHz
 
-/** Extra console output (state changes with transcripts and replies, model load times); off unless `AIR_VOICE_DEBUG=1` (or 2, which also prints the text of speech that had no wake phrase). */
+/**
+ * Extra console output (state changes with transcripts and replies, model load times); off unless `AIR_VOICE_DEBUG=1`.
+ * Level 2 also prints the text of speech that had no wake phrase.
+ */
 const DEBUG_LEVEL = Number(process.env.AIR_VOICE_DEBUG) || 0
 const DEBUG = DEBUG_LEVEL >= 1
 

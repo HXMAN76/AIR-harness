@@ -64,17 +64,20 @@ const MAX_NAME_DISTANCE = 2
 
 /** Optimal string alignment distance (insert, delete, substitute, swap of neighbours). */
 export function editDistance(a: string, b: string): number {
-  const rows: number[][] = Array.from({ length: a.length + 1 }, (_, i) => [i, ...Array<number>(b.length).fill(0)])
-  for (let j = 1; j <= b.length; j++) rows[0]![j] = j
+  const width = b.length + 1
+  const table = new Int32Array((a.length + 1) * width)
+  const at = (i: number, j: number): number => table[i * width + j] as number
+  for (let i = 0; i <= a.length; i++) table[i * width] = i
+  for (let j = 0; j <= b.length; j++) table[j] = j
   for (let i = 1; i <= a.length; i++) {
     for (let j = 1; j <= b.length; j++) {
       const cost = a[i - 1] === b[j - 1] ? 0 : 1
-      let best = Math.min(rows[i - 1]![j]! + 1, rows[i]![j - 1]! + 1, rows[i - 1]![j - 1]! + cost)
-      if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) best = Math.min(best, rows[i - 2]![j - 2]! + 1)
-      rows[i]![j] = best
+      let best = Math.min(at(i - 1, j) + 1, at(i, j - 1) + 1, at(i - 1, j - 1) + cost)
+      if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) best = Math.min(best, at(i - 2, j - 2) + 1)
+      table[i * width + j] = best
     }
   }
-  return rows[a.length]![b.length]!
+  return at(a.length, b.length)
 }
 
 function nameLike(word: string, maxLength: number): boolean {
@@ -91,7 +94,7 @@ function nameLike(word: string, maxLength: number): boolean {
  */
 export function matchTextWake(transcript: string): WakeMatch {
   const spoken = words(transcript)
-  const start = spoken.length > 1 && FILLERS.has(spoken[0]!.word) ? 1 : 0
+  const start = FILLERS.has(spoken[0]?.word ?? '') && spoken.length > 1 ? 1 : 0
   const first = spoken[start]
   if (first === undefined) return { wake: false, command: '' }
   let last = first
