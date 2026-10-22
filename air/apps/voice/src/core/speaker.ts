@@ -1,4 +1,7 @@
-/** Speaks text through a long-lived PowerShell child that drives Windows SAPI (`speaker.ps1`). */
+/**
+ * Speaks text: a long-lived PowerShell child renders each utterance with Windows SAPI to a WAV (`speaker.ps1`),
+ * and an {@link AudioPlayer} (the Electron renderer) plays it, so all audio comes from one place.
+ */
 import { fileURLToPath } from 'node:url'
 import { nodeSpawn } from '../node-spawn.ts'
 import { ignoreStdinErrors, lineReader, type ChildLike, type SpawnLike } from './child.ts'
@@ -9,28 +12,48 @@ export const DEFAULT_SPEAKER_SCRIPT = fileURLToPath(new URL('../speaker.ps1', im
 /** A child that exited this many times is not started again. */
 const MAX_STARTS = 2
 
+/** Plays rendered speech; the Electron main implements it over IPC to the renderer. */
+export interface AudioPlayer {
+  /** Play one base64 WAV after the ones already queued; settles when it finished or was stopped. */
+  play(wavBase64: string): Promise<void>
+  /** Stop everything playing or queued now. */
+  stop(): void
+  /** Play the short wake cue. */
+  beep(): void
+}
+
+/** A player that plays nothing; used when no renderer is attached. */
+const SILENT: AudioPlayer = { play: () => Promise.resolve(), stop: () => undefined, beep: () => undefined }
+
 interface Pending {
   resolve: () => void
   reject: (error: Error) => void
+  /** Whether the child already answered this utterance (it may still be playing). */
+  answered: boolean
 }
 
 /**
- * Line protocol to the child: `SAY <base64 UTF-8>` queues an utterance, `STOP` cancels all, `BEEP` plays a beep;
- * the child writes `DONE` once per utterance when it finishes or is cancelled.
+ * Line protocol to the child: `SAY <base64 UTF-8>` queues an utterance, `STOP` cancels all rendering;
+ * the child answers each utterance with `WAV <base64>` (play it) or `DONE` (cancelled or empty).
  */
 export class Speaker {
   private child: ChildLike | undefined
   private starts = 0
   private pending: Pending[] = []
-  /** `DONE` lines still owed for utterances that `stop()` already settled. */
-  private owedDone = 0
+  /** Answers still owed for utterances that `stop()` already settled. */
+  private owedAnswers = 0
   private disposed = false
 
   /**
    * @param spawnFn - starts the child; defaults to Node's `spawn`.
    * @param scriptPath - path of `speaker.ps1`.
+   * @param player - plays the rendered WAVs; defaults to a silent one.
    */
-  constructor(private readonly spawnFn: SpawnLike = nodeSpawn, private readonly scriptPath = DEFAULT_SPEAKER_SCRIPT) {}
+  constructor(
+    private readonly spawnFn: SpawnLike = nodeSpawn,
+    private readonly scriptPath = DEFAULT_SPEAKER_SCRIPT,
+    private readonly player: AudioPlayer = SILENT,
+  ) {}
 
   /** Whether an utterance is queued or playing. */
   get speaking(): boolean {
@@ -40,33 +63,34 @@ export class Speaker {
   /**
    * Speak one utterance.
    * @param text - plain text to say.
-   * @returns settles when it finished or was stopped; rejects when the child exits or cannot start.
+   * @returns settles when it finished playing or was stopped; rejects when the child exits or cannot start.
    */
   speak(text: string): Promise<void> {
     if (this.disposed) return Promise.reject(new Error('speaker disposed'))
     const child = this.ensureChild()
     if (child === undefined) return Promise.reject(new Error('speaker unavailable'))
     return new Promise<void>((resolve, reject) => {
-      this.pending.push({ resolve, reject })
+      this.pending.push({ resolve, reject, answered: false })
       child.stdin.write(`SAY ${Buffer.from(text, 'utf8').toString('base64')}\n`)
     })
   }
 
-  /** Start the child now so the first beep or utterance does not wait for PowerShell to load. */
+  /** Start the child now so the first utterance does not wait for PowerShell to load. */
   warm(): void {
     this.ensureChild()
   }
 
-  /** Play a short beep (the wake cue) without queueing; ignored when the child cannot start. */
+  /** Play the wake cue through the player. */
   beep(): void {
-    this.ensureChild()?.stdin.write('BEEP\n')
+    this.player.beep()
   }
 
-  /** Cancel all queued and playing speech; pending `speak` calls resolve now. */
+  /** Cancel all queued, rendering and playing speech; pending `speak` calls resolve now. */
   stop(): void {
     if (this.child === undefined || this.pending.length === 0) return
     this.child.stdin.write('STOP\n')
-    this.owedDone += this.pending.length
+    this.player.stop()
+    this.owedAnswers += this.pending.filter(entry => !entry.answered).length
     const settled = this.pending
     this.pending = []
     for (const entry of settled) entry.resolve()
@@ -75,6 +99,7 @@ export class Speaker {
   /** Stop the child for good. */
   async dispose(): Promise<void> {
     this.disposed = true
+    this.player.stop()
     const child = this.child
     if (child === undefined) return
     const exited = new Promise<void>((resolve) => {
@@ -102,7 +127,7 @@ export class Speaker {
       if (gone) return
       gone = true
       this.child = undefined
-      this.owedDone = 0
+      this.owedAnswers = 0
       const failed = this.pending
       this.pending = []
       for (const entry of failed) entry.reject(new Error('speaker exited'))
@@ -113,11 +138,31 @@ export class Speaker {
   }
 
   private onLine(line: string): void {
-    if (line.trim() !== 'DONE') return
-    if (this.owedDone > 0) {
-      this.owedDone--
+    const text = line.trim()
+    const wav = text.startsWith('WAV ') ? text.slice(4) : undefined
+    if (wav === undefined && text !== 'DONE') return
+    if (this.owedAnswers > 0) {
+      this.owedAnswers--
       return
     }
-    this.pending.shift()?.resolve()
+    const entry = this.pending.find(candidate => !candidate.answered)
+    if (entry === undefined) return
+    entry.answered = true
+    if (wav === undefined) {
+      this.settle(entry)
+      return
+    }
+    this.player.play(wav).then(() => {
+      this.settle(entry)
+    }, () => {
+      this.settle(entry)
+    })
+  }
+
+  private settle(entry: Pending): void {
+    const index = this.pending.indexOf(entry)
+    if (index < 0) return
+    this.pending.splice(index, 1)
+    entry.resolve()
   }
 }

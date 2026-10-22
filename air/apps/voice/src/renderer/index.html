@@ -3,167 +3,37 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'">
   <title>AIR Voice</title>
-  <style>
-    :root {
-      --bg: #1a1a1a;
-      --fg: #e0e0e0;
-      --accent: #4a9eff;
-      --idle: #666;
-      --awake: #ffa500;
-      --thinking: #4a9eff;
-      --speaking: #4caf50;
-      --error: #f44336;
-    }
-
-    * {
-      margin: 0;
-      padding: 0;
-      box-sizing: border-box;
-    }
-
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      background: var(--bg);
-      color: var(--fg);
-      padding: 16px;
-      height: 100vh;
-      display: flex;
-      flex-direction: column;
-      gap: 12px;
-    }
-
-    .header {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-    }
-
-    .status-dot {
-      width: 16px;
-      height: 16px;
-      border-radius: 50%;
-      background: var(--idle);
-      transition: background 0.2s;
-    }
-
-    .status-dot.awake { background: var(--awake); }
-    .status-dot.thinking { background: var(--thinking); }
-    .status-dot.speaking { background: var(--speaking); }
-
-    .phase-label {
-      font-size: 14px;
-      font-weight: 600;
-      text-transform: capitalize;
-    }
-
-    .mic-indicator {
-      margin-left: auto;
-      font-size: 20px;
-      opacity: 0.3;
-    }
-
-    .mic-indicator.active {
-      opacity: 1;
-    }
-
-    .controls {
-      display: flex;
-      gap: 8px;
-      flex-wrap: wrap;
-    }
-
-    .route-btn {
-      padding: 6px 12px;
-      border: 1px solid var(--fg);
-      border-radius: 4px;
-      background: transparent;
-      color: var(--fg);
-      cursor: pointer;
-      font-size: 12px;
-    }
-
-    .route-btn.active {
-      background: var(--accent);
-      border-color: var(--accent);
-      color: white;
-    }
-
-    .memory-toggle {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      font-size: 12px;
-    }
-
-    .section {
-      background: rgba(255, 255, 255, 0.05);
-      border-radius: 8px;
-      padding: 12px;
-    }
-
-    .section-label {
-      font-size: 11px;
-      text-transform: uppercase;
-      opacity: 0.6;
-      margin-bottom: 4px;
-    }
-
-    .section-content {
-      font-size: 13px;
-      line-height: 1.4;
-      word-break: break-word;
-    }
-
-    .tools {
-      display: flex;
-      gap: 4px;
-      flex-wrap: wrap;
-      margin-top: 4px;
-    }
-
-    .tool-tag {
-      font-size: 10px;
-      padding: 2px 6px;
-      background: rgba(74, 158, 255, 0.2);
-      border-radius: 3px;
-    }
-
-    .error {
-      color: var(--error);
-    }
-  </style>
+  <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <div class="header">
-    <div class="status-dot" id="statusDot"></div>
-    <div class="phase-label" id="phaseLabel">idle</div>
-    <div class="mic-indicator" id="micIndicator">🎤</div>
+  <canvas id="orb" aria-hidden="true"></canvas>
+
+  <button class="icon gear" id="gear" aria-label="Settings" aria-expanded="false">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15.2a3.2 3.2 0 1 0 0-6.4 3.2 3.2 0 0 0 0 6.4Zm7.4-2.2a7.6 7.6 0 0 0 0-2l2-1.5-2-3.4-2.3.9a7.6 7.6 0 0 0-1.7-1l-.4-2.5h-4l-.4 2.5a7.6 7.6 0 0 0-1.7 1l-2.3-.9-2 3.4 2 1.5a7.6 7.6 0 0 0 0 2l-2 1.5 2 3.4 2.3-.9c.5.4 1.1.7 1.7 1l.4 2.5h4l.4-2.5c.6-.3 1.2-.6 1.7-1l2.3.9 2-3.4-2-1.5Z"/></svg>
+  </button>
+  <div class="top-right">
+    <span class="pill" id="pill">Local</span>
+    <button class="icon close" id="close" aria-label="Close">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>
+    </button>
   </div>
 
-  <div class="controls">
-    <button class="route-btn active" data-route="local">Local</button>
-    <button class="route-btn" data-route="cloud">Cloud</button>
-    <button class="route-btn" data-route="screen">Screen</button>
-  </div>
+  <p class="line" id="line" aria-live="polite"></p>
 
-  <label class="memory-toggle">
-    <input type="checkbox" id="memoryShare">
-    Share memory with cloud
-  </label>
+  <section class="panel" id="panel" hidden>
+    <div class="routes" role="group" aria-label="Model route">
+      <button class="route" data-route="local">Local</button>
+      <button class="route" data-route="cloud">Cloud</button>
+      <button class="route" data-route="screen">Screen</button>
+    </div>
+    <label class="share"><input type="checkbox" id="memoryShare"> Share memory with cloud</label>
+    <div class="meta" id="meta"></div>
+  </section>
 
-  <div class="section">
-    <div class="section-label">Transcript</div>
-    <div class="section-content" id="transcript">—</div>
-  </div>
-
-  <div class="section">
-    <div class="section-label">Reply</div>
-    <div class="section-content" id="reply">—</div>
-    <div class="tools" id="tools"></div>
-  </div>
-
+  <script src="logo.js"></script>
+  <script src="orb.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

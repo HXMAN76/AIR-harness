@@ -1,8 +1,31 @@
 import { describe, expect, it } from 'vitest'
-import { Speaker } from '../src/core/speaker.ts'
+import { Speaker, type AudioPlayer } from '../src/core/speaker.ts'
 import { fakeSpawn } from './fake-child.ts'
 
 const flush = (): Promise<void> => new Promise(resolve => setImmediate(resolve))
+
+/** A player that records calls and lets a test finish each playback by hand. */
+function fakePlayer(): AudioPlayer & { played: string[]; finish: ((error?: Error) => void)[]; stops: number; beeps: number } {
+  const player = {
+    played: [] as string[],
+    finish: [] as ((error?: Error) => void)[],
+    stops: 0,
+    beeps: 0,
+    play(wav: string): Promise<void> {
+      player.played.push(wav)
+      return new Promise<void>((resolve, reject) => {
+        player.finish.push(error => (error === undefined ? resolve() : reject(error)))
+      })
+    },
+    stop(): void {
+      player.stops++
+    },
+    beep(): void {
+      player.beeps++
+    },
+  }
+  return player
+}
 
 describe('Speaker', () => {
   it('spawns PowerShell with the SAPI script once', async () => {
@@ -18,9 +41,10 @@ describe('Speaker', () => {
     }])
   })
 
-  it('writes SAY with base64 UTF-8 and resolves on DONE', async () => {
+  it('writes SAY with base64 UTF-8, plays the returned WAV and resolves when playback ends', async () => {
     const fake = fakeSpawn()
-    const speaker = new Speaker(fake.spawn)
+    const player = fakePlayer()
+    const speaker = new Speaker(fake.spawn, undefined, player)
     let settled = false
     const done = speaker.speak('hi').then(() => {
       settled = true
@@ -28,23 +52,56 @@ describe('Speaker', () => {
     await flush()
     expect(fake.children[0]!.text).toBe('SAY aGk=\n')
     expect(speaker.speaking).toBe(true)
+    fake.children[0]!.out('WAV QUJD')
+    fake.children[0]!.out('\r\n')
+    await flush()
+    expect(player.played).toEqual(['QUJD'])
     expect(settled).toBe(false)
-    fake.children[0]!.out('DO')
-    fake.children[0]!.out('NE\n')
+    expect(speaker.speaking).toBe(true)
+    player.finish[0]!()
     await done
     expect(speaker.speaking).toBe(false)
   })
 
-  it('resolves queued utterances in order and ignores other lines', async () => {
+  it('plays queued utterances in order and ignores other lines', async () => {
     const fake = fakeSpawn()
-    const speaker = new Speaker(fake.spawn)
+    const player = fakePlayer()
+    const speaker = new Speaker(fake.spawn, undefined, player)
     const order: string[] = []
     const first = speaker.speak('a').then(() => order.push('a'))
     const second = speaker.speak('b').then(() => order.push('b'))
-    fake.children[0]!.out('READY\nDONE\n\nDONE\n')
+    fake.children[0]!.out('READY\nWAV AA==\n\nWAV QQ==\n')
+    await flush()
+    expect(player.played).toEqual(['AA==', 'QQ=='])
+    player.finish[0]!()
+    player.finish[1]!()
     await Promise.all([first, second])
     expect(order).toEqual(['a', 'b'])
-    fake.children[0]!.out('DONE\n')
+    fake.children[0]!.out('DONE\nWAV AA==\n')
+    expect(speaker.speaking).toBe(false)
+    expect(player.played).toHaveLength(2)
+  })
+
+  it('settles an utterance whose playback failed', async () => {
+    const fake = fakeSpawn()
+    const player = fakePlayer()
+    const speaker = new Speaker(fake.spawn, undefined, player)
+    const done = speaker.speak('a')
+    fake.children[0]!.out('WAV AA==\n')
+    await flush()
+    player.finish[0]!(new Error('decode failed'))
+    await done
+    expect(speaker.speaking).toBe(false)
+  })
+
+  it('without a player the WAV is dropped and speech still resolves', async () => {
+    const fake = fakeSpawn()
+    const speaker = new Speaker(fake.spawn)
+    const done = speaker.speak('a')
+    fake.children[0]!.out('WAV AA==\n')
+    await done
+    speaker.beep()
+    speaker.stop()
     expect(speaker.speaking).toBe(false)
   })
 
@@ -52,44 +109,60 @@ describe('Speaker', () => {
     expect(new Speaker().speaking).toBe(false)
   })
 
-  it('stop() writes STOP, resolves pending speech at once, and swallows the late DONE lines', async () => {
+  it('stop() writes STOP, stops playback, resolves pending speech at once, and swallows late answers', async () => {
     const fake = fakeSpawn()
-    const speaker = new Speaker(fake.spawn)
+    const player = fakePlayer()
+    const speaker = new Speaker(fake.spawn, undefined, player)
     const pending = speaker.speak('a long reply')
     speaker.stop()
     await pending
     expect(fake.children[0]!.text).toBe(`SAY ${Buffer.from('a long reply').toString('base64')}\nSTOP\n`)
+    expect(player.stops).toBe(1)
     expect(speaker.speaking).toBe(false)
     let settled = false
     const next = speaker.speak('next').then(() => {
       settled = true
     })
-    fake.children[0]!.out('DONE\n')
+    fake.children[0]!.out('WAV AA==\n')
     await flush()
     expect(settled).toBe(false)
-    fake.children[0]!.out('DONE\n')
+    expect(player.played).toEqual([])
+    fake.children[0]!.out('WAV QQ==\n')
+    await flush()
+    player.finish[0]!()
     await next
+    expect(player.played).toEqual(['QQ=='])
   })
 
-  it('warm() starts the child; beep() writes BEEP without queueing speech', () => {
+  it('stop() while an answered utterance is playing does not swallow the next answer', async () => {
     const fake = fakeSpawn()
-    const speaker = new Speaker(fake.spawn)
+    const player = fakePlayer()
+    const speaker = new Speaker(fake.spawn, undefined, player)
+    const first = speaker.speak('a')
+    fake.children[0]!.out('WAV AA==\n')
+    await flush()
+    speaker.stop()
+    await first
+    const second = speaker.speak('b')
+    fake.children[0]!.out('WAV QQ==\n')
+    await flush()
+    player.finish[1]!()
+    await second
+    player.finish[0]!()
+    await flush()
+    expect(player.played).toEqual(['AA==', 'QQ=='])
+  })
+
+  it('warm() starts the child; beep() goes to the player without touching the child', () => {
+    const fake = fakeSpawn()
+    const player = fakePlayer()
+    const speaker = new Speaker(fake.spawn, undefined, player)
     speaker.warm()
     speaker.beep()
     expect(fake.children).toHaveLength(1)
-    expect(fake.children[0]!.text).toBe('BEEP\n')
+    expect(fake.children[0]!.text).toBe('')
+    expect(player.beeps).toBe(1)
     expect(speaker.speaking).toBe(false)
-  })
-
-  it('beep() is ignored once the child cannot start', () => {
-    const fake = fakeSpawn()
-    const speaker = new Speaker(fake.spawn)
-    speaker.warm()
-    fake.children[0]!.exit(1)
-    speaker.warm()
-    fake.children[1]!.exit(1)
-    speaker.beep()
-    expect(fake.children).toHaveLength(2)
   })
 
   it('stop() with nothing to say writes nothing', () => {
@@ -114,14 +187,16 @@ describe('Speaker', () => {
     expect(fake.children).toHaveLength(2)
   })
 
-  it('dispose() ends stdin, kills the child, and refuses later speech', async () => {
+  it('dispose() ends stdin, kills the child, stops playback and refuses later speech', async () => {
     const fake = fakeSpawn()
-    const speaker = new Speaker(fake.spawn)
+    const player = fakePlayer()
+    const speaker = new Speaker(fake.spawn, undefined, player)
     const pending = speaker.speak('a')
     await speaker.dispose()
     await expect(pending).rejects.toThrow('speaker exited')
     expect(fake.children[0]!.ended).toBe(true)
     expect(fake.children[0]!.killed).toBe(true)
+    expect(player.stops).toBe(1)
     await expect(speaker.speak('b')).rejects.toThrow('speaker disposed')
     await speaker.dispose()
   })
