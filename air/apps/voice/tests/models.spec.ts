@@ -67,7 +67,7 @@ describe('verifyModels', () => {
 describe('model lock', () => {
   it('pins the four voice models with hashes, sizes, and licences', () => {
     const lock = loadModelLock()
-    expect(Object.keys(lock.models)).toEqual(['kws', 'asr-en', 'asr-ta', 'vad'])
+    expect(Object.keys(lock.models)).toEqual(['kws', 'asr-en', 'asr-ta', 'vad', 'tts-en'])
     for (const [name, entry] of Object.entries(lock.models)) {
       expect(entry.license, name).not.toBe('')
       for (const file of entry.files) {

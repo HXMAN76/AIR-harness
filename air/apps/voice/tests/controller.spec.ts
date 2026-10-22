@@ -67,7 +67,7 @@ class FakeAgent {
   route: Route = 'local'
   memoryShared = false
   asks: string[] = []
-  replies: Array<{ reply: string; tools: string[]; approval?: { summary: string; digest: string }; refused?: string }> = [{ reply: 'The time is 3 PM.', tools: [] }]
+  replies: Array<{ reply: string; tools: string[]; approval?: { summary: string; digest: string }; refused?: string }> = [{ reply: 'The time is three PM.', tools: [] }]
   cancelled = 0
   conversations = 0
   memoryShares: boolean[] = []
@@ -759,7 +759,7 @@ describe('email requests and the send gate', () => {
     await controller.handleSpoken({ text: 'read my important mail' })
     expect(agent.routeChanges).toEqual(['cloud'])
     expect(agent.asks[0]).toContain('up to 5 unread messages')
-    expect(speaker.spoken).toEqual(['Using the cloud model.', 'The time is 3 PM.'])
+    expect(speaker.spoken).toEqual(['Using the cloud model.', 'The time is three PM.'])
   })
 
   it('stays local and does not ask the model when the cloud key is missing', async () => {
@@ -777,7 +777,7 @@ describe('email requests and the send gate', () => {
     agent.route = 'screen'
     await controller.handleSpoken({ text: 'check my mail' })
     expect(agent.routeChanges).toEqual([])
-    expect(speaker.spoken).toEqual(['The time is 3 PM.'])
+    expect(speaker.spoken).toEqual(['The time is three PM.'])
   })
 
   it('speaks the draft without the gate line, then asks for a spoken yes and arms the listener', async () => {

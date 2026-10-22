@@ -166,10 +166,15 @@ export class AgentBridge {
     const files = patches.map(name => join(this.profileDir, name))
     const share = join(this.profileDir, MEMORY_SHARE_PATCH)
     if (this.shared && existsSync(share)) files.push(share)
-    const cloudKey = route !== 'local' ? cloudKeyValue(this.options.env ?? process.env, this.options.dshHome) : undefined
-    const harnessEnv = cloudKey === undefined ? this.options.env : {
-      ...this.options.env,
-      OLLAMA_API_KEY: cloudKey,
+    const base = this.options.env ?? process.env
+    const cloudKey = route !== 'local' ? cloudKeyValue(base, this.options.dshHome) : undefined
+    // The SDK launches the runtime with process.execPath, which is electron.exe inside the app;
+    // ELECTRON_RUN_AS_NODE makes it run as plain Node. A given env replaces the child's whole
+    // environment, so it always starts from the full base, never from the key alone.
+    const harnessEnv: Record<string, string | undefined> = {
+      ...base,
+      ELECTRON_RUN_AS_NODE: '1',
+      ...cloudKey === undefined ? {} : { OLLAMA_API_KEY: cloudKey },
     }
     const harness = this.factory({
       dshBin: this.dshBin,
@@ -180,7 +185,7 @@ export class AgentBridge {
       provider,
       model,
       initializeTimeoutMs: 300_000,
-      ...harnessEnv === undefined ? {} : { env: harnessEnv },
+      env: harnessEnv,
     })
     this.harnesses.set(route, harness)
     return harness

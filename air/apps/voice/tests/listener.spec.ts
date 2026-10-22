@@ -94,10 +94,10 @@ describe('Listener', () => {
     const { listener, fake, commands, ready, events } = setup()
     listener.start()
     fake.children[0]!.out('{"ready":true,"loadMs":4100}\n{"type":"wake"}\r\n')
-    fake.children[0]!.out('{"type":"command","text":"open notepad","lang":"en","audioMs":1800,"decodeMs":90}\n{"type":"timeout"}\n{"type":"heard"}\n{"type":"language","lang":"ta","loadMs":1500}\n')
+    fake.children[0]!.out('{"type":"command","text":"open notepad","lang":"en","audioMs":1800,"decodeMs":90}\n{"type":"timeout"}\n{"type":"heard"}\n{"type":"heard","text":"hello there"}\n{"type":"language","lang":"ta","loadMs":1500}\n')
     expect(ready).toEqual([4100])
     expect(commands).toEqual([{ text: 'open notepad', lang: 'en', audioMs: 1800, decodeMs: 90 }])
-    expect(events).toEqual(['wake', 'timeout', 'heard', 'language {"lang":"ta","loadMs":1500}'])
+    expect(events).toEqual(['wake', 'timeout', 'heard', 'heard "hello there"', 'language {"lang":"ta","loadMs":1500}'])
   })
 
   it('reports a worker error message as an error', () => {

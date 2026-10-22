@@ -2,7 +2,7 @@
 
 ## Summary
 
-A wake-phrase voice companion for native Windows (preview). The Electron window captures the microphone at 16 kHz, a Node child process runs a small keyword spotter on every frame, and only after it hears "Jarvis" ("hey Jarvis", "OK Jarvis") does it find the next utterance with Silero VAD and transcribe it (English: NVIDIA Parakeet; Tamil: AI4Bharat IndicConformer). The command text is sent to a dsh session through upstream's TypeScript SDK. Speech without the wake word is never transcribed. The reply is spoken by Windows SAPI. Design: [plan 08](../../plans/2026-10-21-08-voice-agent.md); tasks: [plan 09](../../plans/2026-10-21-09-voice-agent-implementation.md).
+A wake-phrase voice companion for native Windows (preview). The Electron window captures the microphone at 16 kHz, a Node child process runs a small keyword spotter on every frame, and only after it hears "Jarvis" ("hey Jarvis", "OK Jarvis") does it find the next utterance with Silero VAD and transcribe it (English: NVIDIA Parakeet; Tamil: AI4Bharat IndicConformer). The command text is sent to a dsh session through upstream's TypeScript SDK. Speech without the wake word is never transcribed. The reply is spoken by Kokoro (a local neural voice), or by Windows SAPI when Kokoro is not installed. Design: [plan 08](../../plans/2026-10-21-08-voice-agent.md); tasks: [plan 09](../../plans/2026-10-21-09-voice-agent-implementation.md).
 
 The default route is local Ollama (`qwen3-8b-32k`). The cloud routes (Ollama Cloud, model `minimax-m3.1-flash`, for conversation, and the same model with computer use for screen control) are used only when the user asks for them.
 
@@ -15,7 +15,7 @@ The model sees ordinary user messages: the command text after the wake phrase. A
 Prerequisites: the AIR workspace built (`pnpm -C air install && pnpm -C air run build`) and Ollama running with `qwen3-8b-32k`. Run the steps in this order:
 
 ```powershell
-pnpm -C air/apps/voice exec tsx scripts/fetch-models.ts   # once; about 1 GB, uses Windows tar.exe
+pnpm -C air/apps/voice exec tsx scripts/fetch-models.ts   # once; about 1.4 GB, uses Windows tar.exe
 pnpm -C air/apps/voice exec tsx scripts/setup-home.ts     # once; home, workspace, .env, plugins
 pnpm -C air/apps/voice build
 pnpm -C air run voice
@@ -26,7 +26,7 @@ Locations (all outside the repository):
 | What | Where |
 |---|---|
 | Voice home (`DSH_HOME` of the voice runtime: `.env`, profile, plugins, memory, session logs) | `%USERPROFILE%\.air\voice-home`. It is not shared with the desktop app, so memory the voice agent writes does not appear there |
-| Models | `%USERPROFILE%\.air\voice-models\<name>\` (`kws`, `asr-en`, `asr-ta`, `vad`). They are fetched only by `fetch-models.ts` and never downloaded at launch; a missing model makes the listener exit with "listener unavailable"; run the fetch script |
+| Models | `%USERPROFILE%\.air\voice-models\<name>\` (`kws`, `asr-en`, `asr-ta`, `vad`, `tts-en`). They are fetched only by `fetch-models.ts` and never downloaded at launch; a missing model makes the listener exit with "listener unavailable"; run the fetch script |
 | Agent workspace (the agent's working directory and the only place its sandbox may write) | `<Documents>\AIR Voice`, where Documents is the folder Windows reports, so a OneDrive-redirected Documents works. The app refuses a workspace that contains or lies inside the voice home, so the key, memory, and profile stay out of reach |
 
 `scripts/setup-home.ts` creates the home and the workspace, adds `OLLAMA_API_KEY=ollama` to the `.env`, and installs the profile plugins. The voice profile patch and the memory rows for the local route ship in `profile/`.
@@ -42,12 +42,29 @@ For the cloud routes, add `OLLAMA_CLOUD_KEY=<key>` (an Ollama account key from o
 1. **Wake the agent.** Say "Jarvis" (or "hey Jarvis", "OK Jarvis"). A short beep plays, speech in progress is cut off (barge-in), and the status bar shows "awake". If you say nothing for 6 seconds the agent goes back to sleep.
 2. **Speak a command.** Speak the command after the beep (or straight after the word, "Jarvis, open Notepad"); the next utterance is transcribed and sent to the agent. For example, "Jarvis, open Notepad and write a todo list" opens Notepad through `Start-Process` and types the list with `Set-Content`.
 3. **Local commands run without the model.** Simple commands are matched first (see "Local operator" below) and answered in a fraction of a second.
-4. **Hear the reply.** The agent's reply is spoken by Windows SAPI and shown in the transcript pane. The default voice is the system's first installed SAPI voice; change it in Windows Settings > Time & language > Speech.
+4. **Hear the reply.** The agent's reply is spoken (see "Voice and window") and shown as one line under the orb. With SAPI as the fallback the voice is the system's first installed English one; change it in Windows Settings > Time & language > Speech.
 5. **Switch routes.** Say "use the cloud model" (Ollama Cloud), "use the screen model" (Ollama Cloud with computer use), or "use the local model" (Ollama). The toggle in the window also switches routes.
 6. **Start a new conversation.** Say "new conversation" or "start a new conversation" to clear the session and begin fresh.
 7. **Cancel.** Say "cancel", "cancel that", or "never mind" to stop the current utterance and clear the pending command.
 8. **Language.** Say "Tamil mode" (or "switch to Tamil") to have commands recognised in Tamil, and "English mode" to go back. English is the default. Tamil commands always go to the agent, because the local operator's patterns are English, and the persona replies in English. The wake word stays "Jarvis" in both modes.
 9. **Memory sharing.** Say "share memory with the cloud" or "stop sharing memory" to toggle whether the cloud routes can read and write the AIR memory store. The local route always has access.
+
+## Voice and window
+
+The window is one dark panel with a glowing sphere. The sphere shows what the agent is doing: idle (slow breathing, dim), listening (cool blue; the surface follows your microphone level), thinking (violet, slow swirl) and speaking (white-cyan; the surface vibrates with the loudness and brightness of the reply being played). The last command or reply sentence appears under it for 4 seconds. The top-right pill names the route (Local, Cloud, Screen). The gear at the top-left opens the settings panel (route buttons, memory sharing, language and tools); the cross closes the window; the rest of the window drags it. It stays on top, honours the system "reduce motion" setting, pauses drawing while hidden, and falls back to a Canvas 2D orb if WebGL is unavailable. The renderer files are in `src/renderer/`: `orb.js` (the shader), `app.js` (audio and state), `logo.js` (the faint triskelion decal, simplified from `air/branding/air-logo.svg`). Preview it with `pnpm -C air/apps/voice exec tsx scripts/orb-preview.ts`: it saves one PNG per state and a contact sheet to `%USERPROFILE%\.air\voice-ui-shots\` and prints the measured frame rate.
+
+### Text to speech
+
+All sound plays in the renderer through WebAudio, so the orb can follow it and barge-in stops it at once. Speech is rendered by a child process one sentence at a time: sentence 1 starts playing as soon as it is ready while the next one renders; a wake or cancel stops playback and drops the sentences still waiting.
+
+| Engine | When | Notes |
+|---|---|---|
+| Kokoro v1.0 multi-lang, fp32, voice `am_michael` (the owner's pick) | default when `tts-en` is installed (`fetch-models.ts`, 350 MB download) | sherpa-onnx on the CPU. fp32 beats the 132 MB int8 build on the development machine: real-time factor 0.22 against 0.68 |
+| Windows SAPI | `AIR_VOICE_TTS=sapi`, Kokoro files missing, or Kokoro failing twice | rendered to a WAV in memory and played by the renderer |
+
+Settings: `AIR_VOICE_TTS=sapi|kokoro`, `AIR_VOICE_TTS_VOICE` (a name such as `am_michael` (default), `af_heart`, `af_bella`, `bf_emma`, or a speaker number) and `AIR_VOICE_TTS_SPEED` (0.7 to 1.3, default 1.0). `scripts/tts-bench.ts` renders a two-sentence sample per voice (`VOICES=af_heart,bf_emma SPEED=1.05`) into `%USERPROFILE%\.air\voice-ui-shots\voices` and prints load time and real-time factor. Before speaking, replies are cleaned by `src/core/speech-text.ts`: Markdown, code, emoji, links, addresses and paths removed; symbols, units, money, times, dates and numbers written out as words; lists cut to three items; at most about 40 words (whole sentences), then "There's more on screen." English only; a reply in Tamil script still gets "Reply is on screen."
+
+Licences: the Kokoro-82M weights are Apache-2.0 (hexgrad); the sherpa-onnx release packaging is Apache-2.0 (k2-fsa); the bundled espeak-ng pronunciation data is GPL-3.0-or-later and is read by the engine at run time, not redistributed by this repository.
 
 ## Wake word and speech recognition
 
@@ -62,7 +79,7 @@ Every model is downloaded by `scripts/fetch-models.ts` into `~/.air/voice-models
 
 The worker (`src/listener-worker.ts`, logic in `src/core/worker-engine.ts`) runs the spotter on every 100 ms frame and sends `{type:'wake'}` at once; then Silero VAD (minimum silence 0.35 s, longest utterance 10 s, 6 s without speech gives up) finds the next utterance, the active recogniser decodes it, and `{type:'command', text, lang}` goes to the controller. The wake phrases are BPE token lines in `src/keywords.txt`; `scripts/gen-keywords.ts` regenerates them from the model's `bpe.model` with sentencepiece (needs `uv`). Keyword boost and threshold are set per line in that script; `AIR_VOICE_KWS_SCORE` and `AIR_VOICE_KWS_THRESHOLD` override the defaults for tuning.
 
-Wake mode. The default is text wake (`AIR_VOICE_WAKE=text`, also the value when the variable is unset): Silero VAD cuts speech into segments, Parakeet decodes every segment of at most 4 seconds, and the transcript counts as a wake only if it starts with a wake phrase: jarvis, javis, jervis, jarvas (and a few other mis-hearings, see `TEXT_WAKE_PHRASES` in `src/core/wake.ts`), alone or after "hey" or "ok". The words after the phrase are the command. Longer speech is not decoded. A transcript without a wake phrase is dropped: it is never logged, stored, or sent on; with `AIR_VOICE_DEBUG=1` only the marker `heard (no wake)` is printed, with no text. The owner's real microphone gave 0 keyword-spotter wakes at thresholds 0.05 to 0.25 but Parakeet transcribed "Hey Javis, open the notepad." from the same clip, which is why text wake is the default. `AIR_VOICE_WAKE=kws` opts back in to the streaming keyword spotter (it accepts only "Jarvis", "hey Jarvis", and "OK Jarvis", and decodes only after a wake). `AIR_VOICE_ASR=sensevoice` uses the old SenseVoice English recogniser (`fetch-models.ts --sensevoice` fetches it).
+Wake mode. The default is text wake (`AIR_VOICE_WAKE=text`, also the value when the variable is unset): Silero VAD cuts speech into segments, Parakeet decodes every segment of at most 4 seconds, and the transcript counts as a wake only if it starts with a fuzzy "Jarvis" (`matchTextWake` in `src/core/wake.ts`): an optional filler word (hey, hi, hay, a, ok, okay, so), then one word of 4 to 8 letters within edit distance 2 of "jarvis" (javis, jarves, jervis, charvis, travis, davis, jarvis's), or two words whose join is within distance 2 ("jar vis"). The words after the name are the command. Longer speech is not decoded. A transcript without a wake phrase is dropped: it is never logged, stored, or sent on; with `AIR_VOICE_DEBUG=1` only the marker `heard (no wake)` is printed, with no text; `AIR_VOICE_DEBUG=2` (for your own machine) also prints the text, as `heard (no wake): <text>`, to see what the recogniser heard. The owner's real microphone gave 0 keyword-spotter wakes at thresholds 0.05 to 0.25 but Parakeet transcribed "Hey Javis, open the notepad." from the same clip, which is why text wake is the default. `AIR_VOICE_WAKE=kws` opts back in to the streaming keyword spotter (it accepts only "Jarvis", "hey Jarvis", and "OK Jarvis", and decodes only after a wake). `AIR_VOICE_ASR=sensevoice` uses the old SenseVoice English recogniser (`fetch-models.ts --sensevoice` fetches it).
 
 Conversation. A bare wake ("Jarvis") makes the app say a greeting for the time of day and what it can do: "Good morning. I can read your important mail, read today's news, or open an app. What would you like?" After every spoken reply (operator, agent, greeting) a follow-up window listens for `AIR_VOICE_FOLLOWUP_MS` (default 8000; 0 turns it off) without a wake word. Speech in the window is a new request; 8 seconds of silence returns to idle with nothing spoken. "Stop", "that's all", "thank you", and "thank you Jarvis" end the conversation with "Okay." In the window, "important mail", "my mail", or "emails" start the mail flow and "news" or "headlines" the news. Anything else is a normal request. The window is a `listen` control message with a duration, which the worker honours in text mode too (tested in `tests/worker-engine.spec.ts`).
 
@@ -159,10 +176,14 @@ SDK harness
     |
     | agent reply
     v
-Speaker (PowerShell SAPI)
+Speaker (Kokoro child, or PowerShell SAPI)
+    |
+    | WAV per sentence, over IPC
+    v
+Renderer (WebAudio playback + orb)
 ```
 
-The renderer captures audio with an `AudioWorklet` and sends raw frames to the main process. The main process pipes them to the listener child as framed audio (a control frame carries the language switch). The child runs the keyword spotter on every frame; after a wake it uses Silero VAD to find the next utterance and the active recogniser to transcribe it. The command text is classified by `parseVoiceCommand`; `ask` commands first try the operator and otherwise go through the SDK harness to a dsh session, and the reply is spoken by the speaker child.
+The renderer captures audio with an `AudioWorklet` and sends raw frames to the main process. The main process pipes them to the listener child as framed audio (a control frame carries the language switch). The child runs the keyword spotter on every frame; after a wake it uses Silero VAD to find the next utterance and the active recogniser to transcribe it. The command text is classified by `parseVoiceCommand`; `ask` commands first try the operator and otherwise go through the SDK harness to a dsh session, and the reply is rendered sentence by sentence by the speaker child and played in the renderer.
 
 ## Troubleshooting: "Jarvis" does not wake
 
@@ -176,9 +197,9 @@ The renderer captures audio with an `AudioWorklet` and sends raw frames to the m
 - Work in progress; see the plan for the parts that exist.
 - The wake word is spotted by a small general English model with keywords set in a file, not a model trained for "Jarvis"; accents and noise change how reliably it fires (see the tuning in `src/keywords.txt`). Speech that starts right after the word can lose its first syllable.
 - Audio and dropped transcripts are never stored. The console shows wake events and commands only; `AIR_VOICE_DEBUG=1` also prints state changes with transcripts and replies.
-- Windows only: SAPI for speech output, PowerShell for the listener worker, and the Electron target is `win32`.
+- Windows only: SAPI as the fallback voice, PowerShell for the listener worker, and the Electron target is `win32`.
 - The cloud routes need an Ollama Cloud key and a Playwright browser install; the browser tools and the `screen` route are untested. The model id `minimax-m3.1-flash` is the catalog name at ollama.com/api/tags as of 2026-10-21; the earlier `minimax/M3-1-Flash` is not in it.
-- Tamil is the secondary language: its recogniser is untested on real Tamil speech, its replies are not spoken, and the operator does not run in Tamil mode.
+- Tamil is the secondary language: its recogniser is untested on real Tamil speech, its replies are not spoken (there is no local Tamil voice), and the operator does not run in Tamil mode.
 - The operator is English only and matches whole phrases: "open notepad and write my list" goes to the model. Closing an app by name stops every process of that name (after the spoken confirmation).
 - Nobody can answer an approval prompt by voice: requests that need one are rejected (the voice profile sets `approval.policy: never`).
 - The voice agent has its own dsh home (`%USERPROFILE%\.air\voice-home`); its memory and session logs are separate from the desktop app's.

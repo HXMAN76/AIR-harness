@@ -10,6 +10,22 @@ contextBridge.exposeInMainWorld('voiceAPI', {
   onState: (callback) => {
     ipcRenderer.on('state', (_event, state) => callback(state))
   },
+  /** Speech to play: a base64 WAV with an id to report back. */
+  onPlay: (callback) => {
+    ipcRenderer.on('play', (_event, id, wav) => callback(id, wav))
+  },
+  /** Stop all speech now (barge-in). */
+  onStopAudio: (callback) => {
+    ipcRenderer.on('stopAudio', () => callback())
+  },
+  /** Play the wake cue. */
+  onBeep: (callback) => {
+    ipcRenderer.on('beep', () => callback())
+  },
+  /** Tell the main process an utterance finished playing. */
+  played: (id) => {
+    ipcRenderer.send('played', id)
+  },
   /** Request a route change (local | cloud | screen). */
   setRoute: (route) => {
     ipcRenderer.send('setRoute', route)
@@ -17,5 +33,9 @@ contextBridge.exposeInMainWorld('voiceAPI', {
   /** Request a memory-share toggle change. */
   setMemoryShare: (on) => {
     ipcRenderer.send('setMemoryShare', on)
+  },
+  /** Close the window. */
+  closeWindow: () => {
+    ipcRenderer.send('closeWindow')
   },
 })

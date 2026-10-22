@@ -94,6 +94,8 @@ export interface LockEntry {
   license: string
   /** Release archive (`.tar.bz2`) extracted with `tar.exe`; `root` is its top-level folder. Absent for file-by-file models. */
   archive?: { url: string; bytes: number; sha256: string; root: string }
+  /** Folders of the archive kept whole (for example engine data); files listed under them are verified, not moved one by one. */
+  dirs?: string[]
   /** The files kept from the archive or downloaded, each verified after install. */
   files: LockFile[]
 }
@@ -104,7 +106,7 @@ export interface ModelLock {
 }
 
 /** Names in `models.lock.json`. */
-export type ModelName = 'kws' | 'asr-en' | 'asr-ta' | 'vad'
+export type ModelName = 'kws' | 'asr-en' | 'asr-ta' | 'vad' | 'tts-en'
 
 /** Path of the model lock next to this file. */
 export const MODEL_LOCK_JSON = fileURLToPath(new URL('models.lock.json', import.meta.url))

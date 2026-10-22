@@ -126,7 +126,7 @@ describe('AgentBridge', () => {
       provider: 'ollama',
       model: 'qwen3-8b-32k',
       initializeTimeoutMs: 300_000,
-      env: {},
+      env: { ELECTRON_RUN_AS_NODE: '1' },
     })
   })
 
@@ -165,11 +165,11 @@ describe('AgentBridge', () => {
     await bridge.ask('a')
     bridge.setRoute('cloud')
     await bridge.ask('b')
-    expect(harnesses[0]!.options.env).toEqual({ OLLAMA_CLOUD_KEY: 'test-value', PATH: 'p' })
-    expect(harnesses[1]!.options.env).toEqual({ OLLAMA_CLOUD_KEY: 'test-value', PATH: 'p', OLLAMA_API_KEY: 'test-value' })
+    expect(harnesses[0]!.options.env).toEqual({ OLLAMA_CLOUD_KEY: 'test-value', PATH: 'p', ELECTRON_RUN_AS_NODE: '1' })
+    expect(harnesses[1]!.options.env).toEqual({ OLLAMA_CLOUD_KEY: 'test-value', PATH: 'p', ELECTRON_RUN_AS_NODE: '1', OLLAMA_API_KEY: 'test-value' })
   })
 
-  it('reads the cloud key from the process environment when no env is given and passes only the injected key', async () => {
+  it('reads the cloud key from the process environment when no env is given and passes the full environment plus the injected key', async () => {
     const before = process.env.OLLAMA_CLOUD_KEY
     process.env.OLLAMA_CLOUD_KEY = 'test-value'
     try {
@@ -186,7 +186,8 @@ describe('AgentBridge', () => {
       })
       expect(bridge.setRoute('cloud')).toEqual({ ok: true })
       await bridge.ask('x')
-      expect(launches[0]!.env).toEqual({ OLLAMA_API_KEY: 'test-value' })
+      expect(launches[0]!.env).toMatchObject({ OLLAMA_API_KEY: 'test-value', OLLAMA_CLOUD_KEY: 'test-value', ELECTRON_RUN_AS_NODE: '1' })
+      expect(launches[0]!.env?.PATH ?? launches[0]!.env?.Path).toBe(process.env.PATH ?? process.env.Path)
     } finally {
       if (before === undefined) delete process.env.OLLAMA_CLOUD_KEY
       else process.env.OLLAMA_CLOUD_KEY = before
@@ -285,7 +286,7 @@ describe('AgentBridge', () => {
     expect(defaultDshBin({})).toBe(join(REPO_ROOT, 'apps', 'cli', 'lib', 'bin.js'))
   })
 
-  it('without an env option, checks the process environment and lets the runtime inherit it', async () => {
+  it('without an env option, starts from the process environment with ELECTRON_RUN_AS_NODE set', async () => {
     const seen: HarnessOptions[] = []
     const bridge = new AgentBridge({
       dshHome: tempHome(),
@@ -298,7 +299,9 @@ describe('AgentBridge', () => {
     expect(typeof bridge.setRoute('cloud').ok).toBe('boolean')
     bridge.setRoute('local')
     await bridge.ask('x')
-    expect('env' in seen[0]!).toBe(false)
+    expect(seen[0]!.env).toMatchObject({ ELECTRON_RUN_AS_NODE: '1' })
+    expect(seen[0]!.env?.PATH ?? seen[0]!.env?.Path).toBe(process.env.PATH ?? process.env.Path)
+    expect(seen[0]!.env).not.toHaveProperty('OLLAMA_API_KEY')
     expect(seen[0]!.dshBin).toBe(defaultDshBin())
     expect(seen[0]!.patches[0]).toBe(join(VOICE_APP_ROOT, 'profile', 'voice.cordis.patch.yml'))
   })

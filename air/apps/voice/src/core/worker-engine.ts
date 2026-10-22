@@ -8,7 +8,7 @@
 import { join } from 'node:path'
 import type { Lang, WorkerMessage } from './frames.ts'
 import { SpotterGain } from './gain.ts'
-import { matchWake, TEXT_WAKE_PHRASES } from './wake.ts'
+import { matchTextWake } from './wake.ts'
 
 /** A speech segment from the VAD. */
 export interface SpeechSegment {
@@ -65,6 +65,8 @@ export interface EngineConfig {
   wake: 'kws' | 'text'
   asr: 'parakeet' | 'sensevoice'
   send(message: WorkerMessage): void
+  /** Owner's own machine only (`AIR_VOICE_DEBUG=2`): the `heard` marker also carries the dropped transcript. */
+  debugText?: boolean | undefined
   /** Milliseconds clock; defaults to `performance.now`. */
   now?: () => number
   /** Keyword boost and trigger threshold applied to keywords without their own. */
@@ -302,10 +304,10 @@ export class WorkerEngine {
   private textWake(text: string, audioMs: number, decodeMs: number): void {
     const awaiting = this.awaiting()
     this.deadline = 0
-    const match = matchWake(text, TEXT_WAKE_PHRASES)
+    const match = matchTextWake(text)
     if (!match.wake) {
       if (awaiting) this.c.send({ type: 'command', text, lang: this.lang, audioMs, decodeMs })
-      else this.c.send({ type: 'heard' })
+      else this.c.send(this.c.debugText === true ? { type: 'heard', text } : { type: 'heard' })
       return
     }
     // A bare wake does not await a command here: the controller greets and then arms a follow-up window,

@@ -86,7 +86,7 @@ interface Rig {
   time: { now: number }
 }
 
-function rig(options: Partial<Pick<EngineConfig, 'wake' | 'asr' | 'keywordsScore' | 'keywordsThreshold'>> = {}): Rig {
+function rig(options: Partial<Pick<EngineConfig, 'wake' | 'asr' | 'keywordsScore' | 'keywordsThreshold' | 'debugText'>> = {}): Rig {
   const vads: FakeVad[] = []
   const spotters: FakeSpotter[] = []
   const recognizers: FakeRecognizer[] = []
@@ -349,6 +349,12 @@ describe('WorkerEngine text mode', () => {
     say(r, 'just talking')
     expect(r.sent.slice(1)).toEqual([{ type: 'heard' }])
     expect(JSON.stringify(r.sent)).not.toContain('just talking')
+  })
+
+  it('carries the dropped transcript on the marker only when debugText is on', () => {
+    const r = rig({ wake: 'text', debugText: true })
+    say(r, 'just talking')
+    expect(r.sent.slice(1)).toEqual([{ type: 'heard', text: 'just talking' }])
   })
 
   it('does not decode a segment longer than the wake limit, and decodes it when a command is awaited', () => {

@@ -21,8 +21,8 @@ export type WorkerMessage =
   | { type: 'wake'; bare?: boolean }
   | { type: 'command'; text: string; lang: Lang; audioMs: number; decodeMs: number }
   | { type: 'timeout' }
-  /** Text wake: speech was heard but did not start with a wake phrase; carries no text. */
-  | { type: 'heard' }
+  /** Text wake: speech was heard but did not start with a wake phrase; carries no text unless `debugText` is on (`AIR_VOICE_DEBUG=2`). */
+  | { type: 'heard'; text?: string }
   | { type: 'language'; lang: Lang; loadMs: number }
   | { type: 'error'; message: string }
 

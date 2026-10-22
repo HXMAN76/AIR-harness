@@ -5,14 +5,17 @@
 import { app, BrowserWindow, ipcMain, session } from 'electron'
 import { join } from 'node:path'
 import { Listener } from './core/listener.ts'
-import { Speaker } from './core/speaker.ts'
+import { Speaker, type AudioPlayer } from './core/speaker.ts'
+import { runPreview } from './preview.ts'
 import { AgentBridge } from './core/agent.ts'
 import { issueSendToken } from '@air/dsh-send-guard/token'
 import { issueApprovalToken } from '@air/dsh-voice-approval/token'
 import { VoiceController, followUpMsFromEnv } from './core/controller.ts'
 import { mkdirSync } from 'node:fs'
 import { assertWorkspaceOutsideHome, voiceHome, voiceWorkspace } from './core/home.ts'
-import { modelRoot } from './core/models.ts'
+import { modelDir, modelRoot } from './core/models.ts'
+import { chooseTts } from './core/tts-engine.ts'
+import { existsSync } from 'node:fs'
 
 let mainWindow: BrowserWindow | undefined
 let listener: Listener | undefined
@@ -25,8 +28,12 @@ let controller: VoiceController | undefined
 
 const FRAME_SIZE = 1_600 // 100 ms at 16 kHz
 
-/** Extra console output (state changes with transcripts and replies, model load times); off unless `AIR_VOICE_DEBUG=1`. */
-const DEBUG = process.env.AIR_VOICE_DEBUG === '1'
+/**
+ * Extra console output (state changes with transcripts and replies, model load times); off unless `AIR_VOICE_DEBUG=1`.
+ * Level 2 also prints the text of speech that had no wake phrase.
+ */
+const DEBUG_LEVEL = Number(process.env.AIR_VOICE_DEBUG) || 0
+const DEBUG = DEBUG_LEVEL >= 1
 
 function debug(...args: unknown[]): void {
   if (DEBUG) console.log(...args)
@@ -37,14 +44,70 @@ const REPO_ROOT = join(__dirname, '..', '..', '..', '..')
 /** Voice app root — one level up from `lib/`. */
 const VOICE_APP = join(__dirname, '..')
 
+/** Output folder when started by `scripts/orb-preview.ts`: no voice stack, the window runs a scripted tour. */
+const PREVIEW_DIR = process.env['AIR_VOICE_PREVIEW']
+
+/** Plays speech in the renderer: sends each WAV over IPC and settles when the renderer reports it ended. */
+class RendererPlayer implements AudioPlayer {
+  private nextId = 1
+  private readonly waiting = new Map<number, () => void>()
+
+  play(wavBase64: string): Promise<void> {
+    const window = mainWindow
+    if (window === undefined) return Promise.resolve()
+    const id = this.nextId++
+    return new Promise<void>((resolve) => {
+      this.waiting.set(id, resolve)
+      window.webContents.send('play', id, wavBase64)
+    })
+  }
+
+  stop(): void {
+    mainWindow?.webContents.send('stopAudio')
+    this.release()
+  }
+
+  beep(): void {
+    mainWindow?.webContents.send('beep')
+  }
+
+  /** The renderer reported that utterance `id` ended. */
+  played(id: number): void {
+    this.waiting.get(id)?.()
+    this.waiting.delete(id)
+  }
+
+  private release(): void {
+    for (const resolve of this.waiting.values()) resolve()
+    this.waiting.clear()
+  }
+}
+
+const player = new RendererPlayer()
+
+/** Kokoro in a child process when installed and AIR_VOICE_TTS is not "sapi", else SAPI; SAPI also takes over if Kokoro keeps failing. */
+function createSpeaker(): Speaker {
+  const dir = modelDir('tts-en')
+  const engine = chooseTts(process.env, dir, existsSync) === 'kokoro'
+    ? { command: 'node', args: [join(__dirname, 'tts-worker.cjs'), dir, join(REPO_ROOT, 'packages', 'experimental', 'speech-to-text-sensevoice', 'package.json')] }
+    : undefined
+  debug('speech engine:', engine === undefined ? 'sapi' : 'kokoro')
+  return new Speaker(undefined, join(__dirname, 'speaker.ps1'), player, engine)
+}
+
 function createWindow(): void {
   mainWindow = new BrowserWindow({
     width: 380,
     height: 520,
+    minWidth: 300,
+    minHeight: 420,
+    frame: false,
+    backgroundColor: '#0b0d12',
     alwaysOnTop: true,
     skipTaskbar: false,
     resizable: true,
     webPreferences: {
+      autoplayPolicy: 'no-user-gesture-required',
       preload: join(__dirname, 'preload.cjs'),
       contextIsolation: true,
       nodeIntegration: false,
@@ -52,7 +115,7 @@ function createWindow(): void {
     },
   })
 
-  void mainWindow.loadFile(join(__dirname, 'renderer', 'index.html'))
+  void mainWindow.loadFile(join(__dirname, 'renderer', 'index.html'), PREVIEW_DIR === undefined ? undefined : { query: { preview: '1' } })
 
   mainWindow.on('closed', () => {
     mainWindow = undefined
@@ -78,9 +141,10 @@ function startVoice(): void {
   listener.on('wake', () => {
     console.log('wake')
   })
-  // Text wake: speech that did not start with a wake phrase. Its text is never kept; only this marker is logged.
-  listener.on('heard', () => {
-    debug('heard (no wake)')
+  // Text wake: speech that did not start with a wake phrase. Its text is never kept; level 1 logs only this marker,
+  // level 2 (the owner's own machine) also prints the text.
+  listener.on('heard', (text?: string) => {
+    debug(DEBUG_LEVEL >= 2 && text !== undefined ? `heard (no wake): ${text}` : 'heard (no wake)')
   })
   listener.on('command', (command: { text: string; lang: string; decodeMs: number }) => {
     console.log(`command (${command.lang}):`, command.text)
@@ -93,7 +157,7 @@ function startVoice(): void {
     debug(`listener ready (${ms}ms)`)
   })
 
-  speaker = new Speaker(undefined, join(__dirname, 'speaker.ps1'))
+  speaker = createSpeaker()
   speaker.warm()
 
   agent = new AgentBridge({
@@ -128,7 +192,7 @@ let meterSquares = 0
 let meterSamples = 0
 let meterAt = Date.now()
 function meterFrame(frame: Float32Array): void {
-  if (process.env['AIR_VOICE_DEBUG'] !== '1') return
+  if (!DEBUG) return
   for (const sample of frame) {
     meterPeak = Math.max(meterPeak, Math.abs(sample))
     meterSquares += sample * sample
@@ -154,6 +218,14 @@ function setupIpc(): void {
     }
   })
 
+  ipcMain.on('played', (_event, id: unknown) => {
+    if (typeof id === 'number') player.played(id)
+  })
+
+  ipcMain.on('closeWindow', () => {
+    mainWindow?.close()
+  })
+
   ipcMain.on('setRoute', (_event, route: unknown) => {
     if (route !== 'local' && route !== 'cloud' && route !== 'screen') return
     void controller?.setRoute(route)
@@ -172,6 +244,19 @@ void app.whenReady().then(() => {
 
   setupIpc()
   createWindow()
+
+  if (PREVIEW_DIR !== undefined && mainWindow !== undefined) {
+    speaker = createSpeaker()
+    speaker.warm()
+    void runPreview(mainWindow, speaker, PREVIEW_DIR).then((result) => {
+      console.log(`preview ${JSON.stringify(result)}`)
+    }, (err: unknown) => {
+      console.error('preview failed:', err)
+    }).finally(() => {
+      app.quit()
+    })
+    return
+  }
 
   try {
     startVoice()
