@@ -15,7 +15,7 @@ export const KOKORO_VOICES: Record<string, number> = {
 }
 
 /** The default voice (highest graded in the Kokoro voice table). */
-export const DEFAULT_VOICE = 'af_heart'
+export const DEFAULT_VOICE = 'am_michael'
 const DEFAULT_SPEED = 1
 const MIN_SPEED = 0.7
 const MAX_SPEED = 1.3
@@ -31,7 +31,7 @@ export interface TtsOptions {
 
 /**
  * Read `AIR_VOICE_TTS_VOICE` (a voice name such as `bf_emma`, or a speaker number) and `AIR_VOICE_TTS_SPEED`
- * (0.7 to 1.3). Unknown values fall back to `af_heart` at 1.0.
+ * (0.7 to 1.3). Unknown values fall back to `am_michael` at 1.0.
  * @param env - process environment.
  * @returns the voice name, its speaker id, and the speed.
  */

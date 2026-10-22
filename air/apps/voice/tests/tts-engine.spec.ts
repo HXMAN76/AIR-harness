@@ -39,16 +39,16 @@ function manualDefer(): { defer: (fn: () => void) => void; run: () => boolean } 
 
 describe('resolveTtsOptions', () => {
   it.each([
-    [{}, 'af_heart', 3, 1],
+    [{}, 'am_michael', 16, 1],
     [{ AIR_VOICE_TTS_VOICE: 'bf_emma' }, 'bf_emma', 21, 1],
     [{ AIR_VOICE_TTS_VOICE: ' am_michael ' }, 'am_michael', 16, 1],
     [{ AIR_VOICE_TTS_VOICE: '2' }, 'af_bella', 2, 1],
-    [{ AIR_VOICE_TTS_VOICE: '19' }, 'af_heart', 3, 1],
-    [{ AIR_VOICE_TTS_VOICE: 'nobody' }, 'af_heart', 3, 1],
-    [{ AIR_VOICE_TTS_SPEED: '1.05' }, 'af_heart', 3, 1.05],
-    [{ AIR_VOICE_TTS_SPEED: '5' }, 'af_heart', 3, 1.3],
-    [{ AIR_VOICE_TTS_SPEED: '0.1' }, 'af_heart', 3, 0.7],
-    [{ AIR_VOICE_TTS_SPEED: 'fast' }, 'af_heart', 3, 1],
+    [{ AIR_VOICE_TTS_VOICE: '19' }, 'am_michael', 16, 1],
+    [{ AIR_VOICE_TTS_VOICE: 'nobody' }, 'am_michael', 16, 1],
+    [{ AIR_VOICE_TTS_SPEED: '1.05' }, 'am_michael', 16, 1.05],
+    [{ AIR_VOICE_TTS_SPEED: '5' }, 'am_michael', 16, 1.3],
+    [{ AIR_VOICE_TTS_SPEED: '0.1' }, 'am_michael', 16, 0.7],
+    [{ AIR_VOICE_TTS_SPEED: 'fast' }, 'am_michael', 16, 1],
   ])('%j', (env, voice, sid, speed) => {
     expect(resolveTtsOptions(env)).toEqual({ voice, sid, speed })
   })

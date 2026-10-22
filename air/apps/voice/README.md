@@ -59,10 +59,10 @@ All sound plays in the renderer through WebAudio, so the orb can follow it and b
 
 | Engine | When | Notes |
 |---|---|---|
-| Kokoro v1.0 multi-lang, fp32, voice `af_heart` | default when `tts-en` is installed (`fetch-models.ts`, 350 MB download) | sherpa-onnx on the CPU. fp32 beats the 132 MB int8 build on the development machine: real-time factor 0.22 against 0.68 |
+| Kokoro v1.0 multi-lang, fp32, voice `am_michael` (the owner's pick) | default when `tts-en` is installed (`fetch-models.ts`, 350 MB download) | sherpa-onnx on the CPU. fp32 beats the 132 MB int8 build on the development machine: real-time factor 0.22 against 0.68 |
 | Windows SAPI | `AIR_VOICE_TTS=sapi`, Kokoro files missing, or Kokoro failing twice | rendered to a WAV in memory and played by the renderer |
 
-Settings: `AIR_VOICE_TTS=sapi|kokoro`, `AIR_VOICE_TTS_VOICE` (a name such as `af_heart`, `af_bella`, `bf_emma`, `am_michael`, or a speaker number) and `AIR_VOICE_TTS_SPEED` (0.7 to 1.3, default 1.0). `scripts/tts-bench.ts` renders a two-sentence sample per voice (`VOICES=af_heart,bf_emma SPEED=1.05`) into `%USERPROFILE%\.air\voice-ui-shots\voices` and prints load time and real-time factor. Before speaking, replies are cleaned by `src/core/speech-text.ts`: Markdown, code, emoji, links, addresses and paths removed; symbols, units, money, times, dates and numbers written out as words; lists cut to three items; at most about 40 words (whole sentences), then "There's more on screen." English only; a reply in Tamil script still gets "Reply is on screen."
+Settings: `AIR_VOICE_TTS=sapi|kokoro`, `AIR_VOICE_TTS_VOICE` (a name such as `am_michael` (default), `af_heart`, `af_bella`, `bf_emma`, or a speaker number) and `AIR_VOICE_TTS_SPEED` (0.7 to 1.3, default 1.0). `scripts/tts-bench.ts` renders a two-sentence sample per voice (`VOICES=af_heart,bf_emma SPEED=1.05`) into `%USERPROFILE%\.air\voice-ui-shots\voices` and prints load time and real-time factor. Before speaking, replies are cleaned by `src/core/speech-text.ts`: Markdown, code, emoji, links, addresses and paths removed; symbols, units, money, times, dates and numbers written out as words; lists cut to three items; at most about 40 words (whole sentences), then "There's more on screen." English only; a reply in Tamil script still gets "Reply is on screen."
 
 Licences: the Kokoro-82M weights are Apache-2.0 (hexgrad); the sherpa-onnx release packaging is Apache-2.0 (k2-fsa); the bundled espeak-ng pronunciation data is GPL-3.0-or-later and is read by the engine at run time, not redistributed by this repository.
 
