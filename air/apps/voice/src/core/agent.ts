@@ -122,7 +122,12 @@ export class AgentBridge {
       .filter((name): name is string => typeof name === 'string')
     const approval = findApprovalDenial(result.events)
     const refused = findRefusedAsk(result.events)
-    return { reply: result.finalResponse, tools, ...approval === undefined ? {} : { approval }, ...refused === undefined ? {} : { refused } }
+    return {
+      reply: result.finalResponse,
+      tools,
+      ...approval === undefined ? {} : { approval },
+      ...refused === undefined ? {} : { refused },
+    }
   }
 
   /** Forget the sessions; the next prompt starts a new conversation. */

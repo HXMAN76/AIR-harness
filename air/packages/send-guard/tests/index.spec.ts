@@ -74,8 +74,7 @@ describe('createGuard per-session target tracking', () => {
     expect(guard({ ...click('Send'), agent: { session: turn1 } })).toBe(sendGuard.REFUSAL)
     expect(guard(key('Enter', turn1))).toBe(sendGuard.REFUSAL)
     const events: Array<{ type: string; data?: unknown }> = [{ type: 'user/message', data: { content: [{ type: 'text', text: 'first' }] } }]
-    const live: SessionLike = { seq: events.length, eventAt: seq => events[Number(seq)] }
-    const liveSession = { get seq() { return events.length }, eventAt: live.eventAt }
+    const liveSession = { get seq() { return events.length }, eventAt: (seq: number) => events[seq] }
     expect(guard({ ...click('Send'), agent: { session: liveSession } })).toBe(sendGuard.REFUSAL)
     expect(guard(key('Enter', liveSession))).toBe(sendGuard.REFUSAL)
     events.push({ type: 'user/message', data: { content: [{ type: 'text', text: 'second' }] } })
