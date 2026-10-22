@@ -38,7 +38,8 @@ class FakeSpotter implements Spotter {
   decodes = 0
   streamInputs = 0
   ready = 0
-  stream: Stream = { acceptWaveform: () => { this.streamInputs++ } }
+  lastInput: Float32Array = new Float32Array(0)
+  stream: Stream = { acceptWaveform: (input: { samples: Float32Array }) => { this.streamInputs++; this.lastInput = input.samples } }
   createStream(): Stream {
     return this.stream
   }
@@ -200,6 +201,15 @@ describe('WorkerEngine loading', () => {
 })
 
 describe('WorkerEngine kws mode', () => {
+  it('feeds the spotter quiet audio boosted and loud audio untouched', () => {
+    const { engine, spotter } = rig()
+    engine.push(new Float32Array(1600).fill(0.05))
+    expect(spotter.lastInput[0]).toBeCloseTo(0.3, 5)
+    const loud = new Float32Array(1600).fill(0.6)
+    engine.push(loud)
+    expect(spotter.lastInput).toBe(loud)
+  })
+
   it('feeds only the spotter until a keyword fires, and never decodes', () => {
     const { engine, sent, vad, spotter, recognizers } = rig()
     spotter.ready = 2
