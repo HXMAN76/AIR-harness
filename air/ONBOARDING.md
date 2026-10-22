@@ -4,7 +4,7 @@ This page is the entry point for a new teammate. It says what the project is, wh
 
 ## 1. What you are joining
 
-1. AIR (working name; the final name is undecided) is a local-first personal agent. It is a final-year project with research questions on MCP tool pinning, permission policy, and memory.
+1. AIR is a local-first personal agent. It is a final-year project with research questions on MCP tool pinning, permission policy, and memory.
 2. It is built on a fork of an MIT-licensed open-source agent harness and delivered as plugins and bundles in the `air/` workspace.
 3. The product runs inside upstream's Electron desktop app. The desktop app is the primary surface, the Web UI must keep working, and a headless profile serves evaluation and scripted runs. macOS is out of scope.
 4. The default model is `qwen3:8b` on Ollama with a 32K context variant. Hosted models are untested.
@@ -63,7 +63,7 @@ This page is the entry point for a new teammate. It says what the project is, wh
 | Exact upstream APIs for a feature | [plans/spikes/](plans/spikes/) |
 | Rules for agents working in this fork | [AGENTS.md](AGENTS.md) |
 | Which upstream files the fork changed | [UPSTREAM-DELTA.md](UPSTREAM-DELTA.md) |
-| Product name and icon placeholders | [BRANDING.md](BRANDING.md) |
+| Product name, logo, and icons | [BRANDING.md](BRANDING.md) |
 | How to write a plugin | [../research/notes/08-dev-contrib-guide.md](../research/notes/08-dev-contrib-guide.md), [plans/spikes/01-toolchain.md](plans/spikes/01-toolchain.md) |
 
 ## 7. Who decides

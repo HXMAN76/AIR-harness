@@ -1,6 +1,6 @@
 # AIR development roadmap
 
-Date: 2026-09-30. Upstream base: `dsh-v0.2.1-rc.2` (plans were written against `dsh-v0.2.0-rc.2`; see "Changes the 2026-10-08 upstream sync requires"). Product name: placeholder ("AIR", see [../BRANDING.md](../BRANDING.md)).
+Date: 2026-09-30. Upstream base: `dsh-v0.2.1-rc.2` (plans were written against `dsh-v0.2.0-rc.2`; see "Changes the 2026-10-08 upstream sync requires"). Product name: AIR (decided 2026-10-22, see [../BRANDING.md](../BRANDING.md)).
 
 This page orders the work, names each plan, and lists what is still unplanned. The reasoning behind every choice is in [research/research.md](../../research/research.md); the exact APIs and verified commands are in the [spikes](spikes/).
 
@@ -106,7 +106,7 @@ Each item gets its own plan after the plans above land. The spike section that a
 
 | Topic | Decision | Effect on the plans |
 |---|---|---|
-| Product name | On hold | Branding stays placeholder-only ([../BRANDING.md](../BRANDING.md)); no brand plugin or carried rename edits yet. |
+| Product name | Decided: AIR | Name and icons only; carried display-name edits in `apps/desktop` and the client locale files ([../BRANDING.md](../BRANDING.md)); no brand plugin yet. |
 | Rubric and deadlines | To be supplied by the owner | The research roadmap keeps its April–May 2027 assumption until then. |
 | Delivery form (history: the AIR-owned shell part is superseded by the 2026-10-12 row below) | A desktop app on Windows and Linux (Fedora first); macOS dropped because a usable release needs a paid Apple Developer ID | Upstream does not release its Electron app for Linux and its tray is Windows-only. An AIR-owned Electron shell is the recommended route ([research note 09](../../research/notes/09-desktop-cross-os.md)). Targets: Windows NSIS installer, Fedora rpm; AppImage if it comes cheaply from the same build; deb only if needed later. The phase-1 demo runs in the desktop app on Fedora. |
 | Close button on GNOME | Follow the platform convention | GNOME has no tray by default, and its convention is that closing the last window quits the app. Default: close quits. Opt-in setting "Keep running in the background": close hides the window; the app sends the XDG Background portal request, shows a notification, and is reopened from the app grid or the global hotkey; Quit is in the menu. GNOME's Background Apps list is expected to show only sandboxed (Flatpak) apps, so the rpm build will probably not appear there ([research note 13](../../research/notes/13-desktop-shell-practice.md)). On Windows, close hides to the tray. |
@@ -118,7 +118,7 @@ Each item gets its own plan after the plans above land. The spike section that a
 | Installer contents | Do what upstream does | Bundle the full dependency tree in the app and ship the standalone Node, pnpm, and Python-with-Office runtime as a payload installed offline on first use ([research note 09](../../research/notes/09-desktop-cross-os.md) section 1). |
 | Code signing | Sign where it is legal and feasible | Windows: apply to SignPath Foundation (free for open-source projects) or buy an individual code-signing certificate; unsigned builds remain the fallback. macOS is out of scope. |
 | Local and cloud models | Research focus is the local harness; also study local and cloud together | [Research note 12](../../research/notes/12-hybrid-local-cloud.md) covers hybrid routing designs and how to make local, cloud, and hybrid an experimental factor. The owner has hosted-model API keys. |
-| Desktop identifiers | On hold until the product name is final | Plan 07 keeps app id, URL scheme, `desktopName`, and release tag format as placeholders read from the brand file; no release is published under provisional identifiers, because changing them later resets user data and the hotkey consent. |
+| Desktop identifiers | Unchanged from upstream | App id, URL scheme, data folders, and package names are not renamed, because changing them later resets user data and the hotkey consent. |
 | Desktop updates on Fedora | rpm builds notify with a download link; Windows and AppImage update automatically | As written in plan 07. |
 | Phase-1 installer contents | Partial parity with upstream is accepted | Full dependency tree in the app; the Node/pnpm/Python runtime payload behind an opt-in flag; Office skills and the LibreOffice engine are a follow-up. |
 | Windows signing order | First release unsigned, then apply to SignPath Foundation | SignPath requires a published release and names SignPath Foundation as publisher. |
