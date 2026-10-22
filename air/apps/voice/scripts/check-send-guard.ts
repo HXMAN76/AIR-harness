@@ -55,7 +55,7 @@ function tracing(options: HarnessOptions): HarnessLike {
   }
 }
 
-const calls = (): unknown[] => (existsSync(log) ? readFileSync(log, 'utf8').split('\n').filter(Boolean).map(line => JSON.parse(line) as unknown) : [])
+const calls = (): unknown[] => (existsSync(log) ? readFileSync(log, 'utf8').split('\n').filter(Boolean).map((line): unknown => JSON.parse(line)) : [])
 const bridge = new AgentBridge({ dshHome: home, cwd: voiceWorkspace(), harnessFactory: tracing, profileDir: profile })
 let failed = false
 function expectCalls(count: number, what: string): void {
