@@ -39,6 +39,8 @@ function clean(command: string): string {
     const next = text
       .replace(/^(?:please|hey|ok|okay)\s+/i, '')
       .replace(/^(?:can|could|would|will) you\s+/i, '')
+      .replace(/^i(?:['’]d| would| will)? (?:like|want|need) to\s+/i, '')
+      .replace(/^i wanna\s+/i, '')
       .replace(/\s+(?:for me|please)$/i, '')
     changed = next !== text
     text = next
@@ -112,9 +114,9 @@ export function matchOperatorIntent(command: string): OperatorIntent | null {
   }
   if (/^(?:mute|unmute)(?: the)?(?: volume| sound| audio)?$/.test(lower)) return { kind: 'volume', action: 'mute' }
 
-  const open = /^(?:open|launch|start|run)(?: up)? (?:the )?(.+)$/i.exec(text)
+  const open = /^(?:open|launch|start|run)(?: up)? (?:(?:the|my|an?) )*(.+)$/i.exec(text)
   if (open !== null) return matchOpen(captured(open))
-  const close = /^(?:close|quit|exit|kill) (?:the )?(.+)$/i.exec(text)
+  const close = /^(?:close|quit|exit|kill) (?:(?:the|my|an?) )*(.+)$/i.exec(text)
   if (close !== null) return matchClose(captured(close))
 
   const playOn = /^play (.+?) on youtube$/i.exec(text) ?? /^(?:search )?youtube (?:for )?(.+)$/i.exec(text)
