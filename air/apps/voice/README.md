@@ -46,7 +46,7 @@ For the cloud routes, add `OLLAMA_CLOUD_KEY=<key>` (an Ollama account key from o
 5. **Switch routes.** Say "use the cloud model" (Ollama Cloud), "use the screen model" (Ollama Cloud with computer use), or "use the local model" (Ollama). The toggle in the window also switches routes.
 6. **Start a new conversation.** Say "new conversation" or "start a new conversation" to clear the session and begin fresh.
 7. **Cancel.** Say "cancel", "cancel that", or "never mind" to stop the current utterance and clear the pending command.
-8. **Language.** Say "Tamil mode" (or "switch to Tamil") to have commands recognised in Tamil, and "English mode" to go back. English is the default. Tamil commands always go to the agent, because the local operator's patterns are English, and the persona replies in the language you spoke. The wake word stays "Jarvis" in both modes.
+8. **Language.** Say "Tamil mode" (or "switch to Tamil") to have commands recognised in Tamil, and "English mode" to go back. English is the default. Tamil commands always go to the agent, because the local operator's patterns are English, and the persona replies in English. The wake word stays "Jarvis" in both modes.
 9. **Memory sharing.** Say "share memory with the cloud" or "stop sharing memory" to toggle whether the cloud routes can read and write the AIR memory store. The local route always has access.
 
 ## Wake word and speech recognition
