@@ -2,7 +2,7 @@
  *
  * Paths are computed from `__dirname` (the `lib/` output) so bundling does not shift them.
  */
-import { app, BrowserWindow, ipcMain, session, shell } from 'electron'
+import { app, BrowserWindow, ipcMain, safeStorage, session, shell } from 'electron'
 import { join } from 'node:path'
 import { Listener } from './core/listener.ts'
 import { Speaker, type AudioPlayer } from './core/speaker.ts'
@@ -19,6 +19,9 @@ import { recorderFromEnv } from './core/metrics.ts'
 import { WebUi } from './core/web-ui.ts'
 import { nodeSpawnEnv } from './node-spawn.ts'
 import { existsSync } from 'node:fs'
+import { MailAssistant } from './core/gmail/assistant.ts'
+import { GmailAuth } from './core/gmail/auth.ts'
+import { GmailClient, sentLogger } from './core/gmail/client.ts'
 
 let mainWindow: BrowserWindow | undefined
 let listener: Listener | undefined
@@ -180,11 +183,29 @@ function startVoice(): void {
     debug,
   })
 
+  // Gmail by REST: the token file is encrypted with Electron safeStorage (Windows DPAPI); the log keeps only an address hash and a time.
+  const gmailAuth = new GmailAuth({
+    home,
+    cipher: {
+      available: () => safeStorage.isEncryptionAvailable(),
+      encrypt: plain => safeStorage.encryptString(plain),
+      decrypt: data => safeStorage.decryptString(data),
+    },
+    fetchFn: fetch,
+    openExternal: url => shell.openExternal(url),
+  })
+  const mail = new MailAssistant({
+    api: new GmailClient({ fetchFn: fetch, tokens: gmailAuth }),
+    auth: gmailAuth,
+    logSent: sentLogger(join(home, 'gmail-sent.log')),
+  })
+
   controller = new VoiceController({
     metrics: recorderFromEnv(process.env, home),
     listener,
     speaker,
     agent,
+    mail,
     followUpMs: followUpMsFromEnv(process.env),
     echoTailMs: ECHO_TAIL_MS,
     issueSendToken: () => issueSendToken(join(home, 'send-tokens')),

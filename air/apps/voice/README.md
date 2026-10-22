@@ -137,6 +137,36 @@ Cloud switch: reading and sending need the browser tools, so on the local route 
 
 Send gate: the compose instruction tells the model to fill in the recipient, subject, and body, not to press Send, and to end its reply with the exact line `CONFIRM SEND`. The app speaks the draft summary without that line, then says "Say yes to send it." and opens the 6 second follow-up window. "Yes" (or "confirm") sends the follow-up "Now press Send and speak one sentence saying who it went to." Any other answer, or silence, sends "Do not send it." and speaks "Cancelled." The spoken gate is backed by a hard block, not only by an instruction. The plugin `@air/dsh-send-guard` (`air/packages/send-guard`, row in `profile/browser.cordis.patch.yml`, same tool-guard seam the MCP trust plugin uses; no upstream file edited) refuses, with the model-visible error "Sending is locked until the user confirms.", any browser tool call that would send: a click on an element described as Send, Ctrl+Enter / Control+Enter / Meta+Enter, typing with submit, and a script (evaluate / run code) that mentions sending, submitting or clicking. It allows such a call only when the most recent user message of the session carries `[AIR-SEND-<16 hex>]`, a random token the voice app creates after your "yes" and writes as a file in `<voice home>\send-tokens`. The token is appended only to the "Now press Send" prompt, never to the draft prompt, and the guard deletes its file on the one send it allows, so a second send is blocked again. It also remembers the element the last browser call targeted in each session and turn, so Enter, NumpadEnter or Space after a click, hover or type on a Send-named element is refused too. Residual risk: it is a pattern list over Playwright tool calls and a Send control that is not named Send (an icon without a label) is not recognised.
 
+## Gmail (API)
+
+Mail runs through the Gmail REST API directly from the voice app: fast, no model tokens, no browser. It reads and sends. Only the app's own code can call `users.messages.send`, and only after you say "yes" out loud; the model has no send tool for it. Nothing here has been run against a real Google account (it needs your login); the unit tests use a fake `fetch` and a fake consent browser.
+
+Code: `src/core/gmail/` (`auth.ts` OAuth with a loopback redirect and PKCE, `client.ts` REST calls, `mime.ts` headers and message building, `intent.ts` spoken-request parsing, `assistant.ts` the dialogue). It stays in the voice app, not a package, because it depends on the controller's follow-up window and on Electron's `safeStorage`; the pieces that do not (`auth.ts`, `client.ts`, `mime.ts`) take injected `fetch` and cipher, so lifting them into an `@air/dsh-*` package later for the desktop agent is a move, not a rewrite.
+
+### One-time setup (Google Cloud Console)
+
+1. Open https://console.cloud.google.com and create a project (any name).
+2. APIs and Services, Library: search "Gmail API" and click Enable.
+3. APIs and Services, OAuth consent screen: user type External, fill in the app name and your email, then add the two scopes `.../auth/gmail.readonly` and `.../auth/gmail.send`. Leave the publishing status on Testing and add your own Google account under Test users. (In Testing mode Google expires the refresh token after 7 days; say "connect gmail" again when it asks.)
+4. APIs and Services, Credentials, Create credentials, OAuth client ID, application type Desktop app. Click Download JSON.
+5. Save that file as `%USERPROFILE%\.air\voice-home\google-credentials.json`. Do not commit it or paste it anywhere; AIR never prints its contents.
+6. Run `pnpm -C air/apps/voice exec tsx scripts/setup-home.ts`; it prints whether the credentials file and the token file are present (yes or no only).
+7. Start the app and say "Jarvis, connect gmail". The browser opens Google's consent page for exactly two scopes, `gmail.readonly` and `gmail.send`. Approve both. The app listens on a random port on 127.0.0.1 for the redirect and stores the tokens in `google-token.json`, encrypted with Electron `safeStorage` (Windows DPAPI, bound to your Windows account). If secure storage is unavailable the token is not saved. First use of any mail command starts the same sign-in. Access tokens refresh automatically. "Jarvis, disconnect gmail" deletes the token file.
+
+### Commands
+
+| Say | Does |
+|---|---|
+| read my (important) mail, any new mail, check my inbox | lists up to 5 unread important inbox mails (`is:unread is:important in:inbox`, else `is:unread in:inbox`, and says which): "You have N unread important mails. From <name>: <subject>." and "And N more." when there are more |
+| read the first (second, ...) one | fetches that mail, speaks about 40 words of the plain text (HTML is stripped), the full text is on screen. Links and attachments are never opened |
+| summarize it | says "Summarising with the cloud model." (or local) and sends only that mail's text to the active route. Mail text goes to a model only on this request |
+| send a mail to <name> saying <text>; email <name> that <text>; write to <name> saying <text> | finds the address, reads back "To <name>, <address>: <text>. Say yes to send.", and sends on "yes" only. Add "subject <x>" for a subject, else the first six words of the text; add "write it politely" to have the active route reword the text first |
+| connect gmail, disconnect gmail | sign in again, or delete the token |
+
+The recipient is looked up in your last 20 mails from or to that name (display name or address, case-insensitive, one letter of slack). No match: "I couldn't find <name>. Say the email address." and you can spell it ("asha dot rao at gmail dot com"). Several matches: "Asha Rao or Asha Menon?". The yes window is 6 seconds; anything other than "yes" (also "yes please", "yes send it"), or silence, speaks "Cancelled." and sends nothing. The local log `gmail-sent.log` in the voice home holds only "sent to <hash of the address> at <time>", never the body.
+
+Without `google-credentials.json` the older browser flow above stays as the fallback: reading says "Gmail isn't connected. Opening Gmail in the browser." and sending keeps the `CONFIRM SEND` gate.
+
 ## Voice approval for escalations
 
 The voice profile uses the workspace-write sandbox with approval policy `ask`, and the only approval answerer is `@air/dsh-voice-approval` (`air/packages/voice-approval`, out of tree). It is default-deny:

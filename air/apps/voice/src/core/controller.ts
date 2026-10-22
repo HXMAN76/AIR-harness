@@ -7,6 +7,8 @@ import { REPLY_ON_SCREEN, hasTamilScript, toSpokenText } from './speech-text.ts'
 import { MetricsRecorder, type Trace } from './metrics.ts'
 import { progressLabel, withElapsed, type AgentProgress } from './progress.ts'
 import type { SpeechTiming } from './speaker.ts'
+import { NOT_CONNECTED, SETUP_HINT, type MailModel, type MailReply } from './gmail/assistant.ts'
+import type { MailIntent } from './gmail/intent.ts'
 import { closeIntentForLabel, isCloseReference, matchOperatorIntent, runOperatorIntent, type OperatorIntent, type OperatorResult } from './operator.ts'
 
 /** What a tool was denied for lack of: one line to speak, and the digest its approval token is bound to. */
@@ -68,6 +70,18 @@ interface ListenerLike extends EventEmitter {
   /** Mute while the app speaks; only a wake phrase gets through (barge-in). */
   mute?(on: boolean): void
 }
+
+/** The part of {@link import('./gmail/assistant.ts').MailAssistant} the controller needs. */
+interface MailLike {
+  configured(): boolean
+  readonly pending: boolean
+  match(text: string): MailIntent | null
+  handle(text: string, model: MailModel, say: (line: string) => Promise<void>): Promise<MailReply>
+  cancelPending(): void
+}
+
+/** Tool name shown in the state for mail the Gmail API handled. */
+const MAIL_TOOL = 'gmail'
 
 /** How long a thinking turn may run before the controller says "Still working." */
 const WATCHDOG_MS = 120_000
@@ -133,6 +147,8 @@ export interface VoiceControllerDeps {
   listener: ListenerLike
   speaker: SpeakerLike
   agent: AgentLike
+  /** Gmail by API (read, and send after a spoken yes). Without it, or without the credentials file, mail goes through the browser tools. */
+  mail?: MailLike
   /** Runs a matched operator intent; defaults to {@link runOperatorIntent}. Tests inject a fake. */
   runOperator?: (intent: OperatorIntent) => Promise<OperatorResult>
   /** Issues the one-time token that lets the next Send through; its file is what the send guard consumes. Without it Send stays locked. */
@@ -175,6 +191,8 @@ export class VoiceController {
   private wake: { at: number; ackAt: number } | undefined
   /** The latest decoded command's timing, consumed when its turn starts. */
   private heard: { receivedAt: number; decodeMs: number; audioMs: number | undefined } | undefined
+  private readonly mail: MailLike | undefined
+  private mailTimer: ReturnType<typeof setTimeout> | undefined
 
   private phase: 'idle' | 'awake' | 'thinking' | 'speaking' = 'idle'
   private lang: Lang = 'en'
@@ -204,6 +222,7 @@ export class VoiceController {
     this.issueApprovalToken = deps.issueApprovalToken
     this.now = deps.now ?? (() => new Date())
     this.metrics = deps.metrics ?? new MetricsRecorder()
+    this.mail = deps.mail
 
     this.listener.on('wake', (bare?: boolean) => {
       this.handleWake()
@@ -216,6 +235,7 @@ export class VoiceController {
       this.following = false
       this.wake = undefined
       if (this.confirming !== undefined) void this.cancelConfirmation()
+      else if (this.mail?.pending === true) void this.cancelMail()
       else if (this.phase === 'awake') {
         this.phase = 'idle'
         this.emit()
@@ -273,6 +293,10 @@ export class VoiceController {
       : { receivedAt: command.receivedAt ?? this.metrics.now(), decodeMs: command.decodeMs, audioMs: command.audioMs }
     if (this.confirming !== undefined) {
       await this.answerConfirmation(command.text)
+      return
+    }
+    if (this.mail?.pending === true) {
+      await this.runMail(command.text)
       return
     }
     if (this.phase === 'thinking' || this.busy) {
@@ -358,6 +382,7 @@ export class VoiceController {
         this.emit()
         break
       case 'ask': {
+        if (lang === 'en' && await this.tryMail(command.text)) break
         // The operator's patterns are English; Tamil goes to the agent.
         // Email requests go to the browser tools, so they skip the operator's "open gmail" fast path.
         const browser = matchEmailCommand(command.text) !== null
@@ -372,6 +397,77 @@ export class VoiceController {
         break
       }
     }
+  }
+
+  /**
+   * Mail by API: a spoken mail request runs here, before the agent, with no model unless the user asked for a rewrite or summary.
+   * Without the credentials file, reading falls back to the browser tools and sending keeps the browser flow.
+   * @returns whether the request was handled here.
+   */
+  private async tryMail(text: string): Promise<boolean> {
+    const intent = this.mail?.match(text) ?? null
+    if (this.mail === undefined || intent === null) return false
+    if (this.mail.configured()) {
+      await this.runMail(text)
+      return true
+    }
+    if (intent.kind === 'send') return false
+    if (intent.kind === 'list') {
+      await this.speak(NOT_CONNECTED)
+      await this.handleAsk('check my email', true)
+    } else {
+      this.phase = 'idle'
+      this.emit({ transcript: text, reply: SETUP_HINT, tools: [MAIL_TOOL] })
+      await this.speak(SETUP_HINT)
+    }
+    return true
+  }
+
+  /** One mail turn: the assistant's answer is spoken and shown; a question it asks gets a short window without a wake word. */
+  private async runMail(text: string): Promise<void> {
+    /* v8 ignore next -- callers check that a mail assistant exists. */
+    if (this.mail === undefined) return
+    clearTimeout(this.mailTimer)
+    this.mailTimer = undefined
+    this.phase = 'thinking'
+    this.busy = true
+    this.emit({ transcript: text })
+    let reply: MailReply
+    try {
+      reply = await this.mail.handle(
+        text,
+        { route: this.agent.route, ask: async prompt => (await this.agent.ask(prompt)).reply },
+        line => this.speak(line),
+      )
+    } finally {
+      this.busy = false
+    }
+    this.phase = 'speaking'
+    this.emit({ transcript: text, reply: reply.screen ?? reply.spoken, tools: [MAIL_TOOL] })
+    await this.speak(reply.spoken)
+    const spoke = this.isSpeaking()
+    if (spoke) {
+      this.phase = 'idle'
+      this.emit()
+    }
+    if (!spoke) return
+    if (this.mail.pending) {
+      this.phase = 'awake'
+      this.emit({ transcript: text })
+      this.mailTimer = setTimeout(() => {
+        void this.cancelMail()
+      }, CONFIRM_WINDOW_MS)
+      this.listener.listen?.(CONFIRM_WINDOW_MS / 1000)
+    } else if (reply.followUp) this.openFollowUp()
+  }
+
+  private async cancelMail(): Promise<void> {
+    clearTimeout(this.mailTimer)
+    this.mailTimer = undefined
+    this.mail?.cancelPending()
+    this.phase = 'idle'
+    this.emit({ reply: CANCELLED, tools: [MAIL_TOOL] })
+    await this.speak(CANCELLED)
   }
 
   /** "Close it": the last app AIR opened, or a question when there is none. */
