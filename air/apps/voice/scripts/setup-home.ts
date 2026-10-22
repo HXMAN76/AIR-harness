@@ -11,4 +11,5 @@ console.log(`.env:       ${report.envUpdated ? 'added OLLAMA_API_KEY=ollama' : '
 console.log(`OLLAMA_CLOUD_KEY present: ${report.cloudKey ? 'yes' : 'no'}`)
 
 const plugins = await installVoicePlugins({ home: report.home, repoRoot: REPO_ROOT, exec: nodeExec })
+console.log('browser:    for web apps such as Gmail on the cloud routes, run once at the repository root: pnpm exec playwright install chromium')
 console.log(`plugins:    installed ${plugins.installed.join(', ') || 'none'}; already present ${plugins.skipped.join(', ') || 'none'}`)

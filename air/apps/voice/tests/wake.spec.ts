@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { DEFAULT_WAKE_PHRASES, TEXT_FALLBACK_WAKE_PHRASES, matchWake } from '../src/core/wake.ts'
+import { DEFAULT_WAKE_PHRASES, editDistance, matchTextWake, matchWake } from '../src/core/wake.ts'
 
 describe('matchWake', () => {
   it.each([
@@ -37,22 +37,47 @@ describe('matchWake', () => {
     expect(DEFAULT_WAKE_PHRASES).toEqual(['jarvis', 'hey jarvis', 'ok jarvis'])
   })
 
-  describe('text fallback list', () => {
+  describe('text wake', () => {
     it.each([
-      ['Jervis: new conversation', { wake: true, command: 'new conversation' }],
-      ['Jarvas, cancel', { wake: true, command: 'cancel' }],
-      ['Travis open the browser', { wake: true, command: 'open the browser' }],
-      ['Davis, open notepad.', { wake: true, command: 'open notepad' }],
-      // Heard by SenseVoice from SAPI speech of "Jarvis" (2026-10-21).
-      ['Jrvis, openNotepad.', { wake: true, command: 'openNotepad' }],
-      ['Javis open notad', { wake: true, command: 'open notad' }],
-      ['Jvis.', { wake: true, command: '' }],
-    ])('%j', (transcript, expected) => {
-      expect(matchWake(transcript, TEXT_FALLBACK_WAKE_PHRASES)).toEqual(expected)
+      ['Jervis: new conversation', 'new conversation'],
+      ['Jarvas, cancel', 'cancel'],
+      ['Travis open the browser', 'open the browser'],
+      ['Davis, open notepad.', 'open notepad'],
+      ['Jrvis, openNotepad.', 'openNotepad'],
+      ['Javis open notad', 'open notad'],
+      ['Jvis.', ''],
+      ['Hey Javis, open the notepad.', 'open the notepad'],
+      ['OK Jervis, what time is it', 'what time is it'],
+      ['Hay jarves open mail', 'open mail'],
+      ['hi charvis what time is it', 'what time is it'],
+      ['okay jarvas stop', 'stop'],
+      ['so jarvis read the news', 'read the news'],
+      ['a jarvis open notepad', 'open notepad'],
+      ["Jarvis's open notepad", 'open notepad'],
+      ['Jar vis open notepad', 'open notepad'],
+      ['Hey jo vis, what time is it', 'what time is it'],
+      ['jarvis is open notepad', 'open notepad'],
+      ['jarvis is', 'is'],
+      ['JARVIS', ''],
+    ])('wakes on %j', (transcript, command) => {
+      expect(matchTextWake(transcript)).toEqual({ wake: true, command })
     })
 
-    it('includes every default phrase', () => {
-      for (const phrase of DEFAULT_WAKE_PHRASES) expect(TEXT_FALLBACK_WAKE_PHRASES).toContain(phrase)
+    it.each([
+      'service please', 'nervous breakdown', 'javascript is fun', 'harvest the crops', 'this is a test', 'hey there',
+      'hey', '', '   ', 'I said hey jarvis yesterday', 'I told javis to stop', 'jar visit tomorrow', 'so so jarvis', 'hey hey jarvis',
+      'a b c',
+    ])('does not wake on %j', (transcript) => {
+      expect(matchTextWake(transcript)).toEqual({ wake: false, command: '' })
+    })
+  })
+
+  describe('editDistance', () => {
+    it.each([
+      ['jarvis', 'jarvis', 0], ['javis', 'jarvis', 1], ['travis', 'jarvis', 2], ['', 'abc', 3], ['abc', '', 3], ['ab', 'ba', 1],
+      ['service', 'jarvis', 4],
+    ])('%s vs %s is %i', (a, b, distance) => {
+      expect(editDistance(a, b)).toBe(distance)
     })
   })
 })

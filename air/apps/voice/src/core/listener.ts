@@ -49,7 +49,9 @@ function toMessage(value: unknown): WorkerMessage | undefined {
   if (typeof value !== 'object' || value === null) return undefined
   const r = value as Record<string, unknown>
   if (r.ready === true && isNumber(r.loadMs)) return { ready: true, loadMs: r.loadMs }
-  if (r.type === 'wake' || r.type === 'timeout') return { type: r.type }
+  if (r.type === 'wake') return r.bare === true ? { type: 'wake', bare: true } : { type: 'wake' }
+  if (r.type === 'timeout') return { type: 'timeout' }
+  if (r.type === 'heard') return typeof r.text === 'string' ? { type: 'heard', text: r.text } : { type: 'heard' }
   if (r.type === 'command' && typeof r.text === 'string' && isLang(r.lang) && isNumber(r.audioMs) && isNumber(r.decodeMs)) {
     return { type: 'command', text: r.text, lang: r.lang, audioMs: r.audioMs, decodeMs: r.decodeMs }
   }
@@ -59,7 +61,8 @@ function toMessage(value: unknown): WorkerMessage | undefined {
 }
 
 /**
- * Emits `'wake'`, `'command'` ({@link Command}), `'timeout'` (no speech after a wake), `'language'` ({ lang, loadMs }),
+ * Emits `'wake'` (argument `true` for a bare wake phrase in text mode), `'command'` ({@link Command}),
+ * `'timeout'` (no speech after a wake), `'heard'` (text wake: speech without a wake phrase, no text), `'language'` ({ lang, loadMs }),
  * `'ready'` (model load time in ms), and `'error'` (Error).
  * Protocol: frames on the worker's stdin (audio and control, see `frames.ts`); one JSON object per line on its stdout.
  */
@@ -70,6 +73,7 @@ export class Listener extends EventEmitter {
   private child: ChildLike | undefined
   private starts = 0
   private lang: Lang = 'en'
+  private muted = false
 
   /** @param options - worker launch options. */
   constructor(options: ListenerOptions = {}) {
@@ -95,6 +99,7 @@ export class Listener extends EventEmitter {
       this.onLine(line)
     }))
     if (this.lang !== 'en') child.stdin.write(controlFrame({ type: 'language', lang: this.lang }))
+    if (this.muted) child.stdin.write(controlFrame({ type: 'mute', on: true }))
     let gone = false
     const onGone = (): void => {
       if (gone) return
@@ -126,9 +131,22 @@ export class Listener extends EventEmitter {
     this.child?.stdin.write(controlFrame({ type: 'language', lang }))
   }
 
-  /** Listen for one command without a wake word; the worker answers with a `'command'` or a `'timeout'`. */
-  listen(): void {
-    this.child?.stdin.write(controlFrame({ type: 'listen' }))
+  /**
+   * Listen for one command without a wake word; the worker answers with a `'command'` or a `'timeout'`.
+   * @param seconds - how long to wait for speech to start; the worker's default when omitted.
+   */
+  listen(seconds?: number): void {
+    this.child?.stdin.write(controlFrame(seconds === undefined ? { type: 'listen' } : { type: 'listen', seconds }))
+  }
+
+  /**
+   * Mute or unmute the worker while the app speaks, so its own voice is not taken as a command. While muted, only a
+   * segment that starts with a wake phrase counts (barge-in).
+   * @param on - muted or not. The setting is sent again to a restarted worker.
+   */
+  mute(on: boolean): void {
+    this.muted = on
+    this.child?.stdin.write(controlFrame({ type: 'mute', on }))
   }
 
   /** Stop the worker; no restart follows. */
@@ -160,8 +178,9 @@ export class Listener extends EventEmitter {
       return
     }
     if ('ready' in message) this.emit('ready', message.loadMs)
-    else if (message.type === 'wake') this.emit('wake')
+    else if (message.type === 'wake') this.emit('wake', message.bare === true ? true : undefined)
     else if (message.type === 'timeout') this.emit('timeout')
+    else if (message.type === 'heard') this.emit('heard', message.text)
     else if (message.type === 'command') this.emit('command', { text: message.text, lang: message.lang, audioMs: message.audioMs, decodeMs: message.decodeMs } satisfies Command)
     else if (message.type === 'language') this.emit('language', { lang: message.lang, loadMs: message.loadMs })
     else this.emit('error', new Error(message.message))

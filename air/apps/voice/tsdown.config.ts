@@ -1,7 +1,7 @@
 import { defineConfig } from 'tsdown'
 
 export default defineConfig({
-  entry: ['src/main.ts', 'src/listener-worker.ts'],
+  entry: ['src/main.ts', 'src/listener-worker.ts', 'src/tts-worker.ts'],
   outDir: 'lib',
   format: ['cjs'],
   platform: 'node',

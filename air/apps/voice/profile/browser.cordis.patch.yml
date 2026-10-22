@@ -1,0 +1,36 @@
+# Web-app route: adds the Playwright browser tools with a persistent, visible profile, on top of
+# voice.cordis.patch.yml. Loaded by the cloud and screen routes only (see ROUTES in src/core/agent.ts):
+# the tool definitions cost about 3,700 prompt tokens, which the local 8B model's 32K context cannot
+# spare, and the local operator already opens sites and searches without them.
+#
+# This is a plain MCP client row, not the browser-use-playwright-mcp provider: that provider always
+# launches an isolated in-memory profile and has no setting for the server's own flags, while the
+# pinned @playwright/mcp server accepts --user-data-dir directly. Passing the flag here needs no
+# upstream edit. The server opens a visible browser unless --headless is given, so the owner can
+# complete a one-time manual login (Gmail, for now) in it. The profile lives on disk under
+# <voice home>/browser-profile (dshHomePath() resolves against $DSH_HOME), so the login survives
+# conversations and app restarts. The version matches the one the root workspace pins, so
+# `pnpm exec playwright install chromium` run at the repository root fetches the Chromium it expects.
+# See README.md ("Web apps (Gmail)") for the first-login steps.
+- insert:
+    - id: voice-browser
+      name: '@deepseek-ai/dsh-mcp-client'
+      config:
+        transport: stdio
+        serverName: browser
+        command: npx
+        args:
+          - '-y'
+          - '@playwright/mcp@0.0.80'
+          - '--browser'
+          - chromium
+          - '--user-data-dir'
+          - !!js dshHomePath('browser-profile')
+
+# Hard send block (not an instruction): refuses Send clicks, Ctrl/Cmd+Enter, typing with submit and sending scripts
+# unless the latest user message carries the one-time [AIR-SEND-<16 hex>] token the voice app issues after the spoken yes.
+- insert:
+    - id: air-send-guard
+      name: '@air/dsh-send-guard'
+      config:
+        tokenDir: !!js dshHomePath('send-tokens')

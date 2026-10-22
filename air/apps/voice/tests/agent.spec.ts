@@ -23,7 +23,12 @@ function tempHome(envFile?: string): string {
   return home
 }
 
-function setup(options: { env?: Record<string, string | undefined>; envFile?: string; reply?: () => Promise<string> } = {}): {
+function setup(options: {
+  env?: Record<string, string | undefined>
+  envFile?: string
+  reply?: () => Promise<string>
+  extraEvents?: Array<{ type: string; data?: unknown }>
+} = {}): {
   bridge: AgentBridge
   harnesses: FakeHarness[]
   home: string
@@ -58,6 +63,7 @@ function setup(options: { env?: Record<string, string | undefined>; envFile?: st
                   { type: 'tool/call', data: { name: 'web_fetch', callId: 'b', arguments: '{}' } },
                   { type: 'tool/call', data: { callId: 'c' } },
                   { type: 'assistant/message', data: {} },
+                  ...options.extraEvents ?? [],
                 ],
               }
             },
@@ -78,9 +84,32 @@ describe('AgentBridge', () => {
   it('maps routes to local Ollama and Ollama Cloud models', () => {
     expect(ROUTES).toEqual({
       local: { provider: 'ollama', model: 'qwen3-8b-32k', patches: ['voice.cordis.patch.yml'], cloud: false },
-      cloud: { provider: 'ollama-cloud', model: 'minimax-m3.1-flash', patches: ['voice.cordis.patch.yml'], cloud: true },
-      screen: { provider: 'ollama-cloud', model: 'minimax-m3.1-flash', patches: ['voice.cordis.patch.yml', 'screen.cordis.patch.yml'], cloud: true },
+      cloud: { provider: 'ollama-cloud', model: 'minimax-m3.1-flash', patches: ['voice.cordis.patch.yml', 'browser.cordis.patch.yml'], cloud: true },
+      screen: { provider: 'ollama-cloud', model: 'minimax-m3.1-flash', patches: ['voice.cordis.patch.yml', 'browser.cordis.patch.yml', 'screen.cordis.patch.yml'], cloud: true },
     })
+  })
+
+  it('reports a tool denied for want of a spoken approval, with what it wanted', async () => {
+    const args = { command: 'Remove-Item C:/old', sandbox_permissions: 'danger-full-access', justification: 'Clean up.' }
+    const { bridge } = setup({
+      extraEvents: [
+        { type: 'assistant/message', data: { message: { content: [{ type: 'tool-call', id: 'x', name: 'pwsh', arguments: JSON.stringify(args) }] } } },
+        { type: 'tool/result', data: { error: { message: 'Needs voice approval: run Remove-Item C:/old (Clean up.).' } } },
+      ],
+    })
+    const result = await bridge.ask('clean up')
+    expect(result.approval).toMatchObject({ summary: 'run Remove-Item C:/old (Clean up.)' })
+    expect(result.approval?.digest).toMatch(/^[0-9a-f]{64}$/)
+  })
+
+  it('reports an approval request the profile rejected', async () => {
+    const { bridge } = setup({
+      extraEvents: [
+        { type: 'approval/asked', data: { id: 'a1', toolName: 'plugin_manager', reason: 'Install the weather bundle' } },
+        { type: 'approval/decided', data: { id: 'a1', outcome: 'rejected' } },
+      ],
+    })
+    expect((await bridge.ask('install weather')).refused).toBe('Install the weather bundle')
   })
 
   it('starts on the local route and launches the SDK runtime lazily', async () => {
@@ -97,7 +126,7 @@ describe('AgentBridge', () => {
       provider: 'ollama',
       model: 'qwen3-8b-32k',
       initializeTimeoutMs: 300_000,
-      env: {},
+      env: { ELECTRON_RUN_AS_NODE: '1' },
     })
   })
 
@@ -136,11 +165,11 @@ describe('AgentBridge', () => {
     await bridge.ask('a')
     bridge.setRoute('cloud')
     await bridge.ask('b')
-    expect(harnesses[0]!.options.env).toEqual({ OLLAMA_CLOUD_KEY: 'test-value', PATH: 'p' })
-    expect(harnesses[1]!.options.env).toEqual({ OLLAMA_CLOUD_KEY: 'test-value', PATH: 'p', OLLAMA_API_KEY: 'test-value' })
+    expect(harnesses[0]!.options.env).toEqual({ OLLAMA_CLOUD_KEY: 'test-value', PATH: 'p', ELECTRON_RUN_AS_NODE: '1' })
+    expect(harnesses[1]!.options.env).toEqual({ OLLAMA_CLOUD_KEY: 'test-value', PATH: 'p', ELECTRON_RUN_AS_NODE: '1', OLLAMA_API_KEY: 'test-value' })
   })
 
-  it('reads the cloud key from the process environment when no env is given and passes only the injected key', async () => {
+  it('reads the cloud key from the process environment when no env is given and passes the full environment plus the injected key', async () => {
     const before = process.env.OLLAMA_CLOUD_KEY
     process.env.OLLAMA_CLOUD_KEY = 'test-value'
     try {
@@ -157,7 +186,8 @@ describe('AgentBridge', () => {
       })
       expect(bridge.setRoute('cloud')).toEqual({ ok: true })
       await bridge.ask('x')
-      expect(launches[0]!.env).toEqual({ OLLAMA_API_KEY: 'test-value' })
+      expect(launches[0]!.env).toMatchObject({ OLLAMA_API_KEY: 'test-value', OLLAMA_CLOUD_KEY: 'test-value', ELECTRON_RUN_AS_NODE: '1' })
+      expect(launches[0]!.env?.PATH ?? launches[0]!.env?.Path).toBe(process.env.PATH ?? process.env.Path)
     } finally {
       if (before === undefined) delete process.env.OLLAMA_CLOUD_KEY
       else process.env.OLLAMA_CLOUD_KEY = before
@@ -179,6 +209,16 @@ describe('AgentBridge', () => {
     expect(bridge.setRoute('local')).toEqual({ ok: true })
   })
 
+  it('adds the browser patch on the cloud route and both on the screen route, never on local', async () => {
+    const { bridge, harnesses } = setup({ env: { OLLAMA_CLOUD_KEY: 'test-value' } })
+    bridge.setRoute('cloud')
+    await bridge.ask('a')
+    bridge.setRoute('local')
+    await bridge.ask('b')
+    expect(harnesses[0]!.options.patches).toEqual([join('C:/voice/profile', 'voice.cordis.patch.yml'), join('C:/voice/profile', 'browser.cordis.patch.yml')])
+    expect(harnesses[1]!.options.patches).toEqual([join('C:/voice/profile', 'voice.cordis.patch.yml')])
+  })
+
   it('adds the screen patch on the screen route, one harness per route', async () => {
     const { bridge, harnesses } = setup({ env: { OLLAMA_CLOUD_KEY: 'test-value' } })
     await bridge.ask('a')
@@ -187,7 +227,7 @@ describe('AgentBridge', () => {
     bridge.setRoute('local')
     await bridge.ask('c')
     expect(harnesses).toHaveLength(2)
-    expect(harnesses[1]!.options.patches).toEqual([join('C:/voice/profile', 'voice.cordis.patch.yml'), join('C:/voice/profile', 'screen.cordis.patch.yml')])
+    expect(harnesses[1]!.options.patches).toEqual([join('C:/voice/profile', 'voice.cordis.patch.yml'), join('C:/voice/profile', 'browser.cordis.patch.yml'), join('C:/voice/profile', 'screen.cordis.patch.yml')])
     expect(harnesses[1]!.options.model).toBe('minimax-m3.1-flash')
     expect(harnesses[0]!.runs.map(run => run.sessionId)).toEqual(['session-1', 'session-1'])
   })
@@ -246,7 +286,7 @@ describe('AgentBridge', () => {
     expect(defaultDshBin({})).toBe(join(REPO_ROOT, 'apps', 'cli', 'lib', 'bin.js'))
   })
 
-  it('without an env option, checks the process environment and lets the runtime inherit it', async () => {
+  it('without an env option, starts from the process environment with ELECTRON_RUN_AS_NODE set', async () => {
     const seen: HarnessOptions[] = []
     const bridge = new AgentBridge({
       dshHome: tempHome(),
@@ -259,7 +299,9 @@ describe('AgentBridge', () => {
     expect(typeof bridge.setRoute('cloud').ok).toBe('boolean')
     bridge.setRoute('local')
     await bridge.ask('x')
-    expect('env' in seen[0]!).toBe(false)
+    expect(seen[0]!.env).toMatchObject({ ELECTRON_RUN_AS_NODE: '1' })
+    expect(seen[0]!.env?.PATH ?? seen[0]!.env?.Path).toBe(process.env.PATH ?? process.env.Path)
+    expect(seen[0]!.env).not.toHaveProperty('OLLAMA_API_KEY')
     expect(seen[0]!.dshBin).toBe(defaultDshBin())
     expect(seen[0]!.patches[0]).toBe(join(VOICE_APP_ROOT, 'profile', 'voice.cordis.patch.yml'))
   })

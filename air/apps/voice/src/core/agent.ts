@@ -1,6 +1,7 @@
 /** Drives dsh sessions through upstream's TypeScript SDK: one runtime per route, one session per conversation. */
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
+import { findApprovalDenial, findRefusedAsk, type ApprovalDenial } from '@air/dsh-voice-approval/denial'
 import { sdkHarness } from '../sdk-harness.ts'
 import type { Route } from './commands.ts'
 import { cloudKeyPresent, cloudKeyValue } from './home.ts'
@@ -37,8 +38,10 @@ export type HarnessFactory = (options: HarnessOptions) => HarnessLike
 /** Model route table. Cloud routes call https://ollama.com/v1 (provider `ollama-cloud`) with a bearer key from the home `.env`, injected as `OLLAMA_API_KEY` for those launches. */
 export const ROUTES: Record<Route, { provider: string; model: string; patches: string[]; cloud: boolean }> = {
   local: { provider: 'ollama', model: 'qwen3-8b-32k', patches: ['voice.cordis.patch.yml'], cloud: false },
-  cloud: { provider: 'ollama-cloud', model: 'minimax-m3.1-flash', patches: ['voice.cordis.patch.yml'], cloud: true },
-  screen: { provider: 'ollama-cloud', model: 'minimax-m3.1-flash', patches: ['voice.cordis.patch.yml', 'screen.cordis.patch.yml'], cloud: true },
+  // Cloud and screen carry the Playwright browser tools (browser.cordis.patch.yml); the local route never
+  // loads them, because their ~3,700 prompt tokens would crowd the 8B model's 32K context.
+  cloud: { provider: 'ollama-cloud', model: 'minimax-m3.1-flash', patches: ['voice.cordis.patch.yml', 'browser.cordis.patch.yml'], cloud: true },
+  screen: { provider: 'ollama-cloud', model: 'minimax-m3.1-flash', patches: ['voice.cordis.patch.yml', 'browser.cordis.patch.yml', 'screen.cordis.patch.yml'], cloud: true },
 }
 
 /** Extra per-launch patch when memory is shared with the cloud (written by the memory track). */
@@ -106,9 +109,9 @@ export class AgentBridge {
   /**
    * Run one prompt on the active route's conversation.
    * @param text - the command.
-   * @returns the final response and the names of the tools called.
+   * @returns the final response, the names of the tools called, and, when a tool was denied for lack of a spoken approval, what it wanted.
    */
-  async ask(text: string): Promise<{ reply: string; tools: string[] }> {
+  async ask(text: string): Promise<{ reply: string; tools: string[]; approval?: ApprovalDenial; refused?: string }> {
     const route = this.currentRoute
     const session = this.harnessFor(route).session(this.sessions.get(route))
     this.sessions.set(route, session.id)
@@ -117,7 +120,14 @@ export class AgentBridge {
       .filter(event => event.type === 'tool/call')
       .map(event => (event.data as { name?: unknown } | undefined)?.name)
       .filter((name): name is string => typeof name === 'string')
-    return { reply: result.finalResponse, tools }
+    const approval = findApprovalDenial(result.events)
+    const refused = findRefusedAsk(result.events)
+    return {
+      reply: result.finalResponse,
+      tools,
+      ...approval === undefined ? {} : { approval },
+      ...refused === undefined ? {} : { refused },
+    }
   }
 
   /** Forget the sessions; the next prompt starts a new conversation. */
@@ -156,10 +166,15 @@ export class AgentBridge {
     const files = patches.map(name => join(this.profileDir, name))
     const share = join(this.profileDir, MEMORY_SHARE_PATCH)
     if (this.shared && existsSync(share)) files.push(share)
-    const cloudKey = route !== 'local' ? cloudKeyValue(this.options.env ?? process.env, this.options.dshHome) : undefined
-    const harnessEnv = cloudKey === undefined ? this.options.env : {
-      ...this.options.env,
-      OLLAMA_API_KEY: cloudKey,
+    const base = this.options.env ?? process.env
+    const cloudKey = route !== 'local' ? cloudKeyValue(base, this.options.dshHome) : undefined
+    // The SDK launches the runtime with process.execPath, which is electron.exe inside the app;
+    // ELECTRON_RUN_AS_NODE makes it run as plain Node. A given env replaces the child's whole
+    // environment, so it always starts from the full base, never from the key alone.
+    const harnessEnv: Record<string, string | undefined> = {
+      ...base,
+      ELECTRON_RUN_AS_NODE: '1',
+      ...cloudKey === undefined ? {} : { OLLAMA_API_KEY: cloudKey },
     }
     const harness = this.factory({
       dshBin: this.dshBin,
@@ -170,7 +185,7 @@ export class AgentBridge {
       provider,
       model,
       initializeTimeoutMs: 300_000,
-      ...harnessEnv === undefined ? {} : { env: harnessEnv },
+      env: harnessEnv,
     })
     this.harnesses.set(route, harness)
     return harness

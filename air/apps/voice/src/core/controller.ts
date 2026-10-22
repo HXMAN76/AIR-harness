@@ -2,9 +2,15 @@
 import type { EventEmitter } from 'node:events'
 import type { Command } from './listener.ts'
 import type { Lang } from './frames.ts'
-import { parseVoiceCommand, rewriteForAgent, type Route } from './commands.ts'
+import { CONFIRM_SEND, matchEmailCommand, parseVoiceCommand, rewriteForAgent, suggestionFor, needsScreen, type Route } from './commands.ts'
 import { REPLY_ON_SCREEN, hasTamilScript, toSpokenText } from './speech-text.ts'
-import { matchOperatorIntent, runOperatorIntent, type OperatorIntent, type OperatorResult } from './operator.ts'
+import { closeIntentForLabel, isCloseReference, matchOperatorIntent, runOperatorIntent, type OperatorIntent, type OperatorResult } from './operator.ts'
+
+/** What a tool was denied for lack of: one line to speak, and the digest its approval token is bound to. */
+interface ApprovalWant {
+  summary: string
+  digest: string
+}
 
 /** One frame of the voice state machine, pushed to the UI. */
 export interface VoiceState {
@@ -32,7 +38,7 @@ interface AgentLike {
   route: Route
   memoryShared: boolean
   setRoute(route: Route): { ok: true } | { ok: false; reason: 'missing-key' }
-  ask(text: string): Promise<{ reply: string; tools: string[] }>
+  ask(text: string): Promise<{ reply: string; tools: string[]; approval?: ApprovalWant; refused?: string }>
   newConversation(): void
   setMemoryShare(on: boolean): Promise<void>
   cancel(): Promise<void>
@@ -41,8 +47,10 @@ interface AgentLike {
 /** The part of {@link import('./listener.ts').Listener} the controller needs. */
 interface ListenerLike extends EventEmitter {
   setLanguage(lang: Lang): void
-  /** Listen for one command without a wake word. */
-  listen?(): void
+  /** Listen for one command without a wake word, waiting up to `seconds` for speech to start. */
+  listen?(seconds?: number): void
+  /** Mute while the app speaks; only a wake phrase gets through (barge-in). */
+  mute?(on: boolean): void
 }
 
 /** How long a thinking turn may run before the controller says "Still working." */
@@ -51,18 +59,58 @@ const WATCHDOG_MS = 120_000
 /** Tool name shown in the state for commands the operator handled. */
 const OPERATOR_TOOL = 'operator'
 
-/** Operator intents that need a spoken yes before they run. */
-const DESTRUCTIVE: ReadonlySet<OperatorIntent['kind']> = new Set(['close', 'lock'])
+/** Operator intents that need a spoken yes before they run. Closing an app is graceful (it asks to save), so only the lock does. */
+const DESTRUCTIVE: ReadonlySet<OperatorIntent['kind']> = new Set(['lock'])
+
+const WHICH_APP = 'Which app should I close?'
 
 /** How long a confirmation waits for "yes". */
 export const CONFIRM_WINDOW_MS = 6_000
 
 const CONFIRM_PROMPT = 'Say yes to confirm.'
+const CONFIRM_SEND_PROMPT = 'Say yes to send it.'
+const ALLOW_PROMPT = 'Say yes to allow.'
+const NEEDS_APPROVAL = "I can't do that without approval."
 const CANCELLED = 'Cancelled.'
+const CLOUD_KEY_MISSING = 'The cloud key is not set.'
+const USING_CLOUD = 'Using the cloud model.'
+const USING_LOCAL = 'Using the local model.'
+const SCREEN_KEY_MISSING = 'Screen control needs the cloud key.'
+const SCREEN_ON = 'Screen mode on.'
+/** The model's reply carries this line on its own when a draft is ready and Send is not yet pressed. */
+const CONFIRM_SEND_LINE = new RegExp(`^\s*${CONFIRM_SEND}\s*$`, 'm')
+/** Sent to the same session after a spoken yes. */
+const PRESS_SEND = 'Now press Send and speak one sentence saying who it went to.'
+const DO_NOT_RUN = 'Do not run it.'
+/** Sent to the same session after anything but a yes, or silence. */
+const DO_NOT_SEND = 'Do not send it.'
 const CONFIRM_WORDS = /^(?:yes|yeah|yep|confirm|confirmed|yes confirm|yes please|confirm it)$/
 
 /** Spoken when the operator could not do what was asked. */
 const OPERATOR_FAILED = "I couldn't do that."
+
+/** Default follow-up window: how long the app listens without a wake word after it spoke. */
+export const DEFAULT_FOLLOWUP_MS = 8_000
+
+/**
+ * @param env - environment to read `AIR_VOICE_FOLLOWUP_MS` from.
+ * @returns the follow-up window in ms: the variable when it is a number of 0 or more (0 turns the mode off),
+ *   else {@link DEFAULT_FOLLOWUP_MS}.
+ */
+export function followUpMsFromEnv(env: Record<string, string | undefined>): number {
+  const raw = env.AIR_VOICE_FOLLOWUP_MS
+  const value = raw === undefined || raw.trim() === '' ? Number.NaN : Number(raw)
+  return Number.isFinite(value) && value >= 0 ? value : DEFAULT_FOLLOWUP_MS
+}
+
+const OKAY = 'Okay.'
+const SUGGESTIONS = "I can read your important mail, read today's news, or open an app. What would you like?"
+
+/** @returns "Good morning.", "Good afternoon." or "Good evening." for the hour of the day. */
+export function greetingFor(now: Date): string {
+  const hour = now.getHours()
+  return hour < 12 ? 'Good morning.' : hour < 17 ? 'Good afternoon.' : 'Good evening.'
+}
 
 /** Constructor options. */
 export interface VoiceControllerDeps {
@@ -71,6 +119,16 @@ export interface VoiceControllerDeps {
   agent: AgentLike
   /** Runs a matched operator intent; defaults to {@link runOperatorIntent}. Tests inject a fake. */
   runOperator?: (intent: OperatorIntent) => Promise<OperatorResult>
+  /** Issues the one-time token that lets the next Send through; its file is what the send guard consumes. Without it Send stays locked. */
+  issueSendToken?: () => string
+  /** Issues the one-time token bound to a denied command's digest. Without it nothing can be approved by voice. */
+  issueApprovalToken?: (digest: string) => string
+  /** Milliseconds the microphone stays muted after playback ends, for the room's echo to die away; 0 for none. */
+  echoTailMs?: number
+  /** Follow-up window in ms (see {@link followUpMsFromEnv}); 0 or omitted turns conversation mode off. */
+  followUpMs?: number
+  /** Clock for the time-of-day greeting. */
+  now?: () => Date
   /** Called on every state change. */
   onState: (state: VoiceState) => void
 }
@@ -86,13 +144,30 @@ export class VoiceController {
   private readonly agent: AgentLike
   private readonly runOperator: (intent: OperatorIntent) => Promise<OperatorResult>
   private readonly onState: (state: VoiceState) => void
+  private readonly followUpMs: number
+  private readonly echoTailMs: number
+  /** Speeches in progress, and the generation a wake bumps so that a cut-off speech does not unmute a later one. */
+  private speaking = 0
+  private muteEpoch = 0
+  private readonly issueSendToken: (() => string) | undefined
+  private readonly issueApprovalToken: ((digest: string) => string) | undefined
+  private readonly now: () => Date
 
   private phase: 'idle' | 'awake' | 'thinking' | 'speaking' = 'idle'
   private lang: Lang = 'en'
   private busy = false
+  /** A follow-up window is open: the next speech needs no wake word. */
+  private following = false
+  /** The app AIR opened last this session, for "close it". */
+  private lastOpened: OperatorIntent | undefined
   private watchdogTimer: ReturnType<typeof setTimeout> | undefined
-  /** A destructive operator command waiting for "yes". */
-  private confirming: { text: string; intent: OperatorIntent; timer: ReturnType<typeof setTimeout> | undefined } | undefined
+  /** A destructive operator command, or (no intent) an email draft, waiting for "yes". */
+  private confirming: {
+    text: string
+    intent: OperatorIntent | undefined
+    approval: ApprovalWant | undefined
+    timer: ReturnType<typeof setTimeout> | undefined
+  } | undefined
 
   constructor(deps: VoiceControllerDeps) {
     this.listener = deps.listener
@@ -100,14 +175,21 @@ export class VoiceController {
     this.agent = deps.agent
     this.runOperator = deps.runOperator ?? (intent => runOperatorIntent(intent))
     this.onState = deps.onState
+    this.followUpMs = deps.followUpMs ?? 0
+    this.echoTailMs = deps.echoTailMs ?? 0
+    this.issueSendToken = deps.issueSendToken
+    this.issueApprovalToken = deps.issueApprovalToken
+    this.now = deps.now ?? (() => new Date())
 
-    this.listener.on('wake', () => {
+    this.listener.on('wake', (bare?: boolean) => {
       this.handleWake()
+      if (bare === true) void this.greet()
     })
     this.listener.on('command', (command: Command) => {
       void this.handleSpoken(command)
     })
     this.listener.on('timeout', () => {
+      this.following = false
       if (this.confirming !== undefined) void this.cancelConfirmation()
       else if (this.phase === 'awake') {
         this.phase = 'idle'
@@ -119,11 +201,28 @@ export class VoiceController {
   }
 
   /**
+   * Choose the starting route and say which one: the cloud model when the cloud key is present, else the local one.
+   * Operator commands (open, close, time, news) never use a model either way.
+   */
+  async start(): Promise<void> {
+    const cloud = this.agent.setRoute('cloud')
+    this.emit()
+    await this.speak(cloud.ok ? USING_CLOUD : USING_LOCAL)
+  }
+
+  /**
    * The wake word was heard: cue the user, cut off speech (barge-in), and wait for the command.
    * A running turn keeps going; only a cancel gets through while it runs.
    */
   handleWake(): void {
     this.speaker.beep()
+    this.following = false
+    // A wake cut in on the speech: listen at once and ignore the cut-off speech's own unmute.
+    if (this.speaking > 0) {
+      this.speaking = 0
+      this.muteEpoch++
+      this.listener.mute?.(false)
+    }
     if (this.phase === 'speaking') {
       this.speaker.stop()
       this.clearWatchdog()
@@ -148,7 +247,32 @@ export class VoiceController {
       else await this.speak("I'm still on the last one.")
       return
     }
-    await this.handleCommand(command.text, command.lang ?? this.lang)
+    const followUp = this.following
+    this.following = false
+    await this.handleCommand(command.text, command.lang ?? this.lang, followUp)
+  }
+
+  /** A bare wake phrase: greet by the time of day, suggest what AIR can do, then listen without a wake. */
+  private async greet(): Promise<void> {
+    if (this.busy || this.confirming !== undefined) return
+    const text = `${greetingFor(this.now())} ${SUGGESTIONS}`
+    this.phase = 'speaking'
+    this.emit({ reply: text })
+    await this.speak(text)
+    if (this.isSpeaking()) this.openFollowUp()
+  }
+
+  /** After a spoken reply: listen for the next request without a wake word until the window passes in silence. */
+  private openFollowUp(): void {
+    if (this.followUpMs <= 0 || this.listener.listen === undefined) {
+      this.phase = 'idle'
+      this.emit()
+      return
+    }
+    this.following = true
+    this.phase = 'awake'
+    this.emit()
+    this.listener.listen(this.followUpMs / 1000)
   }
 
   /**
@@ -169,7 +293,8 @@ export class VoiceController {
     this.emit()
   }
 
-  private async handleCommand(text: string, lang: Lang): Promise<void> {
+  private async handleCommand(spoken: string, lang: Lang, followUp = false): Promise<void> {
+    const text = followUp && lang === 'en' ? suggestionFor(spoken) ?? spoken : spoken
     const command = parseVoiceCommand(text)
     switch (command.kind) {
       case 'route':
@@ -183,6 +308,11 @@ export class VoiceController {
       case 'cancel':
         await this.handleCancel()
         break
+      case 'end':
+        this.phase = 'idle'
+        this.emit({ transcript: spoken, reply: OKAY })
+        await this.speak(OKAY)
+        break
       case 'language':
         await this.handleLanguage(command.lang)
         break
@@ -193,8 +323,14 @@ export class VoiceController {
         break
       case 'ask': {
         // The operator's patterns are English; Tamil goes to the agent.
-        const intent = lang === 'en' ? matchOperatorIntent(command.text) : null
-        if (intent === null) await this.handleAsk(command.text)
+        // Email requests go to the browser tools, so they skip the operator's "open gmail" fast path.
+        const browser = matchEmailCommand(command.text) !== null
+        if (lang === 'en' && !browser && isCloseReference(command.text)) {
+          await this.closeReference(command.text)
+          break
+        }
+        const intent = lang === 'en' && !browser ? matchOperatorIntent(command.text) : null
+        if (intent === null) await this.handleAsk(command.text, browser)
         else if (DESTRUCTIVE.has(intent.kind)) await this.askConfirmation(command.text, intent)
         else await this.handleOperator(command.text, intent)
         break
@@ -202,10 +338,22 @@ export class VoiceController {
     }
   }
 
+  /** "Close it": the last app AIR opened, or a question when there is none. */
+  private async closeReference(text: string): Promise<void> {
+    if (this.lastOpened === undefined) {
+      this.phase = 'idle'
+      this.emit({ transcript: text, reply: WHICH_APP, tools: [OPERATOR_TOOL] })
+      await this.speak(WHICH_APP)
+      this.openFollowUp()
+      return
+    }
+    await this.handleOperator(text, this.lastOpened)
+  }
+
   private async handleRoute(route: Route): Promise<void> {
     const result = this.agent.setRoute(route)
     if (!result.ok) {
-      await this.speak('The cloud key is not set.')
+      await this.speak(CLOUD_KEY_MISSING)
       this.phase = 'idle'
       this.emit()
       return
@@ -238,12 +386,13 @@ export class VoiceController {
   }
 
   /** Ask for a spoken yes before a destructive command; the follow-up needs no wake word. */
-  private async askConfirmation(text: string, intent: OperatorIntent): Promise<void> {
-    const pending: NonNullable<VoiceController['confirming']> = { text, intent, timer: undefined }
+  private async askConfirmation(text: string, intent: OperatorIntent | undefined, approval?: ApprovalWant): Promise<void> {
+    const prompt = approval !== undefined ? `It wants to ${approval.summary}. ${ALLOW_PROMPT}` : intent === undefined ? CONFIRM_SEND_PROMPT : CONFIRM_PROMPT
+    const pending: NonNullable<VoiceController['confirming']> = { text, intent, approval, timer: undefined }
     this.confirming = pending
     this.phase = 'speaking'
-    this.emit({ transcript: text, reply: CONFIRM_PROMPT, tools: [OPERATOR_TOOL] })
-    await this.speak(CONFIRM_PROMPT)
+    this.emit({ transcript: text, reply: prompt, tools: [OPERATOR_TOOL] })
+    await this.speak(prompt)
     if (this.confirming !== pending) return
     this.phase = 'awake'
     this.emit({ transcript: text })
@@ -260,7 +409,15 @@ export class VoiceController {
     const answer = spoken.toLowerCase().replaceAll(/[^a-z ]/g, '').trim()
     if (CONFIRM_WORDS.test(answer)) {
       this.dropConfirmation()
-      await this.handleOperator(pending.text, pending.intent)
+      if (pending.approval !== undefined) {
+        const token = this.issueApprovalToken?.(pending.approval.digest)
+        // Without a token source nothing can be approved: say so instead of running a prompt that cannot work.
+        if (token === undefined) await this.speak(CANCELLED)
+        else await this.handleAsk(`Approved. Run exactly that command again now. ${token}`, false, true)
+      } else if (pending.intent === undefined) {
+        const token = this.issueSendToken?.()
+        await this.handleAsk(token === undefined ? PRESS_SEND : `${PRESS_SEND} ${token}`, false, true)
+      } else await this.handleOperator(pending.text, pending.intent)
     } else {
       await this.cancelConfirmation()
     }
@@ -269,11 +426,13 @@ export class VoiceController {
   private async cancelConfirmation(): Promise<void> {
     /* v8 ignore next -- a confirmation timer or answer always clears the field first; this guards re-entrant calls. */
     if (this.confirming === undefined) return
-    const { text } = this.confirming
+    const { text, intent, approval } = this.confirming
     this.dropConfirmation()
     this.phase = 'idle'
     this.emit({ transcript: text, reply: CANCELLED, tools: [OPERATOR_TOOL] })
     await this.speak(CANCELLED)
+    if (approval !== undefined) await this.agent.ask(DO_NOT_RUN).catch(() => undefined)
+    else if (intent === undefined) await this.agent.ask(DO_NOT_SEND).catch(() => undefined)
   }
 
   private dropConfirmation(): void {
@@ -285,12 +444,17 @@ export class VoiceController {
   private async handleOperator(text: string, intent: OperatorIntent): Promise<void> {
     this.phase = 'thinking'
     this.busy = true
+    let spokeReply = false
     this.emit({ transcript: text })
     try {
       const result = await this.runOperator(intent)
+      if (intent.kind === 'open') this.lastOpened = closeIntentForLabel(intent.label) ?? this.lastOpened
+      else if (intent.kind === 'close') this.lastOpened = undefined
       this.phase = 'speaking'
       this.emit({ transcript: text, reply: result.spoken, tools: [OPERATOR_TOOL] })
       await this.speak(result.spoken)
+      // A wake that cut the reply off already made the state 'awake'; do not open a window over it.
+      spokeReply = this.isSpeaking()
     } catch {
       this.phase = 'idle'
       this.emit({ transcript: text, reply: OPERATOR_FAILED, tools: [OPERATOR_TOOL], error: OPERATOR_FAILED })
@@ -302,26 +466,64 @@ export class VoiceController {
         this.emit()
       }
     }
+    if (spokeReply) this.openFollowUp()
   }
 
-  private async handleAsk(text: string): Promise<void> {
+  /**
+   * Run one agent turn. `browser` marks a request that needs the browser tools, which only the cloud
+   * routes carry; `followUp` sends the text as written and skips the send gate.
+   */
+  private async handleAsk(text: string, browser = false, followUp = false): Promise<void> {
+    if (browser && this.agent.route === 'local') {
+      const switched = this.agent.setRoute('cloud')
+      await this.speak(switched.ok ? USING_CLOUD : CLOUD_KEY_MISSING)
+      if (!switched.ok) {
+        this.phase = 'idle'
+        this.emit()
+        return
+      }
+    }
+    // Commands that need GUI control go to the screen route, which stays active until the user switches.
+    if (!followUp && !browser && this.agent.route !== 'screen' && needsScreen(text)) {
+      const switched = this.agent.setRoute('screen')
+      await this.speak(switched.ok ? SCREEN_ON : SCREEN_KEY_MISSING)
+      if (!switched.ok) {
+        this.phase = 'idle'
+        this.emit()
+        return
+      }
+    }
     this.phase = 'thinking'
     this.busy = true
     this.emit({ transcript: text })
 
     this.startWatchdog()
+    let gated = false
+    let spokeReply = false
+    let approval: ApprovalWant | undefined
 
     try {
-      const result = await this.agent.ask(rewriteForAgent(text))
+      const result = await this.agent.ask(followUp ? text : rewriteForAgent(text))
       this.clearWatchdog()
 
-      const spoken = hasTamilScript(result.reply) ? REPLY_ON_SCREEN : toSpokenText(result.reply)
+      // A tool was denied for want of a spoken approval: ask for it instead of speaking the model's reply.
+      approval = result.approval
+      gated = !followUp && approval === undefined && CONFIRM_SEND_LINE.test(result.reply)
+      // A request the voice profile rejected outright: say so, with what it was, instead of the model's guess.
+      const refused = approval === undefined ? result.refused : undefined
+      const reply = refused !== undefined
+        ? `${NEEDS_APPROVAL} ${refused}.`
+        : gated ? result.reply.replace(CONFIRM_SEND_LINE, '').trim() : result.reply
+      const spoken = hasTamilScript(reply) ? REPLY_ON_SCREEN : toSpokenText(reply)
       this.phase = 'speaking'
-      this.emit({ transcript: text, reply: result.reply, tools: result.tools })
+      this.emit({ transcript: text, reply, tools: result.tools })
 
-      await this.speaker.speak(spoken)
+      if (approval === undefined && (!gated || reply !== '')) await this.speakMuted(spoken)
+      spokeReply = !gated && approval === undefined && this.isSpeaking()
     } catch (error) {
       this.clearWatchdog()
+      gated = false
+      approval = undefined
       const message = error instanceof Error ? error.message : String(error)
       this.phase = 'idle'
       this.emit({ transcript: text, error: message })
@@ -333,6 +535,14 @@ export class VoiceController {
         this.emit()
       }
     }
+    if (approval !== undefined) await this.askConfirmation(text, undefined, approval)
+    else if (gated) await this.askConfirmation(text, undefined)
+    else if (spokeReply) this.openFollowUp()
+  }
+
+  /** Whether the reply is still being spoken (a wake that cut it off changes the phase). */
+  private isSpeaking(): boolean {
+    return this.phase === 'speaking'
   }
 
   private startWatchdog(): void {
@@ -351,9 +561,26 @@ export class VoiceController {
 
   private async speak(text: string): Promise<void> {
     try {
-      await this.speaker.speak(text)
+      await this.speakMuted(text)
     } catch {
       // Swallow speech errors — the UI already has the state.
+    }
+  }
+
+  /**
+   * Speak with the microphone muted (only a wake phrase gets through) until the playback and a short tail have ended,
+   * so the follow-up window opens after the room's echo and never hears the app's own voice.
+   */
+  private async speakMuted(text: string): Promise<void> {
+    const epoch = this.muteEpoch
+    if (this.speaking++ === 0) this.listener.mute?.(true)
+    try {
+      await this.speaker.speak(text)
+    } finally {
+      if (epoch === this.muteEpoch) {
+        if (this.echoTailMs > 0) await new Promise<void>((resolve) => { setTimeout(resolve, this.echoTailMs) })
+        if (epoch === this.muteEpoch && --this.speaking === 0) this.listener.mute?.(false)
+      }
     }
   }
 

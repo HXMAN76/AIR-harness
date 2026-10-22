@@ -1,6 +1,7 @@
 /**
  * Download the pinned voice models into `<home>/.air/voice-models/<name>/` as listed in `src/core/models.lock.json`:
- * the keyword spotter (`kws`), English Parakeet (`asr-en`), Tamil IndicConformer (`asr-ta`), and Silero VAD (`vad`).
+ * the keyword spotter (`kws`), English Parakeet (`asr-en`), Tamil IndicConformer (`asr-ta`), Silero VAD (`vad`),
+ * and the Kokoro English voice (`tts-en`).
  * Archives are checked against their SHA-256, extracted with `tar.exe` (no shell), and every installed file is checked again.
  * Models whose files already match are skipped. `--sensevoice` also fetches the legacy SenseVoice files (`AIR_VOICE_ASR=sensevoice`).
  * `--only=<name>[,<name>]` limits the run. `pnpm -C air/apps/voice exec tsx scripts/fetch-models.ts`
@@ -8,7 +9,7 @@
 import { spawn } from 'node:child_process'
 import { createWriteStream } from 'node:fs'
 import { mkdir, mkdtemp, rename, rm } from 'node:fs/promises'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { pipeline } from 'node:stream/promises'
 import { fileMatches, loadModelAssets, loadModelLock, modelDir, modelPaths, modelRoot, verifyEntry, verifyModels, type LockEntry, type ModelAssets, type ModelPaths } from '../src/core/models.ts'
 
@@ -40,7 +41,13 @@ async function install(name: string, entry: LockEntry, dir: string): Promise<voi
       await download(entry.archive.url, archive)
       if (!await fileMatches(archive, entry.archive)) throw new Error('archive size or SHA-256 does not match the pin')
       await extract(archive, work)
-      for (const file of entry.files) await rename(join(work, entry.archive.root, file.from ?? file.path), join(dir, file.path))
+      const dirs = entry.dirs ?? []
+      for (const folder of dirs) await rename(join(work, entry.archive.root, folder), join(dir, folder))
+      for (const file of entry.files) {
+        if (dirs.some(folder => file.path.startsWith(`${folder}/`))) continue
+        await mkdir(dirname(join(dir, file.path)), { recursive: true })
+        await rename(join(work, entry.archive.root, file.from ?? file.path), join(dir, file.path))
+      }
     } else {
       for (const file of entry.files) {
         const partial = join(work, 'part')

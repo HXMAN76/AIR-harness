@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { parseVoiceCommand, rewriteForAgent } from '../src/core/commands.ts'
+import { CONFIRM_SEND, matchEmailCommand, parseVoiceCommand, rewriteForAgent, suggestionFor, needsScreen } from '../src/core/commands.ts'
 
 describe('parseVoiceCommand', () => {
   it.each([
@@ -56,5 +56,73 @@ describe('language commands', () => {
 
   it('leaves other Tamil and English text for the agent', () => {
     expect(parseVoiceCommand('tamil movies near me')).toEqual({ kind: 'ask', text: 'tamil movies near me' })
+  })
+})
+
+describe('email commands', () => {
+  it.each([
+    ['send a gmail to asha@example.com saying running late', { kind: 'send', details: 'to asha@example.com saying running late' }],
+    ['Send an email to Ravi saying hello.', { kind: 'send', details: 'to Ravi saying hello' }],
+    ['write the mail to mum', { kind: 'send', details: 'to mum' }],
+    ['compose e-mail, to Bob', { kind: 'send', details: 'to Bob' }],
+    ['send gmail', { kind: 'send', details: '' }],
+    ['read my important mail', { kind: 'check' }],
+    ['check unread emails', { kind: 'check' }],
+    ['check my mail', { kind: 'check' }],
+    ['Read my emails', { kind: 'check' }],
+    ['check gmail', { kind: 'check' }],
+    ['read my inbox!', { kind: 'check' }],
+  ])('matches %j', (text, expected) => {
+    expect(matchEmailCommand(text)).toEqual(expected)
+  })
+
+  it.each(['open gmail', 'open my email', 'open inbox', 'open notepad', 'send a text to Asha', 'mail the report', 'what is gmail', 'check the weather', 'sending gmail'])('does not match %j', (text) => {
+    expect(matchEmailCommand(text)).toBeNull()
+  })
+
+  it('rewrites a send into a compose-only instruction ending in the gate line', () => {
+    const out = rewriteForAgent('send a gmail to asha@example.com saying running late')
+    expect(out).toContain('compose an email in Gmail at https://mail.google.com: to asha@example.com saying running late.')
+    expect(out).toContain('do NOT press Send')
+    expect(out.endsWith(`exactly ${CONFIRM_SEND}`)).toBe(true)
+    expect(CONFIRM_SEND).toBe('CONFIRM SEND')
+  })
+
+  it('asks the model to find out the details when none were spoken', () => {
+    expect(rewriteForAgent('send an email')).toContain('ask me who it is for and what it should say')
+  })
+
+  it('rewrites a mail check into a read-only listing of up to five messages', () => {
+    expect(rewriteForAgent('open gmail')).toBe('open gmail')
+    const check = rewriteForAgent('read my important mail')
+    expect(check).toContain('up to 5 unread messages in the Important or Primary view')
+    expect(check).toContain('"From <sender>: <subject>."')
+    expect(check).toContain('Never open attachments, never click links inside a mail')
+    expect(check).toContain('never reply, delete, or send anything')
+    expect(check).not.toContain('CONFIRM SEND')
+  })
+})
+
+describe('end and suggestions', () => {
+  it.each(['stop', "That's all.", 'thank you', 'Thank you Jarvis', 'thanks', 'bye'])('%j ends the conversation', (said) => {
+    expect(parseVoiceCommand(said)).toEqual({ kind: 'end' })
+  })
+  it('does not end on longer sentences', () => {
+    expect(parseVoiceCommand('stop the music').kind).toBe('ask')
+  })
+  it.each([['important mail', 'read my important mail'], ['my mail', 'read my important mail'], ['Emails.', 'read my important mail'], ['the news', 'read the news'], ['headlines', 'read the news'], ["today's news", 'read the news']])('%j -> %j', (said, request) => {
+    expect(suggestionFor(said)).toBe(request)
+  })
+  it('leaves other replies alone', () => {
+    expect(suggestionFor('open notepad')).toBeNull()
+  })
+})
+
+describe('needsScreen', () => {
+  it.each(['click the red button', 'scroll down', 'type into the search box', 'type in my name', 'press the OK button', 'select the second row', 'what is on the screen', 'what is on screen', 'close this window', 'fill the form', 'fill out the form', 'drag the file to the folder'])('%j needs the screen', (text) => {
+    expect(needsScreen(text)).toBe(true)
+  })
+  it.each(['what is two plus two', 'open notepad', 'tell me a joke', 'write a poem about a screen saver', 'typewriter history'])('%j does not', (text) => {
+    expect(needsScreen(text)).toBe(false)
   })
 })
