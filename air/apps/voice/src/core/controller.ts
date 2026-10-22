@@ -38,7 +38,7 @@ interface AgentLike {
   route: Route
   memoryShared: boolean
   setRoute(route: Route): { ok: true } | { ok: false; reason: 'missing-key' }
-  ask(text: string): Promise<{ reply: string; tools: string[]; approval?: ApprovalWant }>
+  ask(text: string): Promise<{ reply: string; tools: string[]; approval?: ApprovalWant; refused?: string }>
   newConversation(): void
   setMemoryShare(on: boolean): Promise<void>
   cancel(): Promise<void>
@@ -70,6 +70,7 @@ export const CONFIRM_WINDOW_MS = 6_000
 const CONFIRM_PROMPT = 'Say yes to confirm.'
 const CONFIRM_SEND_PROMPT = 'Say yes to send it.'
 const ALLOW_PROMPT = 'Say yes to allow.'
+const NEEDS_APPROVAL = "I can't do that without approval."
 const CANCELLED = 'Cancelled.'
 const CLOUD_KEY_MISSING = 'The cloud key is not set.'
 const USING_CLOUD = 'Using the cloud model.'
@@ -508,7 +509,11 @@ export class VoiceController {
       // A tool was denied for want of a spoken approval: ask for it instead of speaking the model's reply.
       approval = result.approval
       gated = !followUp && approval === undefined && CONFIRM_SEND_LINE.test(result.reply)
-      const reply = gated ? result.reply.replace(CONFIRM_SEND_LINE, '').trim() : result.reply
+      // A request the voice profile rejected outright: say so, with what it was, instead of the model's guess.
+      const refused = approval === undefined ? result.refused : undefined
+      const reply = refused !== undefined
+        ? `${NEEDS_APPROVAL} ${refused}.`
+        : gated ? result.reply.replace(CONFIRM_SEND_LINE, '').trim() : result.reply
       const spoken = hasTamilScript(reply) ? REPLY_ON_SCREEN : toSpokenText(reply)
       this.phase = 'speaking'
       this.emit({ transcript: text, reply, tools: result.tools })

@@ -128,9 +128,12 @@ The voice profile uses the workspace-write sandbox with approval policy `ask`, a
 - The app finds that text in the run's events, says "It wants to <summary>. Say yes to allow.", and opens a 6 second window.
 - On "yes" it creates a random `[AIR-APPROVE-<16 hex>]` token whose file stores the SHA-256 of that exact tool call (tool name and canonical arguments), and prompts "Approved. Run exactly that command again now. [AIR-APPROVE-...]". The token never reaches the model before the yes. The plugin lets only a call with the same digest through, and deletes the token on the one approval it answers, so it cannot be reused or applied to a different command.
 - Anything but "yes", or silence, says "Cancelled." and prompts "Do not run it."
-- Every other approval request is rejected. Requests from tools named `mcp__browser__*` are allowed, because the send guard is what protects Send; this is the only automatic allow and is configured in `voice.cordis.patch.yml`.
+- Every other approval request is rejected, and the app says so: "I can't do that without approval." followed by what was refused (the tool's own reason, or "use <tool>"), instead of the model's reply.
+- Rejected means the answerer returned `rejected`; the only automatic allow follows. Requests from tools named `mcp__browser__*` are allowed, because the send guard is what protects Send; this is the only automatic allow and is configured in `voice.cordis.patch.yml`.
 
 Memory: `remember` (memory type user) stays hands-free because the voice profile sets the memory tool's `confirmTypes` to feedback only, so under policy `ask` it does not prompt. Feedback notes and forgetting still ask and are denied by the answerer (the tool reports it could not ask).
+
+Which tools can raise an approval request in the voice profile (found by reading the approval callers in the source and composing the profile with `dsh --dump-config`, not by running a model turn): pwsh and bash (sandbox escalation), the file write and edit tools (sandbox escalation), the plugin manager's tool (every action), and the memory tools for feedback notes and forgetting. Hook and auto-review callers of the approval service are not part of this profile. The first group gets the spoken yes flow; the others are rejected and spoken as above.
 
 What needs voice approval: only escalations above workspace-write. Residual risk: commands that stay inside the workspace run without asking, as before. None of this has been run end to end against the real runtime; the plugins are tested with fakes and a real tool registry.
 

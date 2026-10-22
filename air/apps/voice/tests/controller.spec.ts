@@ -67,7 +67,7 @@ class FakeAgent {
   route: Route = 'local'
   memoryShared = false
   asks: string[] = []
-  replies: Array<{ reply: string; tools: string[]; approval?: { summary: string; digest: string } }> = [{ reply: 'The time is 3 PM.', tools: [] }]
+  replies: Array<{ reply: string; tools: string[]; approval?: { summary: string; digest: string }; refused?: string }> = [{ reply: 'The time is 3 PM.', tools: [] }]
   cancelled = 0
   conversations = 0
   memoryShares: boolean[] = []
@@ -85,7 +85,7 @@ class FakeAgent {
     this.routeChanges.push(route)
     return { ok: true }
   }
-  async ask(text: string): Promise<{ reply: string; tools: string[]; approval?: { summary: string; digest: string } }> {
+  async ask(text: string): Promise<{ reply: string; tools: string[]; approval?: { summary: string; digest: string }; refused?: string }> {
     this.asks.push(text)
     if (this.askDelay) await this.askDelay()
     return this.replies[Math.min(this.asks.length - 1, this.replies.length - 1)] ?? { reply: 'Done.', tools: [] }
@@ -1062,6 +1062,13 @@ describe('send token and voice approval', () => {
     await controller.handleSpoken({ text: 'yes' })
     expect(issued).toEqual(['approve:abc123'])
     expect(agent.asks[1]).toBe('Approved. Run exactly that command again now. [AIR-APPROVE-fedcba9876543210]')
+  })
+
+  it('speaks what was refused when a request was rejected without a voice flow', async () => {
+    const { controller, speaker, agent } = await rig()
+    agent.replies = [{ reply: 'Sorry, I could not.', tools: [], refused: 'Install the weather bundle' }]
+    await controller.handleSpoken({ text: 'install the weather bundle' })
+    expect(speaker.spoken).toEqual(["I can't do that without approval. Install the weather bundle."])
   })
 
   it('cancels on anything but yes, and on silence, telling the model not to run it', async () => {

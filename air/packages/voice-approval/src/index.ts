@@ -17,7 +17,7 @@ import { escalationSummary, isEscalation } from './summary.ts'
 import { consumeApprovalToken, findApprovalToken } from './token.ts'
 import { DENIAL_PREFIX } from './denial.ts'
 
-export { DENIAL_PREFIX, findApprovalDenial } from './denial.ts'
+export { DENIAL_PREFIX, findApprovalDenial, findRefusedAsk } from './denial.ts'
 export { approvalDigest } from './digest.ts'
 export { escalationSummary, isEscalation } from './summary.ts'
 export { latestUserText } from './session-text.ts'

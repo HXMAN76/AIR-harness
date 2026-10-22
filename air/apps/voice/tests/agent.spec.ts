@@ -102,6 +102,16 @@ describe('AgentBridge', () => {
     expect(result.approval?.digest).toMatch(/^[0-9a-f]{64}$/)
   })
 
+  it('reports an approval request the profile rejected', async () => {
+    const { bridge } = setup({
+      extraEvents: [
+        { type: 'approval/asked', data: { id: 'a1', toolName: 'plugin_manager', reason: 'Install the weather bundle' } },
+        { type: 'approval/decided', data: { id: 'a1', outcome: 'rejected' } },
+      ],
+    })
+    expect((await bridge.ask('install weather')).refused).toBe('Install the weather bundle')
+  })
+
   it('starts on the local route and launches the SDK runtime lazily', async () => {
     const { bridge, harnesses, home } = setup()
     expect(bridge.route).toBe('local')

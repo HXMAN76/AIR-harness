@@ -9,7 +9,7 @@ import LocalSubprocessRuntime from '@deepseek-ai/dsh-subprocess-local'
 import ToolRuntime, { defineTool } from '@deepseek-ai/dsh-tools'
 import * as voiceApproval from '../src/index.ts'
 import { approvalDigest, canonicalJson } from '../src/digest.ts'
-import { DENIAL_PREFIX, findApprovalDenial } from '../src/denial.ts'
+import { DENIAL_PREFIX, findApprovalDenial, findRefusedAsk } from '../src/denial.ts'
 import { escalationSummary, isEscalation } from '../src/summary.ts'
 import { APPROVE_TOKEN, consumeApprovalToken, findApprovalToken, issueApprovalToken } from '../src/token.ts'
 import type { SessionLike } from '../src/session-text.ts'
@@ -203,5 +203,24 @@ describe('plugin', () => {
     expect(outcome).toBe('allowed-once')
     expect(voiceApproval.name).toBe('air-voice-approval')
     expect(voiceApproval.inject).toEqual(['tools'])
+  })
+})
+
+describe('findRefusedAsk', () => {
+  const asked = (id: string, toolName: string, reason?: string) => ({ type: 'approval/asked', data: { id, toolName, ...reason === undefined ? {} : { reason } } })
+  const decided = (id: string, outcome: string) => ({ type: 'approval/decided', data: { id, outcome } })
+
+  it('says what the last rejected request was, from the tool name or its own reason', () => {
+    expect(findRefusedAsk([asked('1', 'plugin_manager'), decided('1', 'rejected')])).toBe('use plugin_manager')
+    expect(findRefusedAsk([asked('1', 'memory_forget', 'Forget\n  the   note about tea'), decided('1', 'rejected')])).toBe('Forget the note about tea')
+    expect(findRefusedAsk([asked('1', 'a'), decided('1', 'rejected'), asked('2', 'b'), decided('2', 'rejected')])).toBe('use b')
+  })
+
+  it('ignores allowed and unmatched requests, and clips a long reason', () => {
+    expect(findRefusedAsk([asked('1', 'mcp__browser__browser_click'), decided('1', 'allowed-once')])).toBeUndefined()
+    expect(findRefusedAsk([decided('9', 'rejected'), { type: 'approval/decided' }, { type: 'approval/decided', data: { id: 5 } }])).toBeUndefined()
+    expect(findRefusedAsk([{ type: 'approval/asked', data: { toolName: 'x' } }, { type: 'approval/asked' }, { type: 'approval/asked', data: { id: 'z', toolName: 7 } }])).toBeUndefined()
+    expect(findRefusedAsk([asked('1', 'x', 'y'.repeat(300)), decided('1', 'rejected')])).toMatch(/^y{119}…$/)
+    expect(findRefusedAsk([])).toBeUndefined()
   })
 })
