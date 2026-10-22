@@ -16,8 +16,14 @@ function normalise(text: string): string {
   return text.toLowerCase().replaceAll(/['’]/g, '').replaceAll(/[^a-z0-9 ]+/g, ' ').replaceAll(/\s+/g, ' ').trim()
 }
 
-const CONNECT = /^(?:connect|set up|sign in to|log in to|link)(?: my| the)? (?:gmail|google mail|email|e mail)$/
-const DISCONNECT = /^(?:disconnect|sign out of|log out of|unlink|forget)(?: my| the)? (?:gmail|google mail)(?: account)?$/
+const CONNECT = new RegExp(
+  '^(?:connect|set up|sign in to|log in to|link)(?: to)?(?: my| the)?'
+  + ' (?:gmail|google mail|email|e mail)(?: account)?(?: again| now| please)?$',
+)
+const DISCONNECT = new RegExp(
+  '^(?:disconnect|sign out of|log out of|unlink|forget)(?: from)?(?: my| the)?'
+  + ' (?:gmail|google mail|email)(?: account)?(?: again| now| please)?$',
+)
 const MAIL_NOUN = '(?:mails?|e ?mails?)'
 const LIST = new RegExp(
   '^(?:(?:read|check)(?: me)?(?: my| the)?(?: (?:new|unread|important))* (?:gmail|mails?|e ?mails?|inbox)'
