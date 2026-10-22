@@ -1,0 +1,44 @@
+{
+  "name": "@air/dsh-send-guard",
+  "description": "Hard block on browser tool calls that would send a message, until the user confirms with a one-time token",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "main": "lib/index.js",
+  "types": "lib/types/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/types/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./token": "./src/token.ts",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib/index.js",
+    "lib/types/**/*.d.ts",
+    "src/token.ts"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json && tsdown",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run --coverage"
+  },
+  "dependencies": {
+    "@deepseek-ai/schemastery": "link:../../../vendor/schemastery"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.4",
+    "@deepseek-ai/dsh-session": "^0.2.0-rc.1 || ^0.2.1-alpha.1",
+    "@deepseek-ai/dsh-tools": "^0.2.0-rc.1 || ^0.2.1-alpha.1"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "link:../../../vendor/cordis",
+    "@deepseek-ai/dsh-llm": "link:../../../packages/llm/llm",
+    "@deepseek-ai/dsh-session": "link:../../../packages/core/session",
+    "@deepseek-ai/dsh-subprocess-local": "link:../../../packages/subprocess/subprocess-local",
+    "@deepseek-ai/dsh-system-prompt": "link:../../../packages/core/system-prompt",
+    "@deepseek-ai/dsh-tools": "link:../../../packages/core/tools"
+  }
+}

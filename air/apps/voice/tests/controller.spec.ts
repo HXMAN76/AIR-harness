@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { EventEmitter } from 'node:events'
 import type { Route } from '../src/core/commands.ts'
 import type { OperatorIntent } from '../src/core/operator.ts'
-import { CONFIRM_WINDOW_MS } from '../src/core/controller.ts'
+import { CONFIRM_WINDOW_MS, DEFAULT_FOLLOWUP_MS, followUpMsFromEnv, greetingFor } from '../src/core/controller.ts'
 
 // ── fakes ──────────────────────────────────────────────────────────────────
 
@@ -13,8 +13,14 @@ class FakeListener extends EventEmitter {
     this.languages.push(lang)
   }
   listens = 0
-  listen(): void {
+  mutes: boolean[] = []
+  mute(on: boolean): void {
+    this.mutes.push(on)
+  }
+  windows: Array<number | undefined> = []
+  listen(seconds?: number): void {
     this.listens++
+    this.windows.push(seconds)
   }
   command(text: string, lang = 'en'): void {
     this.emit('command', { text, lang, audioMs: 500, decodeMs: 50 })
@@ -61,7 +67,7 @@ class FakeAgent {
   route: Route = 'local'
   memoryShared = false
   asks: string[] = []
-  replies: Array<{ reply: string; tools: string[] }> = [{ reply: 'The time is three PM.', tools: [] }]
+  replies: Array<{ reply: string; tools: string[]; approval?: { summary: string; digest: string }; refused?: string }> = [{ reply: 'The time is three PM.', tools: [] }]
   cancelled = 0
   conversations = 0
   memoryShares: boolean[] = []
@@ -79,7 +85,7 @@ class FakeAgent {
     this.routeChanges.push(route)
     return { ok: true }
   }
-  async ask(text: string): Promise<{ reply: string; tools: string[] }> {
+  async ask(text: string): Promise<{ reply: string; tools: string[]; approval?: { summary: string; digest: string }; refused?: string }> {
     this.asks.push(text)
     if (this.askDelay) await this.askDelay()
     return this.replies[Math.min(this.asks.length - 1, this.replies.length - 1)] ?? { reply: 'Done.', tools: [] }
@@ -542,8 +548,8 @@ describe('VoiceController', () => {
       return { ...rig, intents }
     }
 
-    it('asks first for close and for lock, and does not run yet', async () => {
-      const closing = await ask('close notepad')
+    it('asks first for lock, and does not run yet', async () => {
+      const closing = await ask('lock the screen')
       expect(closing.speaker.spoken).toEqual(['Say yes to confirm.'])
       expect(closing.intents).toEqual([])
       expect(closing.listener.listens).toBe(1)
@@ -554,9 +560,9 @@ describe('VoiceController', () => {
     })
 
     it.each(['yes', 'Yes.', 'confirm', 'Yeah!'])('runs the command on %j without another wake', async (answer) => {
-      const { controller, speaker, intents, agent } = await ask('close notepad')
+      const { controller, speaker, intents, agent } = await ask('lock the screen')
       await controller.handleSpoken({ text: answer })
-      expect(intents).toMatchObject([{ kind: 'close', label: 'Notepad' }])
+      expect(intents).toMatchObject([{ kind: 'lock' }])
       expect(speaker.spoken).toEqual(['Say yes to confirm.', 'Closing Notepad.'])
       expect(agent.asks).toEqual([])
       await vi.advanceTimersByTimeAsync(10_000)
@@ -574,7 +580,7 @@ describe('VoiceController', () => {
     })
 
     it('cancels after six seconds of silence', async () => {
-      const { speaker, intents } = await ask('close notepad')
+      const { speaker, intents } = await ask('lock the screen')
       await vi.advanceTimersByTimeAsync(5_900)
       expect(speaker.spoken).toEqual(['Say yes to confirm.'])
       await vi.advanceTimersByTimeAsync(200)
@@ -583,13 +589,39 @@ describe('VoiceController', () => {
     })
 
     it('cancels when the listener times out, and a late yes does nothing special', async () => {
-      const { listener, speaker, intents } = await ask('close notepad')
+      const { listener, speaker, intents } = await ask('lock the screen')
       listener.emit('timeout')
       await vi.advanceTimersByTimeAsync(0)
       expect(speaker.spoken).toEqual(['Say yes to confirm.', 'Cancelled.'])
       await vi.advanceTimersByTimeAsync(10_000)
       expect(speaker.spoken).toHaveLength(2)
       expect(intents).toEqual([])
+    })
+
+    it('closes an app at once, without a confirmation', async () => {
+      const { speaker, intents } = await ask('close notepad')
+      expect(speaker.spoken).toEqual(['Closing Notepad.'])
+      expect(intents).toMatchObject([{ kind: 'close', label: 'Notepad' }])
+    })
+
+    it('closes the last opened app on "close it", and asks which app when none was opened', async () => {
+      const intents: OperatorIntent[] = []
+      const { controller, speaker, states } = await makeController(async (intent) => {
+        intents.push(intent)
+        return { spoken: 'ok.' }
+      })
+      await controller.handleSpoken({ text: 'close it' })
+      expect(speaker.spoken).toEqual(['Which app should I close?'])
+      expect(states.some(state => state.reply === 'Which app should I close?')).toBe(true)
+      await controller.handleSpoken({ text: 'open the browser' })
+      await controller.handleSpoken({ text: 'close that' })
+      expect(speaker.spoken.at(-1)).toBe('Which app should I close?')
+      await controller.handleSpoken({ text: 'open notepad' })
+      await controller.handleSpoken({ text: 'close the app' })
+      expect(intents.map(i => i.kind)).toEqual(['open', 'open', 'close'])
+      expect(intents[2]).toMatchObject({ names: ['notepad'], label: 'Notepad' })
+      await controller.handleSpoken({ text: 'close it' })
+      expect(speaker.spoken.at(-1)).toBe('Which app should I close?')
     })
 
     it('does not ask for harmless commands', async () => {
@@ -601,7 +633,7 @@ describe('VoiceController', () => {
     it('accepts yes after a wake that cut off the prompt', async () => {
       const rig = await makeController(async () => ({ spoken: 'Closing Notepad.' }))
       rig.speaker.autoResolve = false
-      const asking = rig.controller.handleSpoken({ text: 'close notepad' })
+      const asking = rig.controller.handleSpoken({ text: 'lock the screen' })
       await vi.advanceTimersByTimeAsync(0)
       rig.listener.emit('wake')
       await asking
@@ -665,7 +697,7 @@ describe('confirmation edge paths', () => {
 
   it('cancels when the confirmation window passes unanswered', async () => {
     const { controller, speaker } = await rig(async () => ({ spoken: 'Closing Notepad.' }))
-    await controller.handleSpoken({ text: 'close notepad' })
+    await controller.handleSpoken({ text: 'lock the screen' })
     expect(speaker.spoken).toEqual(['Say yes to confirm.'])
     await vi.advanceTimersByTimeAsync(CONFIRM_WINDOW_MS)
     expect(speaker.spoken).toEqual(['Say yes to confirm.', 'Cancelled.'])
@@ -675,7 +707,7 @@ describe('confirmation edge paths', () => {
   it('drops a confirmation prompt that a later answer already settled', async () => {
     const intents: OperatorIntent[] = []
     const { controller, speaker } = await rig(async (intent) => { intents.push(intent); return { spoken: 'Closing Notepad.' } })
-    const first = controller.handleSpoken({ text: 'close notepad' })
+    const first = controller.handleSpoken({ text: 'lock the screen' })
     await Promise.resolve()
     await controller.handleSpoken({ text: 'no thanks' })
     await first
@@ -711,12 +743,22 @@ describe('email requests and the send gate', () => {
 
   const DRAFT = 'Draft to Asha saying running late.\nCONFIRM SEND'
 
-  it('switches local to cloud, skips the operator for "open gmail", and asks the rewritten text', async () => {
+  it('opens gmail through the operator with no model, with or without the cloud key', async () => {
     const { controller, speaker, agent, operated } = await rig()
     await controller.handleSpoken({ text: 'open gmail' })
+    agent.cloudKeyMissing = true
+    await controller.handleSpoken({ text: 'open gmail' })
+    expect(agent.routeChanges).toEqual([])
+    expect(agent.asks).toEqual([])
+    expect(operated).toEqual([{ kind: 'open', target: 'https://mail.google.com', label: 'Gmail' }, { kind: 'open', target: 'https://mail.google.com', label: 'Gmail' }])
+    expect(speaker.spoken).toEqual(['Opened.', 'Opened.'])
+  })
+
+  it('switches local to cloud for a mail read and asks the read-only instruction', async () => {
+    const { controller, speaker, agent } = await rig()
+    await controller.handleSpoken({ text: 'read my important mail' })
     expect(agent.routeChanges).toEqual(['cloud'])
-    expect(operated).toEqual([])
-    expect(agent.asks[0]).toContain('https://mail.google.com')
+    expect(agent.asks[0]).toContain('up to 5 unread messages')
     expect(speaker.spoken).toEqual(['Using the cloud model.', 'The time is three PM.'])
   })
 
@@ -809,5 +851,423 @@ describe('email requests and the send gate', () => {
     agent.ask = async () => { throw new Error('browser failed') }
     await controller.handleSpoken({ text: 'check my mail' })
     expect(speaker.spoken.at(-1)).toBe('browser failed')
+  })
+})
+
+describe('conversation mode', () => {
+  beforeEach(() => { vi.useFakeTimers() })
+  afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks() })
+
+  async function rig(hour = 9, runOperator?: (intent: OperatorIntent) => Promise<{ spoken: string }>) {
+    const { VoiceController } = await import('../src/core/controller.ts')
+    const listener = new FakeListener()
+    const speaker = new FakeSpeaker()
+    const agent = new FakeAgent()
+    const states: VoiceState[] = []
+    const controller = new VoiceController({
+      listener, speaker, agent, followUpMs: 8000, now: () => new Date(2026, 9, 22, hour, 0),
+      runOperator: runOperator ?? (async () => ({ spoken: 'Opening Notepad.' })),
+      onState: (s: VoiceState) => { states.push(s) },
+    })
+    return { controller, listener, speaker, agent, states }
+  }
+
+  it('reads the follow-up window from the environment', () => {
+    expect(DEFAULT_FOLLOWUP_MS).toBe(8000)
+    expect(followUpMsFromEnv({})).toBe(8000)
+    expect(followUpMsFromEnv({ AIR_VOICE_FOLLOWUP_MS: ' ' })).toBe(8000)
+    expect(followUpMsFromEnv({ AIR_VOICE_FOLLOWUP_MS: 'abc' })).toBe(8000)
+    expect(followUpMsFromEnv({ AIR_VOICE_FOLLOWUP_MS: '-5' })).toBe(8000)
+    expect(followUpMsFromEnv({ AIR_VOICE_FOLLOWUP_MS: '3000' })).toBe(3000)
+    expect(followUpMsFromEnv({ AIR_VOICE_FOLLOWUP_MS: '0' })).toBe(0)
+  })
+
+  it.each([[5, 'Good morning.'], [12, 'Good afternoon.'], [16, 'Good afternoon.'], [17, 'Good evening.'], [23, 'Good evening.']])('greets at hour %i with %s', (hour, greeting) => {
+    expect(greetingFor(new Date(2026, 9, 22, hour, 30))).toBe(greeting)
+  })
+
+  it('greets on a bare wake with suggestions, then listens for 8 s without a wake', async () => {
+    const { listener, speaker, states } = await rig(9)
+    listener.emit('wake', true)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(speaker.spoken).toEqual(["Good morning. I can read your important mail, read today's news, or open an app. What would you like?"])
+    expect(listener.windows).toEqual([8])
+    expect(states.at(-1)).toMatchObject({ phase: 'awake' })
+    listener.emit('timeout')
+    expect(states.at(-1)).toMatchObject({ phase: 'idle' })
+    expect(speaker.spoken).toHaveLength(1)
+  })
+
+  it('greets by the real clock when none is injected, and a second wake cuts the greeting off', async () => {
+    const plain = await makeController()
+    plain.listener.emit('wake', true)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(plain.speaker.spoken[0]).toMatch(/^Good (?:morning|afternoon|evening). I can read/)
+    const { listener, speaker, states } = await rig()
+    speaker.autoResolve = false
+    listener.emit('wake', true)
+    await vi.advanceTimersByTimeAsync(0)
+    listener.emit('wake')
+    await vi.advanceTimersByTimeAsync(0)
+    expect(listener.windows).toEqual([])
+    expect(states.at(-1)).toMatchObject({ phase: 'awake' })
+  })
+
+  it('does not greet when a command follows the wake, or while a turn is running', async () => {
+    const { listener, speaker } = await rig()
+    listener.emit('wake')
+    await vi.advanceTimersByTimeAsync(0)
+    expect(speaker.spoken).toEqual([])
+    let finish: (() => void) | undefined
+    const busy = await rig(9, () => new Promise((resolve) => { finish = () => { resolve({ spoken: 'Done.' }) } }))
+    const first = busy.controller.handleSpoken({ text: 'open notepad' })
+    await vi.advanceTimersByTimeAsync(0)
+    busy.listener.emit('wake', true)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(busy.speaker.spoken).toEqual([])
+    finish?.()
+    await first
+  })
+
+  it('does not greet while a confirmation is pending', async () => {
+    const { controller, listener, speaker } = await rig()
+    await controller.handleSpoken({ text: 'lock the screen' })
+    listener.emit('wake', true)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(speaker.spoken).toEqual(['Say yes to confirm.'])
+  })
+
+  it('opens the same window after an operator reply and after an agent reply', async () => {
+    const { controller, listener, agent, states } = await rig()
+    await controller.handleSpoken({ text: 'open notepad' })
+    expect(listener.windows).toEqual([8])
+    expect(states.at(-1)).toMatchObject({ phase: 'awake' })
+    await controller.handleSpoken({ text: 'tell me a joke' })
+    expect(agent.asks).toEqual(['tell me a joke'])
+    expect(listener.windows).toEqual([8, 8])
+  })
+
+  it('does not open a window after an error, or when conversation mode is off', async () => {
+    const failing = await rig(9, async () => { throw new Error('x') })
+    await failing.controller.handleSpoken({ text: 'open notepad' })
+    expect(failing.listener.windows).toEqual([])
+    const off = await makeController()
+    await off.controller.handleSpoken({ text: 'tell me a joke' })
+    expect(off.listener.windows).toEqual([])
+    expect(off.states.at(-1)).toMatchObject({ phase: 'idle' })
+  })
+
+  it('goes idle with nothing spoken after 8 s of silence', async () => {
+    const { controller, listener, speaker, states } = await rig()
+    await controller.handleSpoken({ text: 'open notepad' })
+    const spoken = speaker.spoken.length
+    listener.emit('timeout')
+    expect(speaker.spoken).toHaveLength(spoken)
+    expect(states.at(-1)).toMatchObject({ phase: 'idle' })
+  })
+
+  it.each(['stop', "that's all", 'Thank you Jarvis.', 'thanks'])('ends the conversation on %j with Okay and no new window', async (said) => {
+    const { controller, listener, speaker, states, agent } = await rig()
+    await controller.handleSpoken({ text: 'open notepad' })
+    await controller.handleSpoken({ text: said })
+    expect(speaker.spoken).toEqual(['Opening Notepad.', 'Okay.'])
+    expect(listener.windows).toEqual([8])
+    expect(states.at(-1)).toMatchObject({ phase: 'idle' })
+    expect(agent.asks).toEqual([])
+  })
+
+  it('answers the news suggestion through the operator, and the mail suggestion through the agent', async () => {
+    const { controller, agent } = await rig()
+    await controller.handleSpoken({ text: 'open notepad' })
+    await controller.handleSpoken({ text: 'the news' })
+    await controller.handleSpoken({ text: 'important mail' })
+    expect(agent.asks).toHaveLength(1)
+    expect(agent.asks[0]).toContain('up to 5 unread messages')
+  })
+
+  it('sends anything that is not a suggestion to the agent in the follow-up window', async () => {
+    const { controller, agent } = await rig()
+    await controller.handleSpoken({ text: 'open notepad' })
+    await controller.handleSpoken({ text: 'something else' })
+    expect(agent.asks).toEqual(['something else'])
+  })
+})
+
+describe('send token and voice approval', () => {
+  beforeEach(() => { vi.useFakeTimers() })
+  afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks() })
+
+  async function rig(withTokens = true) {
+    const { VoiceController } = await import('../src/core/controller.ts')
+    const listener = new FakeListener()
+    const speaker = new FakeSpeaker()
+    const agent = new FakeAgent()
+    const states: VoiceState[] = []
+    const issued: string[] = []
+    const controller = new VoiceController({
+      listener, speaker, agent,
+      ...withTokens ? {
+        issueSendToken: () => { issued.push('send'); return '[AIR-SEND-0123456789abcdef]' },
+        issueApprovalToken: (digest: string) => { issued.push(`approve:${digest}`); return '[AIR-APPROVE-fedcba9876543210]' },
+      } : {},
+      runOperator: async () => ({ spoken: 'ok' }),
+      onState: (s: VoiceState) => { states.push(s) },
+    })
+    agent.route = 'cloud'
+    return { controller, listener, speaker, agent, states, issued }
+  }
+  const DRAFT = 'Draft to Asha saying hi.\nCONFIRM SEND'
+  const WANT = { summary: 'run Remove-Item C:/old (Clean up.)', digest: 'abc123' }
+
+  it('puts the send token only in the prompt after the spoken yes', async () => {
+    const { controller, agent, issued } = await rig()
+    agent.replies = [{ reply: DRAFT, tools: [] }, { reply: 'Sent to Asha.', tools: [] }]
+    await controller.handleSpoken({ text: 'send an email to Asha saying hi' })
+    expect(agent.asks[0]).not.toMatch(/AIR-SEND/)
+    expect(issued).toEqual([])
+    await controller.handleSpoken({ text: 'yes' })
+    expect(agent.asks[1]).toBe('Now press Send and speak one sentence saying who it went to. [AIR-SEND-0123456789abcdef]')
+    expect(issued).toEqual(['send'])
+  })
+
+  it('does not issue a send token on no, and sends the plain prompt when none can be issued', async () => {
+    const { controller, agent, issued } = await rig()
+    agent.replies = [{ reply: DRAFT, tools: [] }]
+    await controller.handleSpoken({ text: 'send an email to Asha saying hi' })
+    await controller.handleSpoken({ text: 'no' })
+    expect(issued).toEqual([])
+    expect(agent.asks[1]).toBe('Do not send it.')
+    const bare = await rig(false)
+    bare.agent.replies = [{ reply: DRAFT, tools: [] }]
+    await bare.controller.handleSpoken({ text: 'send an email to Asha saying hi' })
+    await bare.controller.handleSpoken({ text: 'yes' })
+    expect(bare.agent.asks[1]).toBe('Now press Send and speak one sentence saying who it went to.')
+  })
+
+  it('asks the person when a tool was denied for want of approval, instead of speaking the reply', async () => {
+    const { controller, speaker, agent, listener, states } = await rig()
+    agent.replies = [{ reply: 'I need approval.', tools: ['pwsh'], approval: WANT }]
+    await controller.handleSpoken({ text: 'clean up the old folder' })
+    expect(speaker.spoken).toEqual(['It wants to run Remove-Item C:/old (Clean up.). Say yes to allow.'])
+    expect(listener.listens).toBe(1)
+    expect(states.at(-1)).toMatchObject({ phase: 'awake' })
+  })
+
+  it('re-prompts with the approval token bound to the digest after yes, and never before', async () => {
+    const { controller, agent, issued } = await rig()
+    agent.replies = [{ reply: 'I need approval.', tools: [], approval: WANT }, { reply: 'Done.', tools: [] }]
+    await controller.handleSpoken({ text: 'clean up the old folder' })
+    expect(agent.asks).toEqual(['clean up the old folder'])
+    expect(issued).toEqual([])
+    await controller.handleSpoken({ text: 'yes' })
+    expect(issued).toEqual(['approve:abc123'])
+    expect(agent.asks[1]).toBe('Approved. Run exactly that command again now. [AIR-APPROVE-fedcba9876543210]')
+  })
+
+  it('speaks what was refused when a request was rejected without a voice flow', async () => {
+    const { controller, speaker, agent } = await rig()
+    agent.replies = [{ reply: 'Sorry, I could not.', tools: [], refused: 'Install the weather bundle' }]
+    await controller.handleSpoken({ text: 'install the weather bundle' })
+    expect(speaker.spoken).toEqual(["I can't do that without approval. Install the weather bundle."])
+  })
+
+  it('cancels on anything but yes, and on silence, telling the model not to run it', async () => {
+    const no = await rig()
+    no.agent.replies = [{ reply: 'x', tools: [], approval: WANT }]
+    await no.controller.handleSpoken({ text: 'clean up' })
+    await no.controller.handleSpoken({ text: 'no way' })
+    expect(no.speaker.spoken.at(-1)).toBe('Cancelled.')
+    expect(no.agent.asks[1]).toBe('Do not run it.')
+    expect(no.issued).toEqual([])
+    const silent = await rig()
+    silent.agent.replies = [{ reply: 'x', tools: [], approval: WANT }]
+    await silent.controller.handleSpoken({ text: 'clean up' })
+    await vi.advanceTimersByTimeAsync(CONFIRM_WINDOW_MS)
+    expect(silent.speaker.spoken.at(-1)).toBe('Cancelled.')
+    expect(silent.agent.asks[1]).toBe('Do not run it.')
+  })
+
+  it('swallows a failure of the do-not-run prompt', async () => {
+    const { controller, agent, speaker } = await rig()
+    agent.replies = [{ reply: 'x', tools: [], approval: WANT }]
+    await controller.handleSpoken({ text: 'clean up' })
+    agent.ask = async () => { throw new Error('gone') }
+    await controller.handleSpoken({ text: 'no' })
+    expect(speaker.spoken.at(-1)).toBe('Cancelled.')
+  })
+
+  it('cannot approve without a token source: says Cancelled and asks nothing more', async () => {
+    const { controller, speaker, agent } = await rig(false)
+    agent.replies = [{ reply: 'x', tools: [], approval: WANT }]
+    await controller.handleSpoken({ text: 'clean up' })
+    await controller.handleSpoken({ text: 'yes' })
+    expect(speaker.spoken.at(-1)).toBe('Cancelled.')
+    expect(agent.asks).toEqual(['clean up'])
+  })
+})
+
+describe('default route and screen route', () => {
+  beforeEach(() => { vi.useFakeTimers() })
+  afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks() })
+
+  it('starts on the cloud model when the key is present, and says so', async () => {
+    const { controller, agent, speaker, states } = await makeController()
+    await controller.start()
+    expect(agent.route).toBe('cloud')
+    expect(speaker.spoken).toEqual(['Using the cloud model.'])
+    expect(states.at(-1)).toMatchObject({ route: 'cloud' })
+  })
+
+  it('stays local without the key, and says so', async () => {
+    const { controller, agent, speaker } = await makeController()
+    agent.cloudKeyMissing = true
+    await controller.start()
+    expect(agent.route).toBe('local')
+    expect(speaker.spoken).toEqual(['Using the local model.'])
+  })
+
+  it('keeps operator commands model-free on the cloud default, and "use local" still switches', async () => {
+    const { controller, agent, speaker } = await makeController()
+    await controller.start()
+    await controller.handleSpoken({ text: 'what time is it' })
+    expect(agent.asks).toEqual([])
+    await controller.handleSpoken({ text: 'use local model' })
+    expect(agent.route).toBe('local')
+    expect(speaker.spoken.at(-1)).toBe('Using local model.')
+  })
+
+  it('sends a GUI command to the screen route, once', async () => {
+    const { controller, agent, speaker } = await makeController()
+    await controller.handleSpoken({ text: 'click the blue button' })
+    expect(agent.route).toBe('screen')
+    expect(agent.asks).toEqual(['click the blue button'])
+    expect(speaker.spoken[0]).toBe('Screen mode on.')
+    await controller.handleSpoken({ text: 'scroll down' })
+    expect(agent.routeChanges).toEqual(['screen'])
+  })
+
+  it('says screen control needs the key, and asks nothing, when the key is missing', async () => {
+    const { controller, agent, speaker, states } = await makeController()
+    agent.cloudKeyMissing = true
+    await controller.handleSpoken({ text: 'click the blue button' })
+    expect(speaker.spoken).toEqual(['Screen control needs the cloud key.'])
+    expect(agent.asks).toEqual([])
+    expect(agent.route).toBe('local')
+    expect(states.at(-1)).toMatchObject({ phase: 'idle' })
+  })
+
+  it('does not switch when a follow-up prompt happens to contain GUI words', async () => {
+    const { controller, agent } = await makeController()
+    agent.route = 'cloud'
+    agent.replies = [{ reply: 'x', tools: [], approval: { summary: 'click the button', digest: 'd' } }]
+    await controller.handleSpoken({ text: 'tell me what the date is' })
+    await controller.handleSpoken({ text: 'yes' })
+    expect(agent.routeChanges).toEqual([])
+  })
+})
+
+describe('echo muting', () => {
+  beforeEach(() => { vi.useFakeTimers() })
+  afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks() })
+
+  async function rig(echoTailMs = 400) {
+    const { VoiceController } = await import('../src/core/controller.ts')
+    const listener = new FakeListener()
+    const speaker = new FakeSpeaker()
+    const agent = new FakeAgent()
+    const states: VoiceState[] = []
+    const controller = new VoiceController({
+      listener, speaker, agent, followUpMs: 8000, echoTailMs,
+      runOperator: async () => ({ spoken: 'Opening Notepad.' }),
+      onState: (s: VoiceState) => { states.push(s) },
+    })
+    return { controller, listener, speaker, agent, states }
+  }
+
+  it('mutes while speaking and for the 400 ms tail, and opens the follow-up window only after the tail', async () => {
+    const { controller, listener, speaker } = await rig()
+    speaker.autoResolve = false
+    const running = controller.handleSpoken({ text: 'open notepad' })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(listener.mutes).toEqual([true])
+    speaker.finishSpeaking()
+    await vi.advanceTimersByTimeAsync(399)
+    expect(listener.mutes).toEqual([true])
+    expect(listener.windows).toEqual([])
+    await vi.advanceTimersByTimeAsync(2)
+    await running
+    expect(listener.mutes).toEqual([true, false])
+    expect(listener.windows).toEqual([8])
+  })
+
+  it('mutes once for back-to-back speech and unmutes after the last', async () => {
+    const { controller, listener, speaker } = await rig(0)
+    speaker.autoResolve = false
+    const first = controller.handleSpoken({ text: 'what time is it' })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(listener.mutes).toEqual([true])
+    speaker.finishSpeaking()
+    await first
+    expect(listener.mutes).toEqual([true, false])
+  })
+
+  it('unmutes at once on a wake that cuts the speech off, and the cut-off speech does not unmute again', async () => {
+    const { controller, listener, speaker } = await rig()
+    speaker.autoResolve = false
+    const running = controller.handleSpoken({ text: 'open notepad' })
+    await vi.advanceTimersByTimeAsync(0)
+    listener.emit('wake')
+    expect(listener.mutes).toEqual([true, false])
+    await vi.advanceTimersByTimeAsync(1000)
+    await running
+    expect(listener.mutes).toEqual([true, false])
+    speaker.autoResolve = true
+    const next = controller.handleSpoken({ text: 'what time is it' })
+    await vi.advanceTimersByTimeAsync(1000)
+    await next
+    expect(listener.mutes).toEqual([true, false, true, false])
+  })
+
+  it('stays muted until overlapping speech has all ended', async () => {
+    const { controller, listener, speaker } = await rig(0)
+    speaker.autoResolve = false
+    const first = controller.handleSpoken({ text: 'open notepad' })
+    await vi.advanceTimersByTimeAsync(0)
+    const second = controller.handleSpoken({ text: 'open paint' })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(speaker.spoken).toHaveLength(2)
+    expect(listener.mutes).toEqual([true])
+    speaker.finishSpeaking()
+    await Promise.all([first, second])
+    expect(listener.mutes).toEqual([true, false])
+  })
+
+  it('does not unmute after the tail when a wake came in during it', async () => {
+    const { controller, listener } = await rig()
+    const running = controller.handleSpoken({ text: 'open notepad' })
+    await vi.advanceTimersByTimeAsync(100)
+    listener.emit('wake')
+    await vi.advanceTimersByTimeAsync(1000)
+    await running
+    expect(listener.mutes).toEqual([true, false])
+  })
+
+  it('unmutes when speech fails, and a wake while nothing speaks changes nothing', async () => {
+    const { listener, speaker, controller } = await rig(0)
+    listener.emit('wake')
+    expect(listener.mutes).toEqual([])
+    speaker.speak = () => Promise.reject(new Error('no audio'))
+    await controller.setRoute('cloud')
+    expect(listener.mutes).toEqual([true, false])
+  })
+
+  it('works with a listener that cannot mute', async () => {
+    const { VoiceController } = await import('../src/core/controller.ts')
+    const listener = new FakeListener()
+    Object.defineProperty(listener, 'mute', { value: undefined, configurable: true })
+    const speaker = new FakeSpeaker()
+    const controller = new VoiceController({ listener, speaker, agent: new FakeAgent(), onState: () => undefined })
+    await controller.handleSpoken({ text: 'what time is it' })
+    expect(speaker.spoken).toHaveLength(1)
   })
 })

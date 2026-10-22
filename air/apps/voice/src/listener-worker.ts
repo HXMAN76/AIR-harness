@@ -1,10 +1,12 @@
 /**
  * Listener child process: keyword spotter + Silero VAD + offline recognisers through `sherpa-onnx-node`.
  * Run with Node (type stripping): `node listener-worker.ts <modelsRoot> <sherpa package.json> <keywords.txt>`.
- * Env: `AIR_VOICE_WAKE=text` (old text wake), `AIR_VOICE_ASR=sensevoice` (old English recogniser),
+ * Env: `AIR_VOICE_WAKE=kws` (opt-in keyword spotter; the default is text wake through the recogniser),
+ * `AIR_VOICE_ASR=sensevoice` (old English recogniser),
  * `AIR_VOICE_KWS_SCORE` and `AIR_VOICE_KWS_THRESHOLD` (keyword tuning).
  * stdin: frames, see `core/frames.ts` (audio: Float32 LE 16 kHz mono; control: JSON). stdout: one JSON object per line
- * (`WorkerMessage`). Audio and transcripts are never written anywhere else, and speech without a wake is never decoded.
+ * (`WorkerMessage`). Audio and transcripts are never written anywhere else. In kws mode speech without a wake is never
+ * decoded; in text mode a transcript without a wake phrase is dropped.
  */
 import { createRequire } from 'node:module'
 import { join } from 'node:path'
@@ -31,7 +33,7 @@ const engine = new WorkerEngine({
   modelsRoot,
   dirs: { vad: join(modelsRoot, 'vad'), kws: join(modelsRoot, 'kws'), asrEn: join(modelsRoot, 'asr-en'), asrTa: join(modelsRoot, 'asr-ta') },
   keywordsFile,
-  wake: process.env.AIR_VOICE_WAKE === 'text' ? 'text' : 'kws',
+  wake: process.env.AIR_VOICE_WAKE === 'kws' ? 'kws' : 'text',
   asr: process.env.AIR_VOICE_ASR === 'sensevoice' ? 'sensevoice' : 'parakeet',
   send,
   keywordsScore: number('AIR_VOICE_KWS_SCORE'),
@@ -45,7 +47,8 @@ process.stdin.on('data', (chunk: Buffer) => {
     else if (frame.kind === FRAME_CONTROL) {
       const message = parseControl(frame.payload)
       if (message?.type === 'language') engine.setLanguage(message.lang)
-      else if (message?.type === 'listen') engine.arm()
+      else if (message?.type === 'listen') engine.arm(message.seconds)
+      else if (message?.type === 'mute') engine.setMuted(message.on)
     }
   }
 })

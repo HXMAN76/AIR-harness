@@ -23,7 +23,12 @@ function tempHome(envFile?: string): string {
   return home
 }
 
-function setup(options: { env?: Record<string, string | undefined>; envFile?: string; reply?: () => Promise<string> } = {}): {
+function setup(options: {
+  env?: Record<string, string | undefined>
+  envFile?: string
+  reply?: () => Promise<string>
+  extraEvents?: Array<{ type: string; data?: unknown }>
+} = {}): {
   bridge: AgentBridge
   harnesses: FakeHarness[]
   home: string
@@ -58,6 +63,7 @@ function setup(options: { env?: Record<string, string | undefined>; envFile?: st
                   { type: 'tool/call', data: { name: 'web_fetch', callId: 'b', arguments: '{}' } },
                   { type: 'tool/call', data: { callId: 'c' } },
                   { type: 'assistant/message', data: {} },
+                  ...options.extraEvents ?? [],
                 ],
               }
             },
@@ -81,6 +87,29 @@ describe('AgentBridge', () => {
       cloud: { provider: 'ollama-cloud', model: 'minimax-m3.1-flash', patches: ['voice.cordis.patch.yml', 'browser.cordis.patch.yml'], cloud: true },
       screen: { provider: 'ollama-cloud', model: 'minimax-m3.1-flash', patches: ['voice.cordis.patch.yml', 'browser.cordis.patch.yml', 'screen.cordis.patch.yml'], cloud: true },
     })
+  })
+
+  it('reports a tool denied for want of a spoken approval, with what it wanted', async () => {
+    const args = { command: 'Remove-Item C:/old', sandbox_permissions: 'danger-full-access', justification: 'Clean up.' }
+    const { bridge } = setup({
+      extraEvents: [
+        { type: 'assistant/message', data: { message: { content: [{ type: 'tool-call', id: 'x', name: 'pwsh', arguments: JSON.stringify(args) }] } } },
+        { type: 'tool/result', data: { error: { message: 'Needs voice approval: run Remove-Item C:/old (Clean up.).' } } },
+      ],
+    })
+    const result = await bridge.ask('clean up')
+    expect(result.approval).toMatchObject({ summary: 'run Remove-Item C:/old (Clean up.)' })
+    expect(result.approval?.digest).toMatch(/^[0-9a-f]{64}$/)
+  })
+
+  it('reports an approval request the profile rejected', async () => {
+    const { bridge } = setup({
+      extraEvents: [
+        { type: 'approval/asked', data: { id: 'a1', toolName: 'plugin_manager', reason: 'Install the weather bundle' } },
+        { type: 'approval/decided', data: { id: 'a1', outcome: 'rejected' } },
+      ],
+    })
+    expect((await bridge.ask('install weather')).refused).toBe('Install the weather bundle')
   })
 
   it('starts on the local route and launches the SDK runtime lazily', async () => {

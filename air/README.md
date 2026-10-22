@@ -208,6 +208,8 @@ From the command line, the `air-mcp` profile uses the bundle `bundles/mcp-server
 | `packages/memory-index` | Derived SQLite FTS5 index with BM25 keyword search |
 | `packages/tool-memory` | memory_search, memory_read, memory_write, memory_forget |
 | `packages/tool-open` | `open` tool (app, url, search) and the app and URL whitelist shared with the voice app |
+| `packages/send-guard` | Hard block on browser tool calls that send, until a one-time token from the voice app |
+| `packages/voice-approval` | Default-deny approval answerer for the voice profile; a spoken yes approves one exact command |
 | `packages/memory-context` | Pinned memory core, injected once per session |
 | `bundles/air` | Product defaults as a Cordis patch (Web and desktop) |
 | `bundles/air-desktop` | Layered after `air` in the desktop profile; keeps the two account rows the desktop app needs at boot |

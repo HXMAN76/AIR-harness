@@ -26,3 +26,11 @@
           - chromium
           - '--user-data-dir'
           - !!js dshHomePath('browser-profile')
+
+# Hard send block (not an instruction): refuses Send clicks, Ctrl/Cmd+Enter, typing with submit and sending scripts
+# unless the latest user message carries the one-time [AIR-SEND-<16 hex>] token the voice app issues after the spoken yes.
+- insert:
+    - id: air-send-guard
+      name: '@air/dsh-send-guard'
+      config:
+        tokenDir: !!js dshHomePath('send-tokens')

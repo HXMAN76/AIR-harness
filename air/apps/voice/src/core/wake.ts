@@ -3,14 +3,20 @@
 /** Phrases that start a command. With the keyword spotter (the default) only these three are spotted. */
 export const DEFAULT_WAKE_PHRASES: readonly string[] = ['jarvis', 'hey jarvis', 'ok jarvis']
 
-/**
- * Phrases for the `AIR_VOICE_WAKE=text` fallback only, where every segment is decoded: the defaults plus the ways
- * SenseVoice mis-heard "Jarvis" for SAPI speech on 2026-10-21 (javis, jrvis, jvis) and other close hearings.
- * Loose on purpose; never used with the keyword spotter, because common names such as "Davis" would wake it.
- */
-export const TEXT_FALLBACK_WAKE_PHRASES: readonly string[] = [
-  ...DEFAULT_WAKE_PHRASES, 'jervis', 'jarvas', 'travis', 'javis', 'jrvis', 'jvis', 'davis', 'hey davis', 'jarvis is', 'charvis', 'jarviss',
+/** Spellings the recogniser produces for "Jarvis" (Parakeet wrote "Javis" for the owner's mic on 2026-10-22). */
+const TEXT_NAMES: readonly string[] = [
+  'jarvis', 'javis', 'jervis', 'jarvas', 'travis', 'jrvis', 'jvis', 'davis', 'charvis', 'jarviss',
 ]
+
+/**
+ * Phrases for `AIR_VOICE_WAKE=text` (the default), where every short segment is decoded: each name alone and after
+ * "hey" or "ok". Matched at the start of a segment only. Loose on purpose; the keyword spotter never uses them.
+ */
+export const TEXT_WAKE_PHRASES: readonly string[] = [
+  ...DEFAULT_WAKE_PHRASES,
+  ...TEXT_NAMES.flatMap(name => [name, `hey ${name}`, `ok ${name}`]),
+  'jarvis is',
+].filter((phrase, index, all) => all.indexOf(phrase) === index)
 
 /** Result of {@link matchWake}. */
 export interface WakeMatch {

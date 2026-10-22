@@ -8,7 +8,9 @@ import { Listener } from './core/listener.ts'
 import { Speaker, type AudioPlayer } from './core/speaker.ts'
 import { runPreview } from './preview.ts'
 import { AgentBridge } from './core/agent.ts'
-import { VoiceController } from './core/controller.ts'
+import { issueSendToken } from '@air/dsh-send-guard/token'
+import { issueApprovalToken } from '@air/dsh-voice-approval/token'
+import { VoiceController, followUpMsFromEnv } from './core/controller.ts'
 import { mkdirSync } from 'node:fs'
 import { assertWorkspaceOutsideHome, voiceHome, voiceWorkspace } from './core/home.ts'
 import { modelDir, modelRoot } from './core/models.ts'
@@ -19,6 +21,9 @@ let mainWindow: BrowserWindow | undefined
 let listener: Listener | undefined
 let speaker: Speaker | undefined
 let agent: AgentBridge | undefined
+/** The microphone stays muted this long after the app stops speaking. */
+const ECHO_TAIL_MS = 400
+
 let controller: VoiceController | undefined
 
 const FRAME_SIZE = 1_600 // 100 ms at 16 kHz
@@ -132,6 +137,10 @@ function startVoice(): void {
   listener.on('wake', () => {
     console.log('wake')
   })
+  // Text wake: speech that did not start with a wake phrase. Its text is never kept; only this marker is logged.
+  listener.on('heard', () => {
+    debug('heard (no wake)')
+  })
   listener.on('command', (command: { text: string; lang: string; decodeMs: number }) => {
     console.log(`command (${command.lang}):`, command.text)
     debug(`decoded in ${command.decodeMs}ms`)
@@ -157,6 +166,10 @@ function startVoice(): void {
     listener,
     speaker,
     agent,
+    followUpMs: followUpMsFromEnv(process.env),
+    echoTailMs: ECHO_TAIL_MS,
+    issueSendToken: () => issueSendToken(join(home, 'send-tokens')),
+    issueApprovalToken: digest => issueApprovalToken(join(home, 'approve-tokens'), digest),
     onState: (state) => {
       debug('state:', state.phase, state.transcript ?? '', state.reply ?? '', state.error ?? '')
       mainWindow?.webContents.send('state', state)
@@ -164,6 +177,7 @@ function startVoice(): void {
   })
 
   listener.start()
+  void controller.start()
   debug('voice agent started (listener, speaker, bridge, controller)')
 }
 

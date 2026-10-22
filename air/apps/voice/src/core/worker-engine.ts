@@ -1,11 +1,14 @@
 /**
  * The listener worker's logic with the sherpa-onnx classes injected, so it is testable without models.
- * Wake mode `kws`: a streaming keyword spotter runs on every frame; speech is decoded only after a wake.
- * Wake mode `text` (fallback): every VAD segment is decoded and matched against the wake phrases.
+ * Wake mode `text` (the default): every VAD segment of at most {@link MAX_WAKE_SEGMENT_S} seconds is decoded by the
+ * recogniser and matched against the wake phrases at its start; longer speech is not decoded, and a transcript
+ * without a wake phrase is dropped, never stored or sent on (only a content-free `heard` marker goes out).
+ * Wake mode `kws` (opt-in): a streaming keyword spotter runs on every frame; speech is decoded only after a wake.
  */
 import { join } from 'node:path'
 import type { Lang, WorkerMessage } from './frames.ts'
-import { matchWake, TEXT_FALLBACK_WAKE_PHRASES } from './wake.ts'
+import { SpotterGain } from './gain.ts'
+import { matchWake, TEXT_WAKE_PHRASES } from './wake.ts'
 
 /** A speech segment from the VAD. */
 export interface SpeechSegment {
@@ -75,6 +78,8 @@ export const SAMPLE_RATE = 16_000
 const WINDOW = 512
 /** Seconds to wait for speech after a wake before giving up. */
 export const NO_SPEECH_TIMEOUT_S = 6
+/** Text wake: a segment longer than this is not decoded unless a command is awaited. */
+export const MAX_WAKE_SEGMENT_S = 4
 
 /** Builds the offline recognisers lazily and runs the wake and capture loop. */
 export class WorkerEngine {
@@ -83,8 +88,11 @@ export class WorkerEngine {
   private readonly vad: Vad
   private readonly spotter: Spotter | undefined
   private readonly spotterStream: Stream | undefined
+  private readonly gain = new SpotterGain()
   private readonly recognizers: Partial<Record<Lang, Recognizer>> = {}
   private lang: Lang = 'en'
+  /** The app is speaking: in text mode only a segment that starts with a wake phrase counts. */
+  private muted = false
   /** kws mode: speech is being captured after a wake. Text mode: always true. */
   private capturing: boolean
   private pending = new Float32Array(0)
@@ -156,6 +164,15 @@ export class WorkerEngine {
   }
 
   /**
+   * Mute or unmute while the app speaks (and for a short tail after), so its own voice is not taken as a command.
+   * While muted a segment counts only when its transcript starts with a wake phrase (barge-in); everything else is dropped.
+   * @param on - muted or not.
+   */
+  setMuted(on: boolean): void {
+    this.muted = on
+  }
+
+  /**
    * Feed 16 kHz mono samples.
    * @param samples - any number of samples.
    */
@@ -166,12 +183,13 @@ export class WorkerEngine {
   }
 
   /**
-   * Listen for one command without a wake word (the follow-up window after a spoken question).
-   * It ends like a normal capture: a command, or a timeout after {@link NO_SPEECH_TIMEOUT_S}.
+   * Listen for one command without a wake word (the follow-up window after a spoken reply).
+   * It ends like a normal capture: a command, or a timeout.
+   * @param seconds - how long to wait for speech to start; {@link NO_SPEECH_TIMEOUT_S} by default.
    */
-  arm(): void {
+  arm(seconds = NO_SPEECH_TIMEOUT_S): void {
     this.capturing = true
-    this.deadline = this.clock + NO_SPEECH_TIMEOUT_S
+    this.deadline = this.clock + seconds
     this.pending = new Float32Array(0)
     this.vad.reset()
   }
@@ -214,7 +232,7 @@ export class WorkerEngine {
   private listen(samples: Float32Array): void {
     const spotter = this.spotter as Spotter
     const stream = this.spotterStream as Stream
-    stream.acceptWaveform({ sampleRate: SAMPLE_RATE, samples })
+    stream.acceptWaveform({ sampleRate: SAMPLE_RATE, samples: this.gain.apply(samples) })
     while (spotter.isReady(stream)) spotter.decode(stream)
     if (spotter.getResult(stream).keyword === '') return
     spotter.reset(stream)
@@ -255,6 +273,10 @@ export class WorkerEngine {
       const samples = this.vad.front(false).samples
       this.vad.pop()
       const audioMs = Math.round(samples.length / (SAMPLE_RATE / 1000))
+      if (this.c.wake === 'text' && !this.awaiting() && samples.length > MAX_WAKE_SEGMENT_S * SAMPLE_RATE) {
+        this.c.send({ type: 'heard' })
+        continue
+      }
       const started = this.now()
       const text = this.decode(samples)
       const decodeMs = Math.round(this.now() - started)
@@ -271,18 +293,29 @@ export class WorkerEngine {
     }
   }
 
-  /** Fallback wake: a segment is a command when it starts with a wake phrase or follows a bare wake phrase. */
+  /** Whether a command is awaited (after a bare wake or an {@link arm}). */
+  private awaiting(): boolean {
+    return !this.muted && this.deadline > 0 && this.clock <= this.deadline
+  }
+
+  /** Text wake: a segment is a command when it starts with a wake phrase or follows a bare wake phrase. */
   private textWake(text: string, audioMs: number, decodeMs: number): void {
-    const awaiting = this.deadline > 0 && this.clock <= this.deadline
+    const awaiting = this.awaiting()
     this.deadline = 0
-    const match = matchWake(text, TEXT_FALLBACK_WAKE_PHRASES)
+    const match = matchWake(text, TEXT_WAKE_PHRASES)
     if (!match.wake) {
       if (awaiting) this.c.send({ type: 'command', text, lang: this.lang, audioMs, decodeMs })
+      else this.c.send({ type: 'heard' })
+      return
+    }
+    // A bare wake does not await a command here: the controller greets and then arms a follow-up window,
+    // so its own speech is not taken as the command.
+    if (match.command === '') {
+      this.c.send({ type: 'wake', bare: true })
       return
     }
     this.c.send({ type: 'wake' })
-    if (match.command === '') this.deadline = this.clock + NO_SPEECH_TIMEOUT_S
-    else this.c.send({ type: 'command', text: match.command, lang: this.lang, audioMs, decodeMs })
+    this.c.send({ type: 'command', text: match.command, lang: this.lang, audioMs, decodeMs })
   }
 
   private decode(samples: Float32Array): string {

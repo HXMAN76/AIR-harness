@@ -18,6 +18,8 @@ export const VOICE_PLUGINS: readonly VoicePlugin[] = [
   { name: '@air/dsh-memory-index', dir: 'air/packages/memory-index' },
   { name: '@air/dsh-tool-memory', dir: 'air/packages/tool-memory' },
   { name: '@air/dsh-memory-context', dir: 'air/packages/memory-context' },
+  { name: '@air/dsh-send-guard', dir: 'air/packages/send-guard' },
+  { name: '@air/dsh-voice-approval', dir: 'air/packages/voice-approval' },
   { name: '@deepseek-ai/dsh-mcp-client', dir: 'packages/mcp/mcp-client' },
 ]
 

@@ -1,7 +1,7 @@
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import type { WorkerMessage } from '../src/core/frames.ts'
-import { NO_SPEECH_TIMEOUT_S, SAMPLE_RATE, WorkerEngine, type EngineConfig, type Recognizer, type Sherpa, type SpeechSegment, type Spotter, type Stream, type Vad } from '../src/core/worker-engine.ts'
+import { MAX_WAKE_SEGMENT_S, NO_SPEECH_TIMEOUT_S, SAMPLE_RATE, WorkerEngine, type EngineConfig, type Recognizer, type Sherpa, type SpeechSegment, type Spotter, type Stream, type Vad } from '../src/core/worker-engine.ts'
 
 class FakeVad implements Vad {
   windows = 0
@@ -38,7 +38,8 @@ class FakeSpotter implements Spotter {
   decodes = 0
   streamInputs = 0
   ready = 0
-  stream: Stream = { acceptWaveform: () => { this.streamInputs++ } }
+  lastInput: Float32Array = new Float32Array(0)
+  stream: Stream = { acceptWaveform: (input: { samples: Float32Array }) => { this.streamInputs++; this.lastInput = input.samples } }
   createStream(): Stream {
     return this.stream
   }
@@ -200,6 +201,15 @@ describe('WorkerEngine loading', () => {
 })
 
 describe('WorkerEngine kws mode', () => {
+  it('feeds the spotter quiet audio boosted and loud audio untouched', () => {
+    const { engine, spotter } = rig()
+    engine.push(new Float32Array(1600).fill(0.05))
+    expect(spotter.lastInput[0]).toBeCloseTo(0.3, 5)
+    const loud = new Float32Array(1600).fill(0.6)
+    engine.push(loud)
+    expect(spotter.lastInput).toBe(loud)
+  })
+
   it('feeds only the spotter until a keyword fires, and never decodes', () => {
     const { engine, sent, vad, spotter, recognizers } = rig()
     spotter.ready = 2
@@ -328,36 +338,110 @@ describe('WorkerEngine text mode', () => {
     expect(r.sent.slice(1)).toEqual([{ type: 'wake' }, { type: 'command', text: 'open notepad', lang: 'en', audioMs: 100, decodeMs: 10 }])
   })
 
-  it('drops speech without a wake phrase', () => {
+  it('wakes on the owner-mic transcript "Hey Javis, ..."', () => {
+    const r = textRig()
+    say(r, 'Hey Javis, open the notepad.')
+    expect(r.sent.slice(1)).toMatchObject([{ type: 'wake' }, { type: 'command', text: 'open the notepad' }])
+  })
+
+  it('drops speech without a wake phrase, sending only a marker without text', () => {
     const r = textRig()
     say(r, 'just talking')
-    expect(r.sent).toHaveLength(1)
+    expect(r.sent.slice(1)).toEqual([{ type: 'heard' }])
+    expect(JSON.stringify(r.sent)).not.toContain('just talking')
   })
 
-  it('takes the next segment as the command after a bare wake', () => {
+  it('does not decode a segment longer than the wake limit, and decodes it when a command is awaited', () => {
+    const r = textRig()
+    r.recognizers[0]!.text = 'Jarvis long speech'
+    r.vad.segments.push({ samples: new Float32Array((MAX_WAKE_SEGMENT_S + 1) * SAMPLE_RATE) })
+    r.engine.push(FRAME)
+    expect(r.recognizers[0]!.decoded).toBe(0)
+    expect(r.sent.slice(1)).toEqual([{ type: 'heard' }])
+    r.engine.arm()
+    r.recognizers[0]!.text = 'a long answer'
+    r.vad.segments.push({ samples: new Float32Array((MAX_WAKE_SEGMENT_S + 1) * SAMPLE_RATE) })
+    r.engine.push(FRAME)
+    expect(r.sent.at(-1)).toMatchObject({ type: 'command', text: 'a long answer' })
+  })
+
+  it('keeps the kws mode unlimited in segment length', () => {
+    const r = rig({ wake: 'kws' })
+    r.spotter.fired = true
+    r.engine.push(FRAME)
+    r.recognizers[0]!.text = 'open notepad'
+    r.vad.segments.push({ samples: new Float32Array((MAX_WAKE_SEGMENT_S + 1) * SAMPLE_RATE) })
+    r.engine.push(FRAME)
+    expect(r.sent.at(-1)).toMatchObject({ type: 'command', text: 'open notepad' })
+  })
+
+  it('reports a bare wake as bare and does not await a command by itself', () => {
     const r = textRig()
     say(r, 'Jarvis')
+    expect(r.sent.slice(1)).toEqual([{ type: 'wake', bare: true }])
     say(r, 'volume up')
-    expect(r.sent.slice(1)).toMatchObject([{ type: 'wake' }, { type: 'command', text: 'volume up' }])
+    expect(r.sent.slice(2)).toEqual([{ type: 'heard' }])
   })
 
-  it('expires the wait for a command with a timeout and drops late speech', () => {
+  it('waits a custom number of seconds in an armed window, then times out', () => {
     const r = textRig()
-    say(r, 'Jarvis')
-    frames(r.engine, NO_SPEECH_TIMEOUT_S * 10 + 1)
+    r.engine.arm(8)
+    frames(r.engine, 79)
+    expect(r.sent.filter(m => 'type' in m && m.type === 'timeout')).toEqual([])
+    frames(r.engine, 3)
     expect(r.sent.at(-1)).toEqual({ type: 'timeout' })
-    say(r, 'volume up')
-    expect(r.sent.filter(message => 'type' in message && message.type === 'command')).toEqual([])
   })
 
-  it('ignores a command that arrives after the wait ran out without a timeout check', () => {
+  it('ignores a command that arrives after an armed wait ran out without a timeout check', () => {
     const r = textRig()
-    say(r, 'Jarvis')
+    r.engine.arm()
     r.vad.detected = true
     frames(r.engine, NO_SPEECH_TIMEOUT_S * 10 + 1)
     r.vad.detected = false
     say(r, 'volume up')
     expect(r.sent.filter(message => 'type' in message && message.type === 'command')).toEqual([])
+  })
+
+  it('while muted, drops speech that does not start with a wake phrase, even in an armed window', () => {
+    const r = textRig()
+    r.engine.setMuted(true)
+    r.engine.arm()
+    say(r, 'the app talking to itself')
+    expect(r.sent.slice(1)).toEqual([{ type: 'heard' }])
+    expect(JSON.stringify(r.sent)).not.toContain('talking')
+  })
+
+  it('while muted, lets a wake phrase through (barge-in) and skips long segments undecoded', () => {
+    const r = textRig()
+    r.engine.setMuted(true)
+    say(r, 'Jarvis stop')
+    expect(r.sent.slice(1)).toMatchObject([{ type: 'wake' }, { type: 'command', text: 'stop' }])
+    r.engine.arm()
+    r.vad.segments.push({ samples: new Float32Array((MAX_WAKE_SEGMENT_S + 1) * SAMPLE_RATE) })
+    const decoded = r.recognizers[0]!.decoded
+    r.engine.push(FRAME)
+    expect(r.recognizers[0]!.decoded).toBe(decoded)
+  })
+
+  it('takes follow-up speech again after unmuting', () => {
+    const r = textRig()
+    r.engine.setMuted(true)
+    r.engine.setMuted(false)
+    r.engine.arm()
+    say(r, 'read the news')
+    expect(r.sent.at(-1)).toMatchObject({ type: 'command', text: 'read the news' })
+  })
+
+  it('arm() in text mode takes the next segment as a command without a wake phrase, then times out', () => {
+    const r = textRig()
+    r.engine.arm()
+    say(r, 'read the news')
+    expect(r.sent.slice(1)).toMatchObject([{ type: 'command', text: 'read the news' }])
+    r.engine.arm()
+    frames(r.engine, NO_SPEECH_TIMEOUT_S * 10 + 2)
+    expect(r.sent.at(-1)).toEqual({ type: 'timeout' })
+    say(r, 'Jarvis open paint')
+    expect(r.sent.slice(-2)).toMatchObject([{ type: 'wake' }, { type: 'command', text: 'open paint' }])
   })
 
   it('arm() captures one command without a wake word, and times out after six seconds', () => {

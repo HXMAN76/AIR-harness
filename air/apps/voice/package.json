@@ -13,7 +13,9 @@
   },
   "dependencies": {
     "@air/dsh-tool-open": "workspace:*",
-    "@deepseek-ai/dsh-sdk-client": "link:../../../packages/sdk/client"
+    "@deepseek-ai/dsh-sdk-client": "link:../../../packages/sdk/client",
+    "@air/dsh-send-guard": "workspace:*",
+    "@air/dsh-voice-approval": "workspace:*"
   },
   "devDependencies": {
     "electron": "link:../../../apps/desktop/node_modules/electron"

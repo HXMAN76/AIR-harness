@@ -1,7 +1,19 @@
 import { describe, expect, it } from 'vitest'
-import { matchOperatorIntent, runOperatorIntent, type ExecLike, type OperatorIntent } from '../src/core/operator.ts'
+import { closeIntentForLabel, isCloseReference, matchOperatorIntent, runOperatorIntent, type ExecLike, type OperatorIntent } from '../src/core/operator.ts'
 
 const GOOGLE = 'https://www.google.com'
+
+
+describe('close references', () => {
+  it('recognises pronoun closes only', () => {
+    expect(['close it', 'Close that.', 'quit the app', 'close this window'].map(isCloseReference)).toEqual([true, true, true, true])
+    expect(['close notepad', 'open it'].map(isCloseReference)).toEqual([false, false])
+  })
+  it('maps an opened label to a close intent, or null', () => {
+    expect(closeIntentForLabel('Notepad')).toEqual({ kind: 'close', names: ['notepad'], label: 'Notepad' })
+    expect(closeIntentForLabel('the browser')).toBeNull()
+  })
+})
 
 describe('matchOperatorIntent', () => {
   const table: [string, OperatorIntent | null][] = [
@@ -23,6 +35,14 @@ describe('matchOperatorIntent', () => {
     ['open VS Code', { kind: 'open', target: 'code', label: 'VS Code' }],
     ['open code', { kind: 'open', target: 'code', label: 'VS Code' }],
     ['open youtube', { kind: 'open', target: 'https://www.youtube.com', label: 'YouTube' }],
+    ['read the news', { kind: 'news' }],
+    ["what's today's news", { kind: 'news' }],
+    ['headlines', { kind: 'news' }],
+    ['tell me the latest headlines please', { kind: 'news' }],
+    ['news about the cricket world cup', { kind: 'news', topic: 'the cricket world cup' }],
+    ['read me the news on Chennai', { kind: 'news', topic: 'chennai' }],
+    ['open my email', { kind: 'open', target: 'https://mail.google.com', label: 'Gmail' }],
+    ['open inbox', { kind: 'open', target: 'https://mail.google.com', label: 'Gmail' }],
     ['open gmail', { kind: 'open', target: 'https://mail.google.com', label: 'Gmail' }],
     ['open github', { kind: 'open', target: 'https://github.com', label: 'GitHub' }],
     ['open google', { kind: 'open', target: GOOGLE, label: 'Google' }],
@@ -130,9 +150,17 @@ describe('runOperatorIntent', () => {
   it('closes whitelisted process names only', async () => {
     const { calls, exec } = recorder()
     await expect(runOperatorIntent({ kind: 'close', names: ['CalculatorApp', 'calc'], label: 'Calculator' }, exec)).resolves.toEqual({ spoken: 'Closing Calculator.' })
-    expect(calls).toEqual([{ file: 'powershell.exe', args: [...PREFIX, "Stop-Process -Name ($env:AIR_OP_TARGET -split ',') -ErrorAction Stop"], env: { AIR_OP_TARGET: 'CalculatorApp,calc' } }])
+    expect(calls).toEqual([{ file: 'powershell.exe', args: [...PREFIX, "Get-Process -Name ($env:AIR_OP_TARGET -split ',') -ErrorAction Stop | ForEach-Object { $_.CloseMainWindow() | Out-Null }"], env: { AIR_OP_TARGET: 'CalculatorApp,calc' } }])
     await expect(runOperatorIntent({ kind: 'close', names: ['explorer'], label: 'File Explorer' }, noExec)).rejects.toThrow('not allowed')
     await expect(runOperatorIntent({ kind: 'close', names: [], label: 'Nothing' }, noExec)).rejects.toThrow('not allowed')
+  })
+
+  it('speaks news from the injected fetch, and falls back on failure', async () => {
+    const feed = '<rss><item><title>One - A</title></item></rss>'
+    const ok = async () => ({ ok: true, text: async () => feed })
+    await expect(runOperatorIntent({ kind: 'news' }, noExec, () => new Date(), ok)).resolves.toEqual({ spoken: 'Top headlines. 1. One.' })
+    await expect(runOperatorIntent({ kind: 'news', topic: 'x' }, noExec, () => new Date(), ok)).resolves.toEqual({ spoken: 'Top headlines about x. 1. One.' })
+    await expect(runOperatorIntent({ kind: 'news' }, noExec, () => new Date(), async () => { throw new Error('offline') })).resolves.toEqual({ spoken: "I couldn't get the news." })
   })
 
   it('sends volume keys with constant scripts', async () => {

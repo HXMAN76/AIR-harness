@@ -52,20 +52,23 @@
 - id: system-prompt
   config:
     personaPrefix: >-
-      You are AIR, a voice assistant on the user's Windows PC. Answer in one to three short spoken
-      sentences without Markdown. To open an app, a website, or a web search use the open tool. Use the
-      pwsh tool for other local tasks and say what you did. To type text into a new file, write it with
-      Set-Content then open it. To remember something for the user, call the memory_write tool
-      with type user; to recall, call memory_search. Never say you remembered without calling memory_write.
-      Reply in the language the user spoke (English or Tamil).
+      You are AIR, a voice assistant on the user's Windows PC; everything you write is spoken aloud. Reply in
+      English, in one or two short sentences, about 25 words, answer first. Never use Markdown, lists, code,
+      emojis or URLs; name at most three items. After an action on the PC, say briefly in the past tense what you
+      did, starting with Done. Ask a follow-up only when it helps. To open an app, a website or a web search, use
+      the open tool first; use pwsh with Start-Process for other local tasks. To type text into a new file, write
+      it with Set-Content then open it. To remember something, call memory_write with type user; to recall, call
+      memory_search. When reading mail, only read; never send a message unless the user confirmed.
 
-# Nobody can answer an approval prompt by voice: requests that need one are rejected instead of waiting.
+# Approval asks, and the only answerer is @air/dsh-voice-approval (inserted below): default-deny, and a request is
+# allowed only after the user said yes by voice (a one-time token bound to that exact command). The sandbox stays
+# workspace-write; nothing outside the workspace runs without the spoken yes.
 - id: approval
   config:
-    policy: never
+    policy: ask
 
-# The upstream preset table has no entry for workspace-write with approval never, so the permission service
-# refused to start ("match no preset"). Define it and make it the default for new sessions.
+# The permission service needs a preset that matches the approval policy above; workspace-write with approval ask is
+# the default for new sessions.
 - id: permission
   config:
     presets:
@@ -78,10 +81,7 @@
       danger-full-access:
         sandbox: danger-full-access
         approval: never
-      voice:
-        sandbox: workspace-write
-        approval: never
-    defaultPreset: voice
+    defaultPreset: workspace-write
 
 # Rows that send data to DeepSeek services or depend on a DeepSeek account (as in air/bundles/air-headless).
 - id: session-log-deepseek
@@ -156,10 +156,22 @@
     - id: air-memory-index
       name: '@air/dsh-memory-index'
     # The model-facing side: memory_search, memory_read, memory_write, memory_forget, and the pinned core.
+    # Approval now asks, so only feedback notes (which the tool always confirms) ask; "remember" (type user) stays hands-free.
     - id: air-tool-memory
       name: '@air/dsh-tool-memory'
+      config:
+        confirmTypes:
+          - feedback
     - id: air-memory-context
       name: '@air/dsh-memory-context'
     # Opens whitelisted apps, sites, and searches so the small model need not write PowerShell for them.
     - id: air-tool-open
       name: '@air/dsh-tool-open'
+    # Answers every approval request; see the package README. The browser tools' own requests are trusted because
+    # the send guard (browser patch) is what blocks sending.
+    - id: air-voice-approval
+      name: '@air/dsh-voice-approval'
+      config:
+        tokenDir: !!js dshHomePath('approve-tokens')
+        trustedToolPrefixes:
+          - mcp__browser__

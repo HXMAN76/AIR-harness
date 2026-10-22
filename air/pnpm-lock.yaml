@@ -44,9 +44,15 @@ importers:
 
   apps/voice:
     dependencies:
+      '@air/dsh-send-guard':
+        specifier: workspace:*
+        version: link:../../packages/send-guard
       '@air/dsh-tool-open':
         specifier: workspace:*
         version: link:../../packages/tool-open
+      '@air/dsh-voice-approval':
+        specifier: workspace:*
+        version: link:../../packages/voice-approval
       '@deepseek-ai/dsh-sdk-client':
         specifier: link:../../../packages/sdk/client
         version: link:../../../packages/sdk/client
@@ -605,6 +611,31 @@ importers:
         specifier: link:../../../packages/core/tools
         version: link:../../../packages/core/tools
 
+  packages/send-guard:
+    dependencies:
+      '@deepseek-ai/schemastery':
+        specifier: link:../../../vendor/schemastery
+        version: link:../../../vendor/schemastery
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: link:../../../vendor/cordis
+        version: link:../../../vendor/cordis
+      '@deepseek-ai/dsh-llm':
+        specifier: link:../../../packages/llm/llm
+        version: link:../../../packages/llm/llm
+      '@deepseek-ai/dsh-session':
+        specifier: link:../../../packages/core/session
+        version: link:../../../packages/core/session
+      '@deepseek-ai/dsh-subprocess-local':
+        specifier: link:../../../packages/subprocess/subprocess-local
+        version: link:../../../packages/subprocess/subprocess-local
+      '@deepseek-ai/dsh-system-prompt':
+        specifier: link:../../../packages/core/system-prompt
+        version: link:../../../packages/core/system-prompt
+      '@deepseek-ai/dsh-tools':
+        specifier: link:../../../packages/core/tools
+        version: link:../../../packages/core/tools
+
   packages/skill-conventions:
     dependencies:
       '@air/dsh-convention-core':
@@ -691,6 +722,37 @@ importers:
       '@deepseek-ai/dsh-tools':
         specifier: link:../../../packages/core/tools
         version: link:../../../packages/core/tools
+
+  packages/voice-approval:
+    dependencies:
+      '@deepseek-ai/schemastery':
+        specifier: link:../../../vendor/schemastery
+        version: link:../../../vendor/schemastery
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: link:../../../vendor/cordis
+        version: link:../../../vendor/cordis
+      '@deepseek-ai/dsh-agent':
+        specifier: link:../../../packages/core/agent
+        version: link:../../../packages/core/agent
+      '@deepseek-ai/dsh-llm':
+        specifier: link:../../../packages/llm/llm
+        version: link:../../../packages/llm/llm
+      '@deepseek-ai/dsh-session':
+        specifier: link:../../../packages/core/session
+        version: link:../../../packages/core/session
+      '@deepseek-ai/dsh-subprocess-local':
+        specifier: link:../../../packages/subprocess/subprocess-local
+        version: link:../../../packages/subprocess/subprocess-local
+      '@deepseek-ai/dsh-system-prompt':
+        specifier: link:../../../packages/core/system-prompt
+        version: link:../../../packages/core/system-prompt
+      '@deepseek-ai/dsh-tools':
+        specifier: link:../../../packages/core/tools
+        version: link:../../../packages/core/tools
+      '@deepseek-ai/dsh-user-approval':
+        specifier: link:../../../packages/interaction/user-approval
+        version: link:../../../packages/interaction/user-approval
 
 packages:
 

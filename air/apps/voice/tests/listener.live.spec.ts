@@ -5,9 +5,9 @@
  * Prints wake latency (audio time from the end of "Jarvis" to the wake event), decode time per command, and real-time factor.
  */
 import { execFileSync } from 'node:child_process'
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { createRequire } from 'node:module'
-import { tmpdir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
 import { Listener, type Command } from '../src/core/listener.ts'
@@ -42,7 +42,12 @@ afterAll(() => {
 function synthesize(name: string, text: string): Float32Array {
   const out = join(dir, `${name}.wav`)
   execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', SAPI], { env: { ...process.env, AIR_TTS_OUT: out, AIR_TTS_TEXT: text, AIR_TTS_VOICE: process.env.AIR_VOICE_LIVE_VOICE ?? '' } })
-  const file = readFileSync(out)
+  return readWav(out)
+}
+
+/** 16 kHz mono 16-bit PCM WAV to samples. */
+function readWav(path: string): Float32Array {
+  const file = readFileSync(path)
   let offset = 12
   while (offset < file.length) {
     const id = file.toString('ascii', offset, offset + 4)
@@ -94,6 +99,32 @@ describe.runIf(process.env.AIR_VOICE_LIVE === '1')('Listener (live)', () => {
     console.log(`[live] "${text}": load ${loadMs} ms; wake at ${wakeAt[0]?.toFixed(2)} s of audio (speech ends about ${(LEAD_S + jarvisLength).toFixed(2)} s, latency ${wakeLatencyS.toFixed(2)} s); commands ${JSON.stringify(commands)}; RTF ${commands.map(c => (c.decodeMs / c.audioMs).toFixed(3)).join(', ')}`)
     return { wakeAt, commands, wakeLatencyS }
   }
+
+  // The owner's real microphone: "Hey Javis, open the notepad. Hey Javis, open the notepadepad." (peak 1.0).
+  // The clip lives outside the repository; the test is skipped when it is absent.
+  const OWNER_CLIP = join(homedir(), '.air', 'voice-samples', 'owner-jarvis.wav')
+  it.runIf(existsSync(OWNER_CLIP))('wakes on the owner clip through text wake and returns a command containing notepad', async () => {
+    const listener = new Listener()
+    const wakeAt: number[] = []
+    const commands: Command[] = []
+    const errors: Error[] = []
+    const clock = { frames: 0 }
+    listener.on('error', (error: Error) => errors.push(error))
+    listener.on('wake', () => wakeAt.push(clock.frames * 0.1))
+    listener.on('command', (command: Command) => commands.push(command))
+    const ready = new Promise<number>(resolve => listener.once('ready', resolve))
+    listener.start()
+    await ready
+    await feed(listener, readWav(OWNER_CLIP), clock)
+    await feed(listener, new Float32Array(TAIL_S * 16_000), clock)
+    await sleep(1500)
+    await listener.stop()
+    console.log(`[live] owner clip: wake at ${wakeAt.map(t => t.toFixed(1)).join(', ')} s; commands ${JSON.stringify(commands)}`)
+    expect(errors).toEqual([])
+    expect(wakeAt.length).toBeGreaterThan(0)
+    expect(commands.length).toBeGreaterThan(0)
+    expect(commands.some(command => command.text.toLowerCase().includes('notepad'))).toBe(true)
+  }, 120_000)
 
   it('wakes on "Jarvis" and then returns the command text for notepad', async () => {
     const { wakeAt, commands } = await run('notepad', 'Jarvis, open notepad.')
