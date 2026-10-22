@@ -16,6 +16,10 @@ describe('parseMailIntent', () => {
 
   it('connects, disconnects, and helps', () => {
     expect(parseMailIntent('connect gmail', none)).toEqual({ kind: 'connect' })
+    expect(parseMailIntent('connect to email', none)).toEqual({ kind: 'connect' })
+    expect(parseMailIntent('connect my gmail account', none)).toEqual({ kind: 'connect' })
+    expect(parseMailIntent('set up email again', none)).toEqual({ kind: 'connect' })
+    expect(parseMailIntent('disconnect from my email account', none)).toEqual({ kind: 'disconnect' })
     expect(parseMailIntent('Disconnect Gmail.', none)).toEqual({ kind: 'disconnect' })
     expect(parseMailIntent('send an email', none)).toEqual({ kind: 'compose-help' })
   })
