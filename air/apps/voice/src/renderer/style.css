@@ -77,6 +77,7 @@ button, label, input, .panel { -webkit-app-region: no-drag; }
   pointer-events: none;
 }
 .line.show { opacity: 0.92; transform: none; transition-duration: 0.2s; }
+.line.progress { color: #b9c4d8; }
 .line.heard { color: #b9c4d8; font-style: italic; }
 .line.error { color: var(--error); }
 

@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { AgentBridge, defaultDshBin, ROUTES, type HarnessLike, type HarnessOptions } from '../src/core/agent.ts'
 import { REPO_ROOT, VOICE_APP_ROOT } from '../src/core/paths.ts'
+import type { AgentProgress } from '../src/core/progress.ts'
 
 interface FakeHarness extends HarnessLike {
   options: HarnessOptions
@@ -42,6 +43,7 @@ function setup(options: {
     dshBin: 'C:/repo/apps/cli/lib/bin.js',
     profileDir: 'C:/voice/profile',
     env: options.env ?? {},
+    clock: (() => { let t = 0; return () => (t += 3) })() ,
     harnessFactory: (harnessOptions) => {
       const harness: FakeHarness = {
         options: harnessOptions,
@@ -51,21 +53,27 @@ function setup(options: {
           const sessionId = id ?? `session-${++sessions}`
           return {
             id: sessionId,
-            run: async (text) => {
+            run: async (text, runOptions) => {
               harness.runs.push({ sessionId, text })
               const finalResponse = options.reply === undefined ? `reply to ${text}` : await options.reply()
-              return {
-                finalResponse,
-                events: [
-                  { type: 'turn/start', data: {} },
-                  { type: 'tool/call', data: { name: 'pwsh', callId: 'a', arguments: '{}' } },
-                  { type: 'tool/result', data: {} },
-                  { type: 'tool/call', data: { name: 'web_fetch', callId: 'b', arguments: '{}' } },
-                  { type: 'tool/call', data: { callId: 'c' } },
-                  { type: 'assistant/message', data: {} },
-                  ...options.extraEvents ?? [],
-                ],
+              const events = [
+                { type: 'turn/start', data: {} },
+                { type: 'tool/call', data: { name: 'pwsh', callId: 'a', arguments: { command: 'secret command text' } } },
+                { type: 'tool/result', data: {} },
+                { type: 'tool/call', data: { name: 'web_fetch', callId: 'b', arguments: '{}' } },
+                { type: 'tool/call', data: { callId: 'c' } },
+                { type: 'assistant/message', data: { usage: { inputTokens: 1000, outputTokens: 20 } } },
+                { type: 'assistant/message', data: { usage: { inputTokens: 1100, outputTokens: 30 } } },
+                { type: 'assistant/message', data: { usage: { inputTokens: 'x' } } },
+                { type: 'assistant/message', data: {} },
+                ...options.extraEvents ?? [],
+              ]
+              if (runOptions?.onNotification !== undefined) {
+                runOptions.onNotification({ method: 'session.status', params: { status: 'busy' } })
+                runOptions.onNotification({ method: 'session.event', params: {} })
+                for (const event of events) runOptions.onNotification({ method: 'session.event', params: { sessionId, event } })
               }
+              return { finalResponse, events }
             },
           }
         },
@@ -116,7 +124,15 @@ describe('AgentBridge', () => {
     const { bridge, harnesses, home } = setup()
     expect(bridge.route).toBe('local')
     expect(harnesses).toHaveLength(0)
-    await expect(bridge.ask('what time is it')).resolves.toEqual({ reply: 'reply to what time is it', tools: ['pwsh', 'web_fetch'] })
+    const progress: AgentProgress[] = []
+    const result = await bridge.ask('what time is it', p => progress.push(p))
+    expect(result).toEqual({ reply: 'reply to what time is it', tools: ['pwsh', 'web_fetch'], stats: { firstEventMs: 3, promptTokens: 2100, outputTokens: 50, steps: 4 } })
+    expect(progress).toEqual([
+      { kind: 'thinking' },
+      { kind: 'tool', name: 'pwsh', args: { command: 'secret command text' } },
+      { kind: 'tool', name: 'web_fetch' },
+    ])
+    expect(bridge.sessionId).toBe('session-1')
     expect(harnesses[0]!.options).toEqual({
       dshBin: 'C:/repo/apps/cli/lib/bin.js',
       profile: 'sdk',

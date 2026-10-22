@@ -225,6 +225,7 @@ function updateUI(state) {
   phase = state.phase
   orb.setState(PHASE_TO_ORB[state.phase] ?? 'idle')
   if (state.error && state.error !== last.error) showLine(state.error, 'error')
+  else if (state.progress && state.phase === 'thinking') showLine(state.progress, 'progress')
   else if (state.reply && (state.reply !== last.reply || (state.phase === 'speaking' && last.phase !== 'speaking'))) showLine(state.reply, 'reply')
   else if (state.transcript && state.phase === 'thinking' && last.phase !== 'thinking') showLine(state.transcript, 'heard')
   last = { phase: state.phase, transcript: state.transcript, reply: state.reply, error: state.error }
@@ -235,6 +236,13 @@ function updateUI(state) {
   const tools = state.tools && state.tools.length > 0 ? `Tools: ${state.tools.join(', ')}` : ''
   metaEl.textContent = [state.lang === 'ta' ? 'Tamil' : 'English', tools].filter(Boolean).join('  ·  ')
 }
+
+const openAirEl = $('openAir')
+function updateOpenAir(state) {
+  openAirEl.hidden = !state.sessionId
+}
+api?.onState(updateOpenAir)
+openAirEl.addEventListener('click', () => api?.openInAir())
 
 api?.onState(updateUI)
 

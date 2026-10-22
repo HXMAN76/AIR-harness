@@ -15,6 +15,9 @@ import { mkdirSync } from 'node:fs'
 import { assertWorkspaceOutsideHome, voiceHome, voiceWorkspace } from './core/home.ts'
 import { modelDir, modelRoot } from './core/models.ts'
 import { chooseTts } from './core/tts-engine.ts'
+import { recorderFromEnv } from './core/metrics.ts'
+import { WebUi } from './core/web-ui.ts'
+import { nodeSpawnEnv } from './node-spawn.ts'
 import { existsSync } from 'node:fs'
 import { MailAssistant } from './core/gmail/assistant.ts'
 import { GmailAuth } from './core/gmail/auth.ts'
@@ -28,6 +31,7 @@ let agent: AgentBridge | undefined
 const ECHO_TAIL_MS = 400
 
 let controller: VoiceController | undefined
+let webUi: WebUi | undefined
 
 const FRAME_SIZE = 1_600 // 100 ms at 16 kHz
 
@@ -170,6 +174,15 @@ function startVoice(): void {
     profileDir: join(VOICE_APP, 'profile'),
   })
 
+  webUi = new WebUi({
+    dshBin: join(REPO_ROOT, 'apps', 'cli', 'lib', 'bin.js'),
+    home,
+    node: process.execPath,
+    spawnFn: nodeSpawnEnv,
+    openExternal: url => shell.openExternal(url),
+    debug,
+  })
+
   // Gmail by REST: the token file is encrypted with Electron safeStorage (Windows DPAPI); the log keeps only an address hash and a time.
   const gmailAuth = new GmailAuth({
     home,
@@ -188,6 +201,7 @@ function startVoice(): void {
   })
 
   controller = new VoiceController({
+    metrics: recorderFromEnv(process.env, home),
     listener,
     speaker,
     agent,
@@ -243,6 +257,12 @@ function setupIpc(): void {
     if (typeof id === 'number') player.played(id)
   })
 
+  ipcMain.on('openInAir', () => {
+    webUi?.open().catch((err: unknown) => {
+      console.error('open in AIR failed:', err instanceof Error ? err.message : String(err))
+    })
+  })
+
   ipcMain.on('closeWindow', () => {
     mainWindow?.close()
   })
@@ -296,6 +316,7 @@ app.on('before-quit', () => {
   void listener?.stop()
   void speaker?.dispose()
   void agent?.dispose()
+  webUi?.stop()
 })
 
 app.on('activate', () => {

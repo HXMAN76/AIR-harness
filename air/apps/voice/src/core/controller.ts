@@ -4,6 +4,9 @@ import type { Command } from './listener.ts'
 import type { Lang } from './frames.ts'
 import { CONFIRM_SEND, matchEmailCommand, parseVoiceCommand, rewriteForAgent, suggestionFor, needsScreen, type Route } from './commands.ts'
 import { REPLY_ON_SCREEN, hasTamilScript, toSpokenText } from './speech-text.ts'
+import { MetricsRecorder, type Trace } from './metrics.ts'
+import { progressLabel, withElapsed, type AgentProgress } from './progress.ts'
+import type { SpeechTiming } from './speaker.ts'
 import { NOT_CONNECTED, SETUP_HINT, type MailModel, type MailReply } from './gmail/assistant.ts'
 import type { MailIntent } from './gmail/intent.ts'
 import { closeIntentForLabel, isCloseReference, matchOperatorIntent, runOperatorIntent, type OperatorIntent, type OperatorResult } from './operator.ts'
@@ -25,6 +28,10 @@ export interface VoiceState {
   memoryShared: boolean
   /** Language of the active recogniser. */
   lang: Lang
+  /** While an agent turn runs: what it is doing now, such as "Running PowerShell… 12 s". */
+  progress?: string
+  /** The active route's conversation, once it has one; the UI offers "Open in AIR" while it is set. */
+  sessionId?: string
 }
 
 /** The part of {@link import('./speaker.ts').Speaker} the controller needs. */
@@ -33,14 +40,23 @@ interface SpeakerLike {
   stop(): void
   beep(): void
   readonly speaking: boolean
+  /** Timing of the latest `speak` call (for latency metrics). */
+  readonly lastTiming?: SpeechTiming | undefined
 }
 
 /** The part of {@link import('./agent.ts').AgentBridge} the controller needs. */
 interface AgentLike {
   route: Route
   memoryShared: boolean
+  sessionId?: string | undefined
   setRoute(route: Route): { ok: true } | { ok: false; reason: 'missing-key' }
-  ask(text: string): Promise<{ reply: string; tools: string[]; approval?: ApprovalWant; refused?: string }>
+  ask(text: string, onProgress?: (progress: AgentProgress) => void): Promise<{
+    reply: string
+    tools: string[]
+    approval?: ApprovalWant
+    refused?: string
+    stats?: { firstEventMs?: number; promptTokens: number; outputTokens: number; steps: number }
+  }>
   newConversation(): void
   setMemoryShare(on: boolean): Promise<void>
   cancel(): Promise<void>
@@ -145,6 +161,8 @@ export interface VoiceControllerDeps {
   followUpMs?: number
   /** Clock for the time-of-day greeting. */
   now?: () => Date
+  /** Records latency spans per turn; without it nothing is persisted. */
+  metrics?: MetricsRecorder
   /** Called on every state change. */
   onState: (state: VoiceState) => void
 }
@@ -168,6 +186,11 @@ export class VoiceController {
   private readonly issueSendToken: (() => string) | undefined
   private readonly issueApprovalToken: ((digest: string) => string) | undefined
   private readonly now: () => Date
+  private readonly metrics: MetricsRecorder
+  /** The latest wake: when it was heard and when the cue was dispatched. Consumed by the next turn. */
+  private wake: { at: number; ackAt: number } | undefined
+  /** The latest decoded command's timing, consumed when its turn starts. */
+  private heard: { receivedAt: number; decodeMs: number; audioMs: number | undefined } | undefined
   private readonly mail: MailLike | undefined
   private mailTimer: ReturnType<typeof setTimeout> | undefined
 
@@ -198,6 +221,7 @@ export class VoiceController {
     this.issueSendToken = deps.issueSendToken
     this.issueApprovalToken = deps.issueApprovalToken
     this.now = deps.now ?? (() => new Date())
+    this.metrics = deps.metrics ?? new MetricsRecorder()
     this.mail = deps.mail
 
     this.listener.on('wake', (bare?: boolean) => {
@@ -209,6 +233,7 @@ export class VoiceController {
     })
     this.listener.on('timeout', () => {
       this.following = false
+      this.wake = undefined
       if (this.confirming !== undefined) void this.cancelConfirmation()
       else if (this.mail?.pending === true) void this.cancelMail()
       else if (this.phase === 'awake') {
@@ -235,7 +260,9 @@ export class VoiceController {
    * A running turn keeps going; only a cancel gets through while it runs.
    */
   handleWake(): void {
+    const wakeAt = this.metrics.now()
     this.speaker.beep()
+    this.wake = { at: wakeAt, ackAt: this.metrics.now() }
     this.following = false
     // A wake cut in on the speech: listen at once and ignore the cut-off speech's own unmute.
     if (this.speaking > 0) {
@@ -244,7 +271,11 @@ export class VoiceController {
       this.listener.mute?.(false)
     }
     if (this.phase === 'speaking') {
+      const bargeIn = this.metrics.begin('barge_in')
       this.speaker.stop()
+      bargeIn.setSpan('barge_in', this.metrics.now() - wakeAt)
+      bargeIn.label('route', this.agent.route)
+      bargeIn.finish()
       this.clearWatchdog()
       this.busy = false
     } else if (this.phase === 'thinking' || this.busy) return
@@ -256,7 +287,10 @@ export class VoiceController {
    * Process the command spoken after a wake.
    * Called by the listener's command handler and exposed for direct testing.
    */
-  async handleSpoken(command: { text: string; lang?: Lang }): Promise<void> {
+  async handleSpoken(command: { text: string; lang?: Lang; decodeMs?: number; audioMs?: number; receivedAt?: number }): Promise<void> {
+    this.heard = command.decodeMs === undefined
+      ? undefined
+      : { receivedAt: command.receivedAt ?? this.metrics.now(), decodeMs: command.decodeMs, audioMs: command.audioMs }
     if (this.confirming !== undefined) {
       await this.answerConfirmation(command.text)
       return
@@ -279,6 +313,7 @@ export class VoiceController {
   /** A bare wake phrase: greet by the time of day, suggest what AIR can do, then listen without a wake. */
   private async greet(): Promise<void> {
     if (this.busy || this.confirming !== undefined) return
+    this.wake = undefined
     const text = `${greetingFor(this.now())} ${SUGGESTIONS}`
     this.phase = 'speaking'
     this.emit({ reply: text })
@@ -288,6 +323,7 @@ export class VoiceController {
 
   /** After a spoken reply: listen for the next request without a wake word until the window passes in silence. */
   private openFollowUp(): void {
+    this.wake = undefined
     if (this.followUpMs <= 0 || this.listener.listen === undefined) {
       this.phase = 'idle'
       this.emit()
@@ -538,17 +574,23 @@ export class VoiceController {
 
   /** Local fast path: no agent call; a failure is spoken and not retried through the agent. */
   private async handleOperator(text: string, intent: OperatorIntent): Promise<void> {
+    const trace = this.beginTrace(intent.kind === 'news' ? 'news' : 'operator')
+    let outcome = 'error'
     this.phase = 'thinking'
     this.busy = true
     let spokeReply = false
     this.emit({ transcript: text })
     try {
       const result = await this.runOperator(intent)
+      trace.mark('operator_done')
+      trace.between('operator', 'command_decoded', 'operator_done')
       if (intent.kind === 'open') this.lastOpened = closeIntentForLabel(intent.label) ?? this.lastOpened
       else if (intent.kind === 'close') this.lastOpened = undefined
       this.phase = 'speaking'
       this.emit({ transcript: text, reply: result.spoken, tools: [OPERATOR_TOOL] })
+      trace.mark('reply')
       await this.speak(result.spoken)
+      outcome = 'ok'
       // A wake that cut the reply off already made the state 'awake'; do not open a window over it.
       spokeReply = this.isSpeaking()
     } catch {
@@ -557,6 +599,7 @@ export class VoiceController {
       await this.speak(OPERATOR_FAILED)
     } finally {
       this.busy = false
+      this.finishTrace(trace, outcome)
       if (this.phase === 'speaking') {
         this.phase = 'idle'
         this.emit()
@@ -566,14 +609,57 @@ export class VoiceController {
   }
 
   /**
+   * Start the metrics trace of a turn: the speech-end and decode marks come from the listener's report of the command,
+   * and the cue span from the wake that preceded it. Nothing here reads text.
+   * @param path - which way the turn is handled: operator, news, agent, or mail.
+   */
+  private beginTrace(path: string): Trace {
+    const trace = this.metrics.begin()
+    const heard = this.heard
+    this.heard = undefined
+    const decodedAt = heard?.receivedAt ?? this.metrics.now()
+    trace.mark('command_decoded', decodedAt)
+    trace.mark('speech_end', decodedAt - (heard?.decodeMs ?? 0))
+    if (heard !== undefined) {
+      trace.setSpan('stt', heard.decodeMs)
+      if (heard.audioMs !== undefined) trace.count('audio_ms', heard.audioMs)
+    }
+    const wake = this.wake
+    this.wake = undefined
+    if (wake !== undefined) {
+      trace.setSpan('wake_to_ack', wake.ackAt - wake.at)
+      trace.mark('ack', wake.ackAt)
+      trace.between('speech_end_to_ack', 'speech_end', 'ack')
+    }
+    trace.label('path', path)
+    return trace
+  }
+
+  /** Close a turn's trace: derive the reply-to-audio spans from the speaker's timing and hand it to the recorder. */
+  private finishTrace(trace: Trace, outcome: string): void {
+    const timing = this.speaker.lastTiming
+    const replyAt = trace.at('reply')
+    if (replyAt !== undefined && timing?.firstAudioAt !== undefined && timing.startedAt >= replyAt) {
+      trace.mark('first_audio', timing.firstAudioAt)
+      trace.between('tts_first_audio', 'reply', 'first_audio')
+      trace.between('e2e', 'speech_end', 'first_audio')
+    }
+    trace.label('route', this.agent.route)
+    trace.label('outcome', outcome)
+    trace.finish()
+  }
+
+  /**
    * Run one agent turn. `browser` marks a request that needs the browser tools, which only the cloud
    * routes carry; `followUp` sends the text as written and skips the send gate.
    */
   private async handleAsk(text: string, browser = false, followUp = false): Promise<void> {
+    const trace = this.beginTrace(browser ? 'mail' : 'agent')
     if (browser && this.agent.route === 'local') {
       const switched = this.agent.setRoute('cloud')
       await this.speak(switched.ok ? USING_CLOUD : CLOUD_KEY_MISSING)
       if (!switched.ok) {
+        this.finishTrace(trace, 'no_key')
         this.phase = 'idle'
         this.emit()
         return
@@ -584,6 +670,7 @@ export class VoiceController {
       const switched = this.agent.setRoute('screen')
       await this.speak(switched.ok ? SCREEN_ON : SCREEN_KEY_MISSING)
       if (!switched.ok) {
+        this.finishTrace(trace, 'no_key')
         this.phase = 'idle'
         this.emit()
         return
@@ -597,10 +684,31 @@ export class VoiceController {
     let gated = false
     let spokeReply = false
     let approval: ApprovalWant | undefined
+    let outcome = 'error'
+    const startedAt = this.metrics.now()
+    let current: AgentProgress = { kind: 'thinking' }
+    const showProgress = (): void => {
+      if (this.phase === 'thinking') this.emit({ transcript: text, progress: withElapsed(progressLabel(current), this.metrics.now() - startedAt) })
+    }
+    const ticker = setInterval(showProgress, 1000)
 
     try {
-      const result = await this.agent.ask(followUp ? text : rewriteForAgent(text))
+      trace.mark('agent_start')
+      const result = await this.agent.ask(followUp ? text : rewriteForAgent(text), (progress) => {
+        current = progress
+        showProgress()
+      })
       this.clearWatchdog()
+      trace.mark('agent_reply')
+      trace.between('agent_turn', 'command_decoded', 'agent_reply')
+      const first = result.stats?.firstEventMs
+      const agentStart = trace.at('agent_start')
+      const decodedAt = trace.at('command_decoded')
+      if (first !== undefined && agentStart !== undefined && decodedAt !== undefined) trace.setSpan('agent_first_event', agentStart - decodedAt + first)
+      trace.count('prompt_tokens', result.stats?.promptTokens ?? 0)
+      trace.count('output_tokens', result.stats?.outputTokens ?? 0)
+      trace.count('model_calls', result.stats?.steps ?? 0)
+      trace.count('tool_calls', result.tools.length)
 
       // A tool was denied for want of a spoken approval: ask for it instead of speaking the model's reply.
       approval = result.approval
@@ -614,7 +722,9 @@ export class VoiceController {
       this.phase = 'speaking'
       this.emit({ transcript: text, reply, tools: result.tools })
 
+      trace.mark('reply')
       if (approval === undefined && (!gated || reply !== '')) await this.speakMuted(spoken)
+      outcome = approval !== undefined ? 'approval' : gated ? 'confirm' : 'ok'
       spokeReply = !gated && approval === undefined && this.isSpeaking()
     } catch (error) {
       this.clearWatchdog()
@@ -625,7 +735,9 @@ export class VoiceController {
       this.emit({ transcript: text, error: message })
       await this.speak(message)
     } finally {
+      clearInterval(ticker)
       this.busy = false
+      this.finishTrace(trace, outcome)
       if (this.phase === 'speaking') {
         this.phase = 'idle'
         this.emit()
@@ -686,6 +798,7 @@ export class VoiceController {
       route: this.agent.route,
       memoryShared: this.agent.memoryShared,
       lang: this.lang,
+      ...this.agent.sessionId === undefined ? {} : { sessionId: this.agent.sessionId },
       ...extra,
     }
     this.onState(state)

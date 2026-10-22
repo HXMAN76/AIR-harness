@@ -15,6 +15,8 @@ export interface Command {
   audioMs: number
   /** Time the recogniser took, ms. */
   decodeMs: number
+  /** Monotonic time (ms) the parent read the line, for latency metrics. */
+  receivedAt: number
 }
 
 /** How to start the worker. Defaults run `node src/listener-worker.ts` from this checkout. */
@@ -31,6 +33,8 @@ export interface ListenerOptions {
   sherpaFrom?: string
   /** BPE keyword file for the wake words. */
   keywordsFile?: string
+  /** Monotonic millisecond clock; defaults to `performance.now`. */
+  clock?: () => number
 }
 
 /** A worker that exited this many times is not started again. */
@@ -70,6 +74,7 @@ export class Listener extends EventEmitter {
   private readonly spawnFn: SpawnLike
   private readonly command: string
   private readonly args: string[]
+  private readonly clock: () => number
   private child: ChildLike | undefined
   private starts = 0
   private lang: Lang = 'en'
@@ -80,6 +85,7 @@ export class Listener extends EventEmitter {
     super()
     this.spawnFn = options.spawnFn ?? nodeSpawn
     this.command = options.command ?? 'node'
+    this.clock = options.clock ?? (() => performance.now())
     this.args = options.args ?? [
       options.workerPath ?? join(VOICE_APP_ROOT, 'src', 'listener-worker.ts'),
       options.modelsRoot ?? modelRoot(),
@@ -181,7 +187,7 @@ export class Listener extends EventEmitter {
     else if (message.type === 'wake') this.emit('wake', message.bare === true ? true : undefined)
     else if (message.type === 'timeout') this.emit('timeout')
     else if (message.type === 'heard') this.emit('heard', message.text)
-    else if (message.type === 'command') this.emit('command', { text: message.text, lang: message.lang, audioMs: message.audioMs, decodeMs: message.decodeMs } satisfies Command)
+    else if (message.type === 'command') this.emit('command', { text: message.text, lang: message.lang, audioMs: message.audioMs, decodeMs: message.decodeMs, receivedAt: this.clock() } satisfies Command)
     else if (message.type === 'language') this.emit('language', { lang: message.lang, loadMs: message.loadMs })
     else this.emit('error', new Error(message.message))
   }
