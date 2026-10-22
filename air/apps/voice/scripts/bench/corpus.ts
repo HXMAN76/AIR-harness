@@ -108,7 +108,7 @@ function specs(voice: typeof VOICES[number]): Spec[] {
     ...COMMANDS.map((command, index) => ({ id: `command-${String(index).padStart(2, '0')}`, kind: 'command' as const, text: command, command, hard: false })),
     ...COMMANDS.map((command, index) => ({ id: `wake-${String(index).padStart(2, '0')}`, kind: 'wake' as const, text: `Jarvis, ${command}`, command, hard: false })),
     ...NEGATIVES.map((negative, index) => ({ id: `negative-${String(index).padStart(2, '0')}`, kind: 'negative' as const, text: negative.text, command: '', hard: negative.hard })),
-  ].map(spec => {
+  ].map((spec) => {
     const ssml = ssmlFor(spec, voice)
     return ssml === undefined ? spec : { ...spec, ssml }
   })
@@ -139,7 +139,8 @@ export function ensureCorpus(log: (line: string) => void = () => undefined): Cli
         }
       } else {
         const list = join(dir, 'pending.json')
-        writeFileSync(list, JSON.stringify(missing.map(item => ({ path: item.path, text: item.text, ...item.ssml === undefined ? {} : { ssml: item.ssml } }))))
+        const entries = missing.map(item => ({ path: item.path, text: item.text, ...item.ssml === undefined ? {} : { ssml: item.ssml } }))
+        writeFileSync(list, JSON.stringify(entries))
         execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', SAPI_SCRIPT, '-Voice', voice.name, '-List', list], { windowsHide: true, timeout: 300_000 })
       }
     }
