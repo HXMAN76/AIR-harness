@@ -5,12 +5,19 @@
 import { fileURLToPath } from 'node:url'
 import { nodeSpawn } from '../node-spawn.ts'
 import { ignoreStdinErrors, lineReader, type ChildLike, type SpawnLike } from './child.ts'
+import { splitSentences } from './speech-text.ts'
 
 /** Default location of the SAPI script next to `src/core` (the Electron main passes its own path). */
 export const DEFAULT_SPEAKER_SCRIPT = fileURLToPath(new URL('../speaker.ps1', import.meta.url))
 
 /** A child that exited this many times is not started again. */
 const MAX_STARTS = 2
+
+/** A command that renders speech with the same line protocol as `speaker.ps1`. */
+export interface SpeechEngine {
+  command: string
+  args: readonly string[]
+}
 
 /** Plays rendered speech; the Electron main implements it over IPC to the renderer. */
 export interface AudioPlayer {
@@ -39,6 +46,8 @@ interface Pending {
 export class Speaker {
   private child: ChildLike | undefined
   private starts = 0
+  /** Whether the preferred engine gave up and SAPI is in use. */
+  private fellBack = false
   private pending: Pending[] = []
   /** Answers still owed for utterances that `stop()` already settled. */
   private owedAnswers = 0
@@ -48,11 +57,13 @@ export class Speaker {
    * @param spawnFn - starts the child; defaults to Node's `spawn`.
    * @param scriptPath - path of `speaker.ps1`.
    * @param player - plays the rendered WAVs; defaults to a silent one.
+   * @param engine - a better voice (Kokoro) tried first; once it fails twice, SAPI through `scriptPath` takes over.
    */
   constructor(
     private readonly spawnFn: SpawnLike = nodeSpawn,
     private readonly scriptPath = DEFAULT_SPEAKER_SCRIPT,
     private readonly player: AudioPlayer = SILENT,
+    private readonly engine?: SpeechEngine,
   ) {}
 
   /** Whether an utterance is queued or playing. */
@@ -61,7 +72,8 @@ export class Speaker {
   }
 
   /**
-   * Speak one utterance.
+   * Speak one utterance sentence by sentence: the first sentence plays as soon as it is rendered while the
+   * next ones render.
    * @param text - plain text to say.
    * @returns settles when it finished playing or was stopped; rejects when the child exits or cannot start.
    */
@@ -69,10 +81,12 @@ export class Speaker {
     if (this.disposed) return Promise.reject(new Error('speaker disposed'))
     const child = this.ensureChild()
     if (child === undefined) return Promise.reject(new Error('speaker unavailable'))
-    return new Promise<void>((resolve, reject) => {
+    const sentences = splitSentences(text)
+    const parts = sentences.length > 0 ? sentences : [text]
+    return Promise.all(parts.map(part => new Promise<void>((resolve, reject) => {
       this.pending.push({ resolve, reject, answered: false })
-      child.stdin.write(`SAY ${Buffer.from(text, 'utf8').toString('base64')}\n`)
-    })
+      child.stdin.write(`SAY ${Buffer.from(part, 'utf8').toString('base64')}\n`)
+    }))).then(() => undefined)
   }
 
   /** Start the child now so the first utterance does not wait for PowerShell to load. */
@@ -114,9 +128,15 @@ export class Speaker {
 
   private ensureChild(): ChildLike | undefined {
     if (this.child !== undefined) return this.child
-    if (this.starts >= MAX_STARTS) return undefined
+    if (this.starts >= MAX_STARTS) {
+      if (this.engine === undefined || this.fellBack) return undefined
+      this.fellBack = true
+      this.starts = 0
+    }
     this.starts++
-    const child = this.spawnFn('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', this.scriptPath])
+    const child = this.engine !== undefined && !this.fellBack
+      ? this.spawnFn(this.engine.command, this.engine.args)
+      : this.spawnFn('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', this.scriptPath])
     this.child = child
     ignoreStdinErrors(child)
     child.stdout.on('data', lineReader((line) => {

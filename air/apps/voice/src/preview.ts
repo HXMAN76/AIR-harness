@@ -4,8 +4,9 @@
  * Started by `scripts/orb-preview.ts` through `AIR_VOICE_PREVIEW=<output dir>`.
  */
 import { BrowserWindow } from 'electron'
-import { mkdirSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import type { Speaker } from './core/speaker.ts'
 
 const SENTENCE = 'Opened Notepad. Anything else I can help you with today?'
@@ -19,7 +20,11 @@ interface Stats {
 }
 
 /** Run the preview and return the saved file paths and frame-rate stats per shot. */
-export async function runPreview(win: BrowserWindow, speaker: Speaker, outDir: string): Promise<{ shots: string[]; sheet: string; stats: Record<string, Stats> }> {
+export async function runPreview(
+  win: BrowserWindow,
+  speaker: Speaker,
+  outDir: string,
+): Promise<{ shots: string[]; sheet: string; stats: Record<string, Stats> }> {
   mkdirSync(outDir, { recursive: true })
   const view = win.webContents
   const send = (state: object): void => {
@@ -73,14 +78,16 @@ export async function runPreview(win: BrowserWindow, speaker: Speaker, outDir: s
 
 /** Lay the shots side by side in a hidden window and capture it. */
 async function contactSheet(files: string[], out: string): Promise<void> {
-  const { readFileSync } = await import('node:fs')
-  const cells = files.map(file => `<img src="data:image/png;base64,${readFileSync(file).toString('base64')}">`).join('')
+  const cells = files.map(file => `<img src="${pathToFileURL(file).href}">`).join('')
   const html = `<style>body{margin:0;overflow:hidden;background:#000;display:flex;flex-wrap:wrap;gap:6px;padding:6px}img{width:300px;display:block}</style>${cells}`
   const columns = 4
   const rows = Math.ceil(files.length / columns)
-  const sheet = new BrowserWindow({ show: false, width: columns * 306 + 12, height: rows * 410 + 12, useContentSize: true, webPreferences: { offscreen: false } })
-  await sheet.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`)
+  const sheet = new BrowserWindow({ show: false, width: columns * 306 + 12, height: rows * 410 + 12, useContentSize: true })
+  const page = join(dirname(out), '.contact-sheet.html')
+  writeFileSync(page, `<meta charset="utf-8">${html}`)
+  await sheet.loadFile(page)
   await wait(500)
   writeFileSync(out, (await sheet.webContents.capturePage()).toPNG())
   sheet.destroy()
+  rmSync(page)
 }

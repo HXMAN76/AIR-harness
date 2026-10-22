@@ -14,7 +14,10 @@ function fakePlayer(): AudioPlayer & { played: string[]; finish: ((error?: Error
     play(wav: string): Promise<void> {
       player.played.push(wav)
       return new Promise<void>((resolve, reject) => {
-        player.finish.push(error => (error === undefined ? resolve() : reject(error)))
+        player.finish.push((error) => {
+          if (error === undefined) resolve()
+          else reject(error)
+        })
       })
     },
     stop(): void {
@@ -103,6 +106,76 @@ describe('Speaker', () => {
     speaker.beep()
     speaker.stop()
     expect(speaker.speaking).toBe(false)
+  })
+
+  it('speaks sentence by sentence: the first plays while the next are still rendering', async () => {
+    const fake = fakeSpawn()
+    const player = fakePlayer()
+    const speaker = new Speaker(fake.spawn, undefined, player)
+    let settled = false
+    const done = speaker.speak('Good evening to you. I can read your mail today.').then(() => {
+      settled = true
+    })
+    expect(fake.children[0]!.text).toBe(`SAY ${Buffer.from('Good evening to you.').toString('base64')}\nSAY ${Buffer.from('I can read your mail today.').toString('base64')}\n`)
+    fake.children[0]!.out('WAV AA==\n')
+    await flush()
+    expect(player.played).toEqual(['AA=='])
+    expect(speaker.speaking).toBe(true)
+    fake.children[0]!.out('WAV QQ==\n')
+    await flush()
+    player.finish[0]!()
+    await flush()
+    expect(settled).toBe(false)
+    expect(speaker.speaking).toBe(true)
+    player.finish[1]!()
+    await done
+    expect(speaker.speaking).toBe(false)
+  })
+
+  it('speaks text without words as one piece', async () => {
+    const fake = fakeSpawn()
+    const speaker = new Speaker(fake.spawn)
+    const done = speaker.speak('...')
+    expect(fake.children[0]!.text).toBe(`SAY ${Buffer.from('...').toString('base64')}\n`)
+    fake.children[0]!.out('DONE\n')
+    await done
+  })
+
+  it('stop() cancels the sentences still rendering', async () => {
+    const fake = fakeSpawn()
+    const player = fakePlayer()
+    const speaker = new Speaker(fake.spawn, undefined, player)
+    const done = speaker.speak('Good evening to you. I can read your mail today.')
+    fake.children[0]!.out('WAV AA==\n')
+    await flush()
+    speaker.stop()
+    await done
+    expect(player.stops).toBe(1)
+    fake.children[0]!.out('WAV QQ==\n')
+    await flush()
+    expect(player.played).toEqual(['AA=='])
+  })
+
+  it('uses the preferred engine first and falls back to SAPI after it fails twice', async () => {
+    const fake = fakeSpawn()
+    const speaker = new Speaker(fake.spawn, 'C:/voice/speaker.ps1', undefined, { command: 'node', args: ['tts-worker.cjs', 'dir'] })
+    const first = speaker.speak('a')
+    fake.children[0]!.exit(1)
+    await expect(first).rejects.toThrow('speaker exited')
+    const second = speaker.speak('b')
+    fake.children[1]!.exit(1)
+    await expect(second).rejects.toThrow('speaker exited')
+    const third = speaker.speak('c')
+    expect(fake.calls.map(call => call.command)).toEqual(['node', 'node', 'powershell.exe'])
+    expect(fake.calls[0]!.args).toEqual(['tts-worker.cjs', 'dir'])
+    fake.children[2]!.out('DONE\n')
+    await third
+    fake.children[2]!.exit(1)
+    fake.children[2]!.emit('error', new Error('x'))
+    const fourth = speaker.speak('d')
+    fake.children[3]!.exit(1)
+    await expect(fourth).rejects.toThrow('speaker exited')
+    await expect(speaker.speak('e')).rejects.toThrow('speaker unavailable')
   })
 
   it('starts nothing until the first utterance', () => {

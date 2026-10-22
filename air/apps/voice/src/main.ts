@@ -11,7 +11,9 @@ import { AgentBridge } from './core/agent.ts'
 import { VoiceController } from './core/controller.ts'
 import { mkdirSync } from 'node:fs'
 import { assertWorkspaceOutsideHome, voiceHome, voiceWorkspace } from './core/home.ts'
-import { modelRoot } from './core/models.ts'
+import { modelDir, modelRoot } from './core/models.ts'
+import { chooseTts } from './core/tts-engine.ts'
+import { existsSync } from 'node:fs'
 
 let mainWindow: BrowserWindow | undefined
 let listener: Listener | undefined
@@ -74,6 +76,16 @@ class RendererPlayer implements AudioPlayer {
 
 const player = new RendererPlayer()
 
+/** Kokoro in a child process when installed and AIR_VOICE_TTS is not "sapi", else SAPI; SAPI also takes over if Kokoro keeps failing. */
+function createSpeaker(): Speaker {
+  const dir = modelDir('tts-en')
+  const engine = chooseTts(process.env, dir, existsSync) === 'kokoro'
+    ? { command: 'node', args: [join(__dirname, 'tts-worker.cjs'), dir, join(REPO_ROOT, 'packages', 'experimental', 'speech-to-text-sensevoice', 'package.json')] }
+    : undefined
+  debug('speech engine:', engine === undefined ? 'sapi' : 'kokoro')
+  return new Speaker(undefined, join(__dirname, 'speaker.ps1'), player, engine)
+}
+
 function createWindow(): void {
   mainWindow = new BrowserWindow({
     width: 380,
@@ -131,7 +143,7 @@ function startVoice(): void {
     debug(`listener ready (${ms}ms)`)
   })
 
-  speaker = new Speaker(undefined, join(__dirname, 'speaker.ps1'), player)
+  speaker = createSpeaker()
   speaker.warm()
 
   agent = new AgentBridge({
@@ -215,13 +227,15 @@ void app.whenReady().then(() => {
   createWindow()
 
   if (PREVIEW_DIR !== undefined && mainWindow !== undefined) {
-    speaker = new Speaker(undefined, join(__dirname, 'speaker.ps1'), player)
+    speaker = createSpeaker()
     speaker.warm()
     void runPreview(mainWindow, speaker, PREVIEW_DIR).then((result) => {
       console.log(`preview ${JSON.stringify(result)}`)
     }, (err: unknown) => {
       console.error('preview failed:', err)
-    }).finally(() => app.quit())
+    }).finally(() => {
+      app.quit()
+    })
     return
   }
 
