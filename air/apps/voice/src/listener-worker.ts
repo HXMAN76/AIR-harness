@@ -36,6 +36,7 @@ const engine = new WorkerEngine({
   wake: process.env.AIR_VOICE_WAKE === 'kws' ? 'kws' : 'text',
   asr: process.env.AIR_VOICE_ASR === 'sensevoice' ? 'sensevoice' : 'parakeet',
   send,
+  debugText: process.env.AIR_VOICE_DEBUG === '2',
   keywordsScore: number('AIR_VOICE_KWS_SCORE'),
   keywordsThreshold: number('AIR_VOICE_KWS_THRESHOLD'),
 })

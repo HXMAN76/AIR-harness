@@ -28,8 +28,9 @@ let controller: VoiceController | undefined
 
 const FRAME_SIZE = 1_600 // 100 ms at 16 kHz
 
-/** Extra console output (state changes with transcripts and replies, model load times); off unless `AIR_VOICE_DEBUG=1`. */
-const DEBUG = process.env.AIR_VOICE_DEBUG === '1'
+/** Extra console output (state changes with transcripts and replies, model load times); off unless `AIR_VOICE_DEBUG=1` (or 2, which also prints the text of speech that had no wake phrase). */
+const DEBUG_LEVEL = Number(process.env.AIR_VOICE_DEBUG) || 0
+const DEBUG = DEBUG_LEVEL >= 1
 
 function debug(...args: unknown[]): void {
   if (DEBUG) console.log(...args)
@@ -137,9 +138,10 @@ function startVoice(): void {
   listener.on('wake', () => {
     console.log('wake')
   })
-  // Text wake: speech that did not start with a wake phrase. Its text is never kept; only this marker is logged.
-  listener.on('heard', () => {
-    debug('heard (no wake)')
+  // Text wake: speech that did not start with a wake phrase. Its text is never kept; level 1 logs only this marker,
+  // level 2 (the owner's own machine) also prints the text.
+  listener.on('heard', (text?: string) => {
+    debug(DEBUG_LEVEL >= 2 && text !== undefined ? `heard (no wake): ${text}` : 'heard (no wake)')
   })
   listener.on('command', (command: { text: string; lang: string; decodeMs: number }) => {
     console.log(`command (${command.lang}):`, command.text)
@@ -187,7 +189,7 @@ let meterSquares = 0
 let meterSamples = 0
 let meterAt = Date.now()
 function meterFrame(frame: Float32Array): void {
-  if (process.env['AIR_VOICE_DEBUG'] !== '1') return
+  if (!DEBUG) return
   for (const sample of frame) {
     meterPeak = Math.max(meterPeak, Math.abs(sample))
     meterSquares += sample * sample
