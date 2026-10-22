@@ -14,7 +14,7 @@ interface Rig {
 
 function setup(): Rig {
   const fake = fakeSpawn()
-  const listener = new Listener({ spawnFn: fake.spawn, command: 'node', workerPath: 'W.ts', modelsRoot: 'M', sherpaFrom: 'P.json', keywordsFile: 'K.txt' })
+  const listener = new Listener({ spawnFn: fake.spawn, command: 'node', workerPath: 'W.ts', modelsRoot: 'M', sherpaFrom: 'P.json', keywordsFile: 'K.txt', clock: () => 1234 })
   const commands: Command[] = []
   const errors: Error[] = []
   const ready: number[] = []
@@ -34,8 +34,15 @@ describe('Listener', () => {
     expect(fake.calls).toEqual([{ command: 'node', args: ['W.ts', 'M', 'P.json', 'K.txt'] }])
   })
 
-  it('has defaults for the worker command and paths', () => {
+  it('has defaults for the worker command and paths, and stamps commands with the monotonic clock', () => {
     expect(() => new Listener()).not.toThrow()
+    const fake = fakeSpawn()
+    const listener = new Listener({ spawnFn: fake.spawn })
+    const commands: { receivedAt: number }[] = []
+    listener.on('command', command => commands.push(command))
+    listener.start()
+    fake.children[0]!.out('{"type":"command","text":"x","lang":"en","audioMs":1,"decodeMs":1}\n')
+    expect(commands[0]!.receivedAt).toBeGreaterThan(0)
   })
 
   it('forwards audio as framed Float32 bytes and ignores frames when not running', async () => {
@@ -96,7 +103,7 @@ describe('Listener', () => {
     fake.children[0]!.out('{"ready":true,"loadMs":4100}\n{"type":"wake"}\r\n')
     fake.children[0]!.out('{"type":"command","text":"open notepad","lang":"en","audioMs":1800,"decodeMs":90}\n{"type":"timeout"}\n{"type":"heard"}\n{"type":"heard","text":"hello there"}\n{"type":"language","lang":"ta","loadMs":1500}\n')
     expect(ready).toEqual([4100])
-    expect(commands).toEqual([{ text: 'open notepad', lang: 'en', audioMs: 1800, decodeMs: 90 }])
+    expect(commands).toEqual([{ text: 'open notepad', lang: 'en', audioMs: 1800, decodeMs: 90, receivedAt: 1234 }])
     expect(events).toEqual(['wake', 'timeout', 'heard', 'heard "hello there"', 'language {"lang":"ta","loadMs":1500}'])
   })
 

@@ -6,6 +6,31 @@ import { sdkHarness } from '../sdk-harness.ts'
 import type { Route } from './commands.ts'
 import { cloudKeyPresent, cloudKeyValue } from './home.ts'
 import { REPO_ROOT, VOICE_APP_ROOT } from './paths.ts'
+import type { AgentProgress } from './progress.ts'
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null
+}
+
+/** What one turn cost, read from the session's notifications. No text is kept. */
+export interface AskStats {
+  /** Milliseconds from the start of the turn to the first notification, when any arrived. */
+  firstEventMs?: number
+  /** Prompt (input) tokens summed over the turn's model calls, and output tokens likewise. */
+  promptTokens: number
+  outputTokens: number
+  /** Model calls (assistant messages) in the turn. */
+  steps: number
+}
+
+/** The result of one turn. */
+export interface AskResult {
+  reply: string
+  tools: string[]
+  approval?: ApprovalDenial
+  refused?: string
+  stats: AskStats
+}
 
 /** Launch options handed to the harness factory (a subset of the SDK's `DeepSeekHarnessOptions`). */
 export interface HarnessOptions {
@@ -26,9 +51,21 @@ export interface EventLike {
   data?: unknown
 }
 
+/** One SDK notification as far as the bridge reads it. */
+export interface NotificationLike {
+  method: string
+  params: Record<string, unknown>
+}
+
 /** The part of `DeepSeekHarness` the bridge uses. */
 export interface HarnessLike {
-  session(sessionId?: string): { id: string; run(text: string): Promise<{ finalResponse: string; events: readonly EventLike[] }> }
+  session(sessionId?: string): {
+    id: string
+    run(
+      text: string,
+      options?: { onNotification?: (notification: NotificationLike) => void },
+    ): Promise<{ finalResponse: string; events: readonly EventLike[] }>
+  }
   close(): Promise<void>
 }
 
@@ -66,6 +103,8 @@ export interface AgentBridgeOptions {
   /** Environment for the key presence check, passed to the runtime when given. Default: the process environment, inherited. */
   env?: Record<string, string | undefined>
   harnessFactory?: HarnessFactory
+  /** Monotonic millisecond clock for the first-event time. */
+  clock?: () => number
 }
 
 /** Routes voice commands to the agent runtime. */
@@ -77,12 +116,14 @@ export class AgentBridge {
   private readonly dshBin: string
   private readonly profileDir: string
   private readonly factory: HarnessFactory
+  private readonly clock: () => number
 
   /** @param options - runtime home, workspace, and launch overrides. */
   constructor(private readonly options: AgentBridgeOptions) {
     this.dshBin = options.dshBin ?? defaultDshBin()
     this.profileDir = options.profileDir ?? join(VOICE_APP_ROOT, 'profile')
     this.factory = options.harnessFactory ?? sdkHarness
+    this.clock = options.clock ?? (() => performance.now())
   }
 
   /** The active route. */
@@ -106,16 +147,42 @@ export class AgentBridge {
     return { ok: true }
   }
 
+  /** The id of the active route's conversation, once it has one. */
+  get sessionId(): string | undefined {
+    return this.sessions.get(this.currentRoute)
+  }
+
   /**
    * Run one prompt on the active route's conversation.
    * @param text - the command.
-   * @returns the final response, the names of the tools called, and, when a tool was denied for lack of a spoken approval, what it wanted.
+   * @param onProgress - called with `thinking` at the start and with each tool call as it is made.
+   * @returns the final response, the names of the tools called, when a tool was denied for lack of a spoken approval what it wanted, and what the turn cost.
    */
-  async ask(text: string): Promise<{ reply: string; tools: string[]; approval?: ApprovalDenial; refused?: string }> {
+  async ask(text: string, onProgress?: (progress: AgentProgress) => void): Promise<AskResult> {
     const route = this.currentRoute
     const session = this.harnessFor(route).session(this.sessions.get(route))
     this.sessions.set(route, session.id)
-    const result = await session.run(text)
+    const stats: AskStats = { promptTokens: 0, outputTokens: 0, steps: 0 }
+    const started = this.clock()
+    onProgress?.({ kind: 'thinking' })
+    const result = await session.run(text, {
+      onNotification: (notification) => {
+        stats.firstEventMs ??= this.clock() - started
+        const event = notification.method === 'session.event' ? notification.params['event'] : undefined
+        if (!isRecord(event)) return
+        const data = event['data']
+        if (event['type'] === 'tool/call' && isRecord(data) && typeof data['name'] === 'string') {
+          onProgress?.({ kind: 'tool', name: data['name'], ...isRecord(data['arguments']) ? { args: data['arguments'] } : {} })
+        } else if (event['type'] === 'assistant/message' && isRecord(data)) {
+          stats.steps++
+          const usage = data['usage']
+          if (isRecord(usage)) {
+            stats.promptTokens += typeof usage['inputTokens'] === 'number' ? usage['inputTokens'] : 0
+            stats.outputTokens += typeof usage['outputTokens'] === 'number' ? usage['outputTokens'] : 0
+          }
+        }
+      },
+    })
     const tools = result.events
       .filter(event => event.type === 'tool/call')
       .map(event => (event.data as { name?: unknown } | undefined)?.name)
@@ -125,6 +192,7 @@ export class AgentBridge {
     return {
       reply: result.finalResponse,
       tools,
+      stats,
       ...approval === undefined ? {} : { approval },
       ...refused === undefined ? {} : { refused },
     }

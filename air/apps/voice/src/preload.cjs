@@ -34,6 +34,10 @@ contextBridge.exposeInMainWorld('voiceAPI', {
   setMemoryShare: (on) => {
     ipcRenderer.send('setMemoryShare', on)
   },
+  /** Open the voice sessions in the dsh Web UI ("Open in AIR"). */
+  openInAir: () => {
+    ipcRenderer.send('openInAir')
+  },
   /** Close the window. */
   closeWindow: () => {
     ipcRenderer.send('closeWindow')

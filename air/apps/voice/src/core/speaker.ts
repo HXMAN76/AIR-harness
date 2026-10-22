@@ -32,6 +32,12 @@ export interface AudioPlayer {
 /** A player that plays nothing; used when no renderer is attached. */
 const SILENT: AudioPlayer = { play: () => Promise.resolve(), stop: () => undefined, beep: () => undefined }
 
+/** When the latest `speak` call started and when its first rendered sentence was handed to the player (monotonic ms). */
+export interface SpeechTiming {
+  startedAt: number
+  firstAudioAt?: number
+}
+
 interface Pending {
   resolve: () => void
   reject: (error: Error) => void
@@ -52,6 +58,8 @@ export class Speaker {
   /** Answers still owed for utterances that `stop()` already settled. */
   private owedAnswers = 0
   private disposed = false
+  /** Timing of the latest `speak` call; the first audio is the moment the first WAV is handed to the player. */
+  lastTiming: SpeechTiming | undefined
 
   /**
    * @param spawnFn - starts the child; defaults to Node's `spawn`.
@@ -64,6 +72,7 @@ export class Speaker {
     private readonly scriptPath = DEFAULT_SPEAKER_SCRIPT,
     private readonly player: AudioPlayer = SILENT,
     private readonly engine?: SpeechEngine,
+    private readonly clock: () => number = () => performance.now(),
   ) {}
 
   /** Whether an utterance is queued or playing. */
@@ -81,6 +90,7 @@ export class Speaker {
     if (this.disposed) return Promise.reject(new Error('speaker disposed'))
     const child = this.ensureChild()
     if (child === undefined) return Promise.reject(new Error('speaker unavailable'))
+    this.lastTiming = { startedAt: this.clock() }
     const sentences = splitSentences(text)
     const parts = sentences.length > 0 ? sentences : [text]
     return Promise.all(parts.map(part => new Promise<void>((resolve, reject) => {
@@ -172,6 +182,9 @@ export class Speaker {
       this.settle(entry)
       return
     }
+    // An answer is only owed after a `speak`, which sets the timing.
+    const timing = this.lastTiming as SpeechTiming
+    timing.firstAudioAt ??= this.clock()
     this.player.play(wav).then(() => {
       this.settle(entry)
     }, () => {

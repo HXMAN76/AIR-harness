@@ -2,7 +2,7 @@
  *
  * Paths are computed from `__dirname` (the `lib/` output) so bundling does not shift them.
  */
-import { app, BrowserWindow, ipcMain, session } from 'electron'
+import { app, BrowserWindow, ipcMain, session, shell } from 'electron'
 import { join } from 'node:path'
 import { Listener } from './core/listener.ts'
 import { Speaker, type AudioPlayer } from './core/speaker.ts'
@@ -15,6 +15,9 @@ import { mkdirSync } from 'node:fs'
 import { assertWorkspaceOutsideHome, voiceHome, voiceWorkspace } from './core/home.ts'
 import { modelDir, modelRoot } from './core/models.ts'
 import { chooseTts } from './core/tts-engine.ts'
+import { recorderFromEnv } from './core/metrics.ts'
+import { WebUi } from './core/web-ui.ts'
+import { nodeSpawnEnv } from './node-spawn.ts'
 import { existsSync } from 'node:fs'
 
 let mainWindow: BrowserWindow | undefined
@@ -25,6 +28,7 @@ let agent: AgentBridge | undefined
 const ECHO_TAIL_MS = 400
 
 let controller: VoiceController | undefined
+let webUi: WebUi | undefined
 
 const FRAME_SIZE = 1_600 // 100 ms at 16 kHz
 
@@ -167,7 +171,17 @@ function startVoice(): void {
     profileDir: join(VOICE_APP, 'profile'),
   })
 
+  webUi = new WebUi({
+    dshBin: join(REPO_ROOT, 'apps', 'cli', 'lib', 'bin.js'),
+    home,
+    node: process.execPath,
+    spawnFn: nodeSpawnEnv,
+    openExternal: url => shell.openExternal(url),
+    debug,
+  })
+
   controller = new VoiceController({
+    metrics: recorderFromEnv(process.env, home),
     listener,
     speaker,
     agent,
@@ -220,6 +234,12 @@ function setupIpc(): void {
 
   ipcMain.on('played', (_event, id: unknown) => {
     if (typeof id === 'number') player.played(id)
+  })
+
+  ipcMain.on('openInAir', () => {
+    webUi?.open().catch((err: unknown) => {
+      console.error('open in AIR failed:', err instanceof Error ? err.message : String(err))
+    })
   })
 
   ipcMain.on('closeWindow', () => {
@@ -275,6 +295,7 @@ app.on('before-quit', () => {
   void listener?.stop()
   void speaker?.dispose()
   void agent?.dispose()
+  webUi?.stop()
 })
 
 app.on('activate', () => {
