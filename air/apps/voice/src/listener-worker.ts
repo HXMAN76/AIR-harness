@@ -48,6 +48,7 @@ process.stdin.on('data', (chunk: Buffer) => {
       const message = parseControl(frame.payload)
       if (message?.type === 'language') engine.setLanguage(message.lang)
       else if (message?.type === 'listen') engine.arm(message.seconds)
+      else if (message?.type === 'mute') engine.setMuted(message.on)
     }
   }
 })

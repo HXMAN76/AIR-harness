@@ -72,6 +72,7 @@ export class Listener extends EventEmitter {
   private child: ChildLike | undefined
   private starts = 0
   private lang: Lang = 'en'
+  private muted = false
 
   /** @param options - worker launch options. */
   constructor(options: ListenerOptions = {}) {
@@ -97,6 +98,7 @@ export class Listener extends EventEmitter {
       this.onLine(line)
     }))
     if (this.lang !== 'en') child.stdin.write(controlFrame({ type: 'language', lang: this.lang }))
+    if (this.muted) child.stdin.write(controlFrame({ type: 'mute', on: true }))
     let gone = false
     const onGone = (): void => {
       if (gone) return
@@ -134,6 +136,16 @@ export class Listener extends EventEmitter {
    */
   listen(seconds?: number): void {
     this.child?.stdin.write(controlFrame(seconds === undefined ? { type: 'listen' } : { type: 'listen', seconds }))
+  }
+
+  /**
+   * Mute or unmute the worker while the app speaks, so its own voice is not taken as a command. While muted, only a
+   * segment that starts with a wake phrase counts (barge-in).
+   * @param on - muted or not. The setting is sent again to a restarted worker.
+   */
+  mute(on: boolean): void {
+    this.muted = on
+    this.child?.stdin.write(controlFrame({ type: 'mute', on }))
   }
 
   /** Stop the worker; no restart follows. */

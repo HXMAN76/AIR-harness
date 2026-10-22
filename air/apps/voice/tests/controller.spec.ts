@@ -13,6 +13,10 @@ class FakeListener extends EventEmitter {
     this.languages.push(lang)
   }
   listens = 0
+  mutes: boolean[] = []
+  mute(on: boolean): void {
+    this.mutes.push(on)
+  }
   windows: Array<number | undefined> = []
   listen(seconds?: number): void {
     this.listens++
@@ -1152,5 +1156,111 @@ describe('default route and screen route', () => {
     await controller.handleSpoken({ text: 'tell me what the date is' })
     await controller.handleSpoken({ text: 'yes' })
     expect(agent.routeChanges).toEqual([])
+  })
+})
+
+describe('echo muting', () => {
+  beforeEach(() => { vi.useFakeTimers() })
+  afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks() })
+
+  async function rig(echoTailMs = 400) {
+    const { VoiceController } = await import('../src/core/controller.ts')
+    const listener = new FakeListener()
+    const speaker = new FakeSpeaker()
+    const agent = new FakeAgent()
+    const states: VoiceState[] = []
+    const controller = new VoiceController({
+      listener, speaker, agent, followUpMs: 8000, echoTailMs,
+      runOperator: async () => ({ spoken: 'Opening Notepad.' }),
+      onState: (s: VoiceState) => { states.push(s) },
+    })
+    return { controller, listener, speaker, agent, states }
+  }
+
+  it('mutes while speaking and for the 400 ms tail, and opens the follow-up window only after the tail', async () => {
+    const { controller, listener, speaker } = await rig()
+    speaker.autoResolve = false
+    const running = controller.handleSpoken({ text: 'open notepad' })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(listener.mutes).toEqual([true])
+    speaker.finishSpeaking()
+    await vi.advanceTimersByTimeAsync(399)
+    expect(listener.mutes).toEqual([true])
+    expect(listener.windows).toEqual([])
+    await vi.advanceTimersByTimeAsync(2)
+    await running
+    expect(listener.mutes).toEqual([true, false])
+    expect(listener.windows).toEqual([8])
+  })
+
+  it('mutes once for back-to-back speech and unmutes after the last', async () => {
+    const { controller, listener, speaker } = await rig(0)
+    speaker.autoResolve = false
+    const first = controller.handleSpoken({ text: 'what time is it' })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(listener.mutes).toEqual([true])
+    speaker.finishSpeaking()
+    await first
+    expect(listener.mutes).toEqual([true, false])
+  })
+
+  it('unmutes at once on a wake that cuts the speech off, and the cut-off speech does not unmute again', async () => {
+    const { controller, listener, speaker } = await rig()
+    speaker.autoResolve = false
+    const running = controller.handleSpoken({ text: 'open notepad' })
+    await vi.advanceTimersByTimeAsync(0)
+    listener.emit('wake')
+    expect(listener.mutes).toEqual([true, false])
+    await vi.advanceTimersByTimeAsync(1000)
+    await running
+    expect(listener.mutes).toEqual([true, false])
+    speaker.autoResolve = true
+    const next = controller.handleSpoken({ text: 'what time is it' })
+    await vi.advanceTimersByTimeAsync(1000)
+    await next
+    expect(listener.mutes).toEqual([true, false, true, false])
+  })
+
+  it('stays muted until overlapping speech has all ended', async () => {
+    const { controller, listener, speaker } = await rig(0)
+    speaker.autoResolve = false
+    const first = controller.handleSpoken({ text: 'open notepad' })
+    await vi.advanceTimersByTimeAsync(0)
+    const second = controller.handleSpoken({ text: 'open paint' })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(speaker.spoken).toHaveLength(2)
+    expect(listener.mutes).toEqual([true])
+    speaker.finishSpeaking()
+    await Promise.all([first, second])
+    expect(listener.mutes).toEqual([true, false])
+  })
+
+  it('does not unmute after the tail when a wake came in during it', async () => {
+    const { controller, listener } = await rig()
+    const running = controller.handleSpoken({ text: 'open notepad' })
+    await vi.advanceTimersByTimeAsync(100)
+    listener.emit('wake')
+    await vi.advanceTimersByTimeAsync(1000)
+    await running
+    expect(listener.mutes).toEqual([true, false])
+  })
+
+  it('unmutes when speech fails, and a wake while nothing speaks changes nothing', async () => {
+    const { listener, speaker, controller } = await rig(0)
+    listener.emit('wake')
+    expect(listener.mutes).toEqual([])
+    speaker.speak = () => Promise.reject(new Error('no audio'))
+    await controller.setRoute('cloud')
+    expect(listener.mutes).toEqual([true, false])
+  })
+
+  it('works with a listener that cannot mute', async () => {
+    const { VoiceController } = await import('../src/core/controller.ts')
+    const listener = new FakeListener()
+    Object.defineProperty(listener, 'mute', { value: undefined, configurable: true })
+    const speaker = new FakeSpeaker()
+    const controller = new VoiceController({ listener, speaker, agent: new FakeAgent(), onState: () => undefined })
+    await controller.handleSpoken({ text: 'what time is it' })
+    expect(speaker.spoken).toHaveLength(1)
   })
 })

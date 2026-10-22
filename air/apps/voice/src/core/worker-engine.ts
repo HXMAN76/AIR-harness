@@ -91,6 +91,8 @@ export class WorkerEngine {
   private readonly gain = new SpotterGain()
   private readonly recognizers: Partial<Record<Lang, Recognizer>> = {}
   private lang: Lang = 'en'
+  /** The app is speaking: in text mode only a segment that starts with a wake phrase counts. */
+  private muted = false
   /** kws mode: speech is being captured after a wake. Text mode: always true. */
   private capturing: boolean
   private pending = new Float32Array(0)
@@ -159,6 +161,15 @@ export class WorkerEngine {
     }
     this.lang = lang
     this.c.send({ type: 'language', lang, loadMs: Math.round(this.now() - started) })
+  }
+
+  /**
+   * Mute or unmute while the app speaks (and for a short tail after), so its own voice is not taken as a command.
+   * While muted a segment counts only when its transcript starts with a wake phrase (barge-in); everything else is dropped.
+   * @param on - muted or not.
+   */
+  setMuted(on: boolean): void {
+    this.muted = on
   }
 
   /**
@@ -284,7 +295,7 @@ export class WorkerEngine {
 
   /** Whether a command is awaited (after a bare wake or an {@link arm}). */
   private awaiting(): boolean {
-    return this.deadline > 0 && this.clock <= this.deadline
+    return !this.muted && this.deadline > 0 && this.clock <= this.deadline
   }
 
   /** Text wake: a segment is a command when it starts with a wake phrase or follows a bare wake phrase. */

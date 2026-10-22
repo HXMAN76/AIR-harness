@@ -402,6 +402,36 @@ describe('WorkerEngine text mode', () => {
     expect(r.sent.filter(message => 'type' in message && message.type === 'command')).toEqual([])
   })
 
+  it('while muted, drops speech that does not start with a wake phrase, even in an armed window', () => {
+    const r = textRig()
+    r.engine.setMuted(true)
+    r.engine.arm()
+    say(r, 'the app talking to itself')
+    expect(r.sent.slice(1)).toEqual([{ type: 'heard' }])
+    expect(JSON.stringify(r.sent)).not.toContain('talking')
+  })
+
+  it('while muted, lets a wake phrase through (barge-in) and skips long segments undecoded', () => {
+    const r = textRig()
+    r.engine.setMuted(true)
+    say(r, 'Jarvis stop')
+    expect(r.sent.slice(1)).toMatchObject([{ type: 'wake' }, { type: 'command', text: 'stop' }])
+    r.engine.arm()
+    r.vad.segments.push({ samples: new Float32Array((MAX_WAKE_SEGMENT_S + 1) * SAMPLE_RATE) })
+    const decoded = r.recognizers[0]!.decoded
+    r.engine.push(FRAME)
+    expect(r.recognizers[0]!.decoded).toBe(decoded)
+  })
+
+  it('takes follow-up speech again after unmuting', () => {
+    const r = textRig()
+    r.engine.setMuted(true)
+    r.engine.setMuted(false)
+    r.engine.arm()
+    say(r, 'read the news')
+    expect(r.sent.at(-1)).toMatchObject({ type: 'command', text: 'read the news' })
+  })
+
   it('arm() in text mode takes the next segment as a command without a wake phrase, then times out', () => {
     const r = textRig()
     r.engine.arm()

@@ -18,6 +18,9 @@ let mainWindow: BrowserWindow | undefined
 let listener: Listener | undefined
 let speaker: Speaker | undefined
 let agent: AgentBridge | undefined
+/** The microphone stays muted this long after the app stops speaking. */
+const ECHO_TAIL_MS = 400
+
 let controller: VoiceController | undefined
 
 const FRAME_SIZE = 1_600 // 100 ms at 16 kHz
@@ -105,6 +108,7 @@ function startVoice(): void {
     speaker,
     agent,
     followUpMs: followUpMsFromEnv(process.env),
+    echoTailMs: ECHO_TAIL_MS,
     issueSendToken: () => issueSendToken(join(home, 'send-tokens')),
     issueApprovalToken: digest => issueApprovalToken(join(home, 'approve-tokens'), digest),
     onState: (state) => {

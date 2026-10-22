@@ -49,6 +49,8 @@ interface ListenerLike extends EventEmitter {
   setLanguage(lang: Lang): void
   /** Listen for one command without a wake word, waiting up to `seconds` for speech to start. */
   listen?(seconds?: number): void
+  /** Mute while the app speaks; only a wake phrase gets through (barge-in). */
+  mute?(on: boolean): void
 }
 
 /** How long a thinking turn may run before the controller says "Still working." */
@@ -120,6 +122,8 @@ export interface VoiceControllerDeps {
   issueSendToken?: () => string
   /** Issues the one-time token bound to a denied command's digest. Without it nothing can be approved by voice. */
   issueApprovalToken?: (digest: string) => string
+  /** Milliseconds the microphone stays muted after playback ends, for the room's echo to die away; 0 for none. */
+  echoTailMs?: number
   /** Follow-up window in ms (see {@link followUpMsFromEnv}); 0 or omitted turns conversation mode off. */
   followUpMs?: number
   /** Clock for the time-of-day greeting. */
@@ -140,6 +144,10 @@ export class VoiceController {
   private readonly runOperator: (intent: OperatorIntent) => Promise<OperatorResult>
   private readonly onState: (state: VoiceState) => void
   private readonly followUpMs: number
+  private readonly echoTailMs: number
+  /** Speeches in progress, and the generation a wake bumps so that a cut-off speech does not unmute a later one. */
+  private speaking = 0
+  private muteEpoch = 0
   private readonly issueSendToken: (() => string) | undefined
   private readonly issueApprovalToken: ((digest: string) => string) | undefined
   private readonly now: () => Date
@@ -167,6 +175,7 @@ export class VoiceController {
     this.runOperator = deps.runOperator ?? (intent => runOperatorIntent(intent))
     this.onState = deps.onState
     this.followUpMs = deps.followUpMs ?? 0
+    this.echoTailMs = deps.echoTailMs ?? 0
     this.issueSendToken = deps.issueSendToken
     this.issueApprovalToken = deps.issueApprovalToken
     this.now = deps.now ?? (() => new Date())
@@ -207,6 +216,12 @@ export class VoiceController {
   handleWake(): void {
     this.speaker.beep()
     this.following = false
+    // A wake cut in on the speech: listen at once and ignore the cut-off speech's own unmute.
+    if (this.speaking > 0) {
+      this.speaking = 0
+      this.muteEpoch++
+      this.listener.mute?.(false)
+    }
     if (this.phase === 'speaking') {
       this.speaker.stop()
       this.clearWatchdog()
@@ -498,7 +513,7 @@ export class VoiceController {
       this.phase = 'speaking'
       this.emit({ transcript: text, reply, tools: result.tools })
 
-      if (approval === undefined && (!gated || reply !== '')) await this.speaker.speak(spoken)
+      if (approval === undefined && (!gated || reply !== '')) await this.speakMuted(spoken)
       spokeReply = !gated && approval === undefined && this.isSpeaking()
     } catch (error) {
       this.clearWatchdog()
@@ -541,9 +556,26 @@ export class VoiceController {
 
   private async speak(text: string): Promise<void> {
     try {
-      await this.speaker.speak(text)
+      await this.speakMuted(text)
     } catch {
       // Swallow speech errors — the UI already has the state.
+    }
+  }
+
+  /**
+   * Speak with the microphone muted (only a wake phrase gets through) until the playback and a short tail have ended,
+   * so the follow-up window opens after the room's echo and never hears the app's own voice.
+   */
+  private async speakMuted(text: string): Promise<void> {
+    const epoch = this.muteEpoch
+    if (this.speaking++ === 0) this.listener.mute?.(true)
+    try {
+      await this.speaker.speak(text)
+    } finally {
+      if (epoch === this.muteEpoch) {
+        if (this.echoTailMs > 0) await new Promise<void>((resolve) => { setTimeout(resolve, this.echoTailMs) })
+        if (epoch === this.muteEpoch && --this.speaking === 0) this.listener.mute?.(false)
+      }
     }
   }
 

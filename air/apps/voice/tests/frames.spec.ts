@@ -31,6 +31,8 @@ describe('frames', () => {
     expect(parseControl(Buffer.from('{"type":"listen"}'))).toEqual({ type: 'listen' })
     expect(parseControl(Buffer.from('{"type":"listen","seconds":8}'))).toEqual({ type: 'listen', seconds: 8 })
     expect(parseControl(Buffer.from('{"type":"listen","seconds":-1}'))).toEqual({ type: 'listen' })
+    expect(parseControl(Buffer.from('{"type":"mute","on":true}'))).toEqual({ type: 'mute', on: true })
+    expect(parseControl(Buffer.from('{"type":"mute","on":"yes"}'))).toBeUndefined()
     expect(parseControl(Buffer.from('{"type":"other"}'))).toBeUndefined()
     expect(parseControl(Buffer.from('7'))).toBeUndefined()
     expect(parseControl(Buffer.from('null'))).toBeUndefined()

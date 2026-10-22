@@ -12,7 +12,7 @@ export const FRAME_CONTROL = 1
 const HEADER = 5
 
 /** Control messages the parent sends to the worker. */
-export type ControlMessage = { type: 'language'; lang: Lang } | { type: 'listen'; seconds?: number }
+export type ControlMessage = { type: 'language'; lang: Lang } | { type: 'listen'; seconds?: number } | { type: 'mute'; on: boolean }
 
 /** Messages the worker writes to stdout, one JSON object per line. */
 export type WorkerMessage =
@@ -109,6 +109,7 @@ export function parseControl(payload: Buffer): ControlMessage | undefined {
     const seconds = record.seconds
     return typeof seconds === 'number' && Number.isFinite(seconds) && seconds > 0 ? { type: 'listen', seconds } : { type: 'listen' }
   }
+  if (record.type === 'mute' && typeof record.on === 'boolean') return { type: 'mute', on: record.on }
   if (record.type === 'language' && (record.lang === 'en' || record.lang === 'ta')) return { type: 'language', lang: record.lang }
   return undefined
 }

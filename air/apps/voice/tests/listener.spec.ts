@@ -70,6 +70,18 @@ describe('Listener', () => {
     expect(events).toEqual(['wake true'])
   })
 
+  it('sends mute and unmute, and mutes a restarted worker again', () => {
+    const { listener, fake } = setup()
+    listener.mute(true)
+    listener.start()
+    expect(fake.children[0]!.written).toEqual([controlFrame({ type: 'mute', on: true })])
+    listener.mute(false)
+    expect(fake.children[0]!.written.at(-1)).toEqual(controlFrame({ type: 'mute', on: false }))
+    listener.mute(true)
+    fake.children[0]!.exit(1)
+    expect(fake.children[1]!.written).toEqual([controlFrame({ type: 'mute', on: true })])
+  })
+
   it('asks the worker to listen without a wake word', () => {
     const { listener, fake } = setup()
     listener.listen()
