@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { isSendAttempt, REFUSAL } from '../src/guard.ts'
+import { isBrowserTool, isSendAttempt, newTargetState, REFUSAL } from '../src/guard.ts'
 
 const tool = (action: string): string => `mcp__browser__browser_${action}`
 
@@ -46,6 +46,57 @@ describe('isSendAttempt', () => {
     expect(isSendAttempt(tool('click'), 'Send')).toBe(false)
     expect(isSendAttempt(tool('click'), null)).toBe(false)
     expect(isSendAttempt(tool('evaluate'), { function: 5 })).toBe(false)
+  })
+
+  it.each(['Enter', 'NumpadEnter', 'Space', ' ', 'return'])('blocks %j on a key press that names a Send element', (key) => {
+    expect(isSendAttempt(tool('press_key'), { key, element: 'Send button', ref: 'e7' })).toBe(true)
+  })
+
+  it('blocks Enter or Space right after a click or hover that targeted a Send element, until another element is targeted', () => {
+    const state = newTargetState()
+    expect(isSendAttempt(tool('hover'), { element: 'Send', ref: 'e7' }, state)).toBe(false)
+    expect(isSendAttempt(tool('press_key'), { key: 'Enter' }, state)).toBe(true)
+    expect(isSendAttempt(tool('press_key'), { key: 'Space' }, state)).toBe(true)
+    expect(isSendAttempt(tool('press_key'), { key: 'a' }, state)).toBe(false)
+    expect(isSendAttempt(tool('click'), { element: 'Subject', ref: 'e3' }, state)).toBe(false)
+    expect(isSendAttempt(tool('press_key'), { key: 'Enter' }, state)).toBe(false)
+  })
+
+  it('blocks a key press that names a ref previously described as Send', () => {
+    const state = newTargetState()
+    isSendAttempt(tool('snapshot'), {}, state)
+    isSendAttempt(tool('click'), { element: 'Compose', ref: 'e1' }, state)
+    isSendAttempt(tool('type'), { element: 'Send (Ctrl-Enter)', ref: 'e9', text: 'x' }, state)
+    isSendAttempt(tool('click'), { element: 'Body', ref: 'e2' }, state)
+    expect(isSendAttempt(tool('press_key'), { key: 'Enter', ref: 'e9' }, state)).toBe(true)
+    expect(isSendAttempt(tool('press_key'), { key: 'Enter', ref: 'e2' }, state)).toBe(false)
+  })
+
+  it('forgets the Send focus on navigation', () => {
+    const state = newTargetState()
+    isSendAttempt(tool('click'), { element: 'Send', ref: 'e7' }, state)
+    isSendAttempt(tool('navigate'), { url: 'https://example.org' }, state)
+    expect(isSendAttempt(tool('press_key'), { key: 'Enter' }, state)).toBe(false)
+  })
+
+  it.each([
+    '() => document.querySelector("#send").submit()',
+    '() => form.requestSubmit()',
+    'el.dispatchEvent(new MouseEvent("click"))',
+    'document.querySelector("[aria-label=Send]").click()',
+  ])('blocks a script on send-like selectors: %s', (code) => {
+    expect(isSendAttempt(tool('evaluate'), { function: code })).toBe(true)
+  })
+
+  it('treats a script that targets a Send ref as a send', () => {
+    const state = newTargetState()
+    isSendAttempt(tool('hover'), { element: 'Send', ref: 'e7' }, state)
+    expect(isSendAttempt(tool('evaluate'), { function: '(el) => 1', ref: 'e7' }, state)).toBe(true)
+  })
+
+  it('knows browser tools by name', () => {
+    expect(isBrowserTool('mcp__browser__browser_click')).toBe(true)
+    expect(isBrowserTool('pwsh')).toBe(false)
   })
 
   it('has the model-visible refusal text', () => {

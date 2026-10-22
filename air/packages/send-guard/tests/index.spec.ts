@@ -65,6 +65,43 @@ describe('createGuard', () => {
   })
 })
 
+describe('createGuard per-session target tracking', () => {
+  const key = (k: string, session: SessionLike) => ({ name: 'mcp__browser__browser_press_key', arguments: { key: k }, agent: { session } })
+
+  it('refuses Enter after a refused Send click, in the same user turn only', () => {
+    const guard = sendGuard.createGuard(tokenDir())
+    const turn1 = sessionSaying('read my mail')
+    expect(guard({ ...click('Send'), agent: { session: turn1 } })).toBe(sendGuard.REFUSAL)
+    expect(guard(key('Enter', turn1))).toBe(sendGuard.REFUSAL)
+    const events: Array<{ type: string; data?: unknown }> = [{ type: 'user/message', data: { content: [{ type: 'text', text: 'first' }] } }]
+    const live: SessionLike = { seq: events.length, eventAt: seq => events[Number(seq)] }
+    const liveSession = { get seq() { return events.length }, eventAt: live.eventAt }
+    expect(guard({ ...click('Send'), agent: { session: liveSession } })).toBe(sendGuard.REFUSAL)
+    expect(guard(key('Enter', liveSession))).toBe(sendGuard.REFUSAL)
+    events.push({ type: 'user/message', data: { content: [{ type: 'text', text: 'second' }] } })
+    expect(guard(key('Enter', liveSession))).toBeUndefined()
+  })
+
+  it('does not mix up two sessions, and uses a detached state without a session', () => {
+    const guard = sendGuard.createGuard(tokenDir())
+    const a = sessionSaying('a')
+    const b = sessionSaying('b')
+    expect(guard({ ...click('Send'), agent: { session: a } })).toBe(sendGuard.REFUSAL)
+    expect(guard(key('Enter', b))).toBeUndefined()
+    expect(guard(key('Enter', a))).toBe(sendGuard.REFUSAL)
+    expect(guard(click('Send'))).toBe(sendGuard.REFUSAL)
+    expect(guard({ name: 'mcp__browser__browser_press_key', arguments: { key: 'Enter' } })).toBe(sendGuard.REFUSAL)
+  })
+
+  it('clears the Send focus after the one allowed send', () => {
+    const dir = tokenDir()
+    const guard = sendGuard.createGuard(dir)
+    const session = sessionSaying('go', `Press Send ${issueSendToken(dir)}`)
+    expect(guard({ ...click('Send'), agent: { session } })).toBeUndefined()
+    expect(guard(key('Enter', session))).toBeUndefined()
+  })
+})
+
 describe('plugin', () => {
   it('is refused through the real tool registry with the model-visible text', async () => {
     const ctx = new Context()

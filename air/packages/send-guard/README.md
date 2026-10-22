@@ -10,5 +10,5 @@ Config: `tokenDir` (absolute path). The voice browser patch sets it to `<voice h
 
 ## Known Limitations
 
-- A pattern list over Playwright MCP tool names (`mcp__<server>__browser_<action>`); a send path it does not recognise, such as Enter on a focused Send button, is not blocked.
+- A pattern list over Playwright MCP tool names (`mcp__<server>__browser_<action>`). Enter, NumpadEnter and Space are refused while the last targeted element in the session and turn is described as Send; an unlabelled Send control is not recognised.
 - Tested with fake calls and a real tool registry; not run against a live browser.

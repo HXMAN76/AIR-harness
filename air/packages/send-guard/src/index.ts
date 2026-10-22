@@ -8,7 +8,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import type {} from '@deepseek-ai/dsh-tools'
-import { isSendAttempt, REFUSAL } from './guard.ts'
+import { isBrowserTool, isSendAttempt, newTargetState, REFUSAL, type TargetState } from './guard.ts'
 import { latestUserText, type SessionLike } from './session-text.ts'
 import { consumeSendToken } from './token.ts'
 
@@ -42,14 +42,32 @@ export interface GuardExecution {
 
 /**
  * @param tokenDir - token directory.
- * @returns the guard: a refusal for a send attempt without a live token, else undefined.
+ * @returns the guard: a refusal for a send attempt without a live token, else undefined. It remembers, per session,
+ *   which element the browser calls targeted last, so Enter or Space on a focused Send button is refused too.
  */
 export function createGuard(tokenDir: string): (execution: GuardExecution) => string | undefined {
+  const states = new WeakMap<object, TargetState>()
+  const detached = newTargetState()
   return (execution) => {
-    if (!isSendAttempt(execution.name, execution.arguments)) return undefined
+    if (!isBrowserTool(execution.name)) return undefined
     const session = execution.agent?.session
     const said = session === undefined ? undefined : latestUserText(session)
-    return said !== undefined && consumeSendToken(tokenDir, said) ? undefined : REFUSAL
+    let state = session === undefined ? detached : states.get(session)
+    if (state === undefined) {
+      state = newTargetState()
+      states.set(session as object, state)
+    }
+    if (state.said !== said) {
+      state.said = said
+      state.sendFocused = false
+      state.names.clear()
+    }
+    if (!isSendAttempt(execution.name, execution.arguments, state)) return undefined
+    if (said !== undefined && consumeSendToken(tokenDir, said)) {
+      state.sendFocused = false
+      return undefined
+    }
+    return REFUSAL
   }
 }
 
