@@ -1,0 +1,451 @@
+voice,clip,run,audio_ms,decode_ms,rtf,word_edits,ref_words,hypothesis
+kokoro-am_michael,kokoro-am_michael-command-00,0,1202,62.866,0.052,0,2,Open Notepad.
+kokoro-am_michael,kokoro-am_michael-command-00,1,1202,64.649,0.054,0,2,Open Notepad.
+kokoro-am_michael,kokoro-am_michael-command-00,2,1202,66.203,0.055,0,2,Open Notepad.
+kokoro-am_michael,kokoro-am_michael-command-00,3,1202,66.378,0.055,0,2,Open Notepad.
+kokoro-am_michael,kokoro-am_michael-command-00,4,1202,70.802,0.059,0,2,Open Notepad.
+kokoro-am_michael,kokoro-am_michael-command-01,0,1394,87.792,0.063,0,2,Open calculator.
+kokoro-am_michael,kokoro-am_michael-command-01,1,1394,87.983,0.063,0,2,Open calculator.
+kokoro-am_michael,kokoro-am_michael-command-01,2,1394,79.36,0.057,0,2,Open calculator.
+kokoro-am_michael,kokoro-am_michael-command-01,3,1394,75.202,0.054,0,2,Open calculator.
+kokoro-am_michael,kokoro-am_michael-command-01,4,1394,81.247,0.058,0,2,Open calculator.
+kokoro-am_michael,kokoro-am_michael-command-02,0,1269,62.57,0.049,0,3,Open the browser.
+kokoro-am_michael,kokoro-am_michael-command-02,1,1269,64.554,0.051,0,3,Open the browser.
+kokoro-am_michael,kokoro-am_michael-command-02,2,1269,97.81,0.077,0,3,Open the browser.
+kokoro-am_michael,kokoro-am_michael-command-02,3,1269,103.531,0.082,0,3,Open the browser.
+kokoro-am_michael,kokoro-am_michael-command-02,4,1269,111.918,0.088,0,3,Open the browser.
+kokoro-am_michael,kokoro-am_michael-command-03,0,1277,117.34,0.092,0,2,Open YouTube.
+kokoro-am_michael,kokoro-am_michael-command-03,1,1277,110.226,0.086,0,2,Open YouTube.
+kokoro-am_michael,kokoro-am_michael-command-03,2,1277,110.883,0.087,0,2,Open YouTube.
+kokoro-am_michael,kokoro-am_michael-command-03,3,1277,115.413,0.09,0,2,Open YouTube.
+kokoro-am_michael,kokoro-am_michael-command-03,4,1277,113.166,0.089,0,2,Open YouTube.
+kokoro-am_michael,kokoro-am_michael-command-04,0,1166,121.168,0.104,0,2,Open Gmail.
+kokoro-am_michael,kokoro-am_michael-command-04,1,1166,104.758,0.09,0,2,Open Gmail.
+kokoro-am_michael,kokoro-am_michael-command-04,2,1166,111.439,0.096,0,2,Open Gmail.
+kokoro-am_michael,kokoro-am_michael-command-04,3,1166,114.205,0.098,0,2,Open Gmail.
+kokoro-am_michael,kokoro-am_michael-command-04,4,1166,106.246,0.091,0,2,Open Gmail.
+kokoro-am_michael,kokoro-am_michael-command-05,0,1567,143.416,0.092,0,3,Open File Explorer.
+kokoro-am_michael,kokoro-am_michael-command-05,1,1567,143.411,0.092,0,3,Open File Explorer.
+kokoro-am_michael,kokoro-am_michael-command-05,2,1567,149.395,0.095,0,3,Open File Explorer.
+kokoro-am_michael,kokoro-am_michael-command-05,3,1567,133.752,0.085,0,3,Open File Explorer.
+kokoro-am_michael,kokoro-am_michael-command-05,4,1567,121.294,0.077,0,3,Open File Explorer.
+kokoro-am_michael,kokoro-am_michael-command-06,0,1108,116.104,0.105,0,2,Open Settings
+kokoro-am_michael,kokoro-am_michael-command-06,1,1108,95.616,0.086,0,2,Open Settings
+kokoro-am_michael,kokoro-am_michael-command-06,2,1108,94.851,0.086,0,2,Open Settings
+kokoro-am_michael,kokoro-am_michael-command-06,3,1108,106.888,0.097,0,2,Open Settings
+kokoro-am_michael,kokoro-am_michael-command-06,4,1108,98.9,0.089,0,2,Open Settings
+kokoro-am_michael,kokoro-am_michael-command-07,0,1154,111.073,0.096,0,2,Close notepad.
+kokoro-am_michael,kokoro-am_michael-command-07,1,1154,97.111,0.084,0,2,Close notepad.
+kokoro-am_michael,kokoro-am_michael-command-07,2,1154,92.521,0.08,0,2,Close notepad.
+kokoro-am_michael,kokoro-am_michael-command-07,3,1154,94.178,0.082,0,2,Close notepad.
+kokoro-am_michael,kokoro-am_michael-command-07,4,1154,111.733,0.097,0,2,Close notepad.
+kokoro-am_michael,kokoro-am_michael-command-08,0,1438,110.576,0.077,0,3,Close the calculator.
+kokoro-am_michael,kokoro-am_michael-command-08,1,1438,125.896,0.088,0,3,Close the calculator.
+kokoro-am_michael,kokoro-am_michael-command-08,2,1438,122.062,0.085,0,3,Close the calculator.
+kokoro-am_michael,kokoro-am_michael-command-08,3,1438,128.488,0.089,0,3,Close the calculator.
+kokoro-am_michael,kokoro-am_michael-command-08,4,1438,139.407,0.097,0,3,Close the calculator.
+kokoro-am_michael,kokoro-am_michael-command-09,0,1114,122.923,0.11,0,4,What time is it?
+kokoro-am_michael,kokoro-am_michael-command-09,1,1114,98.078,0.088,0,4,What time is it?
+kokoro-am_michael,kokoro-am_michael-command-09,2,1114,105.842,0.095,0,4,What time is it?
+kokoro-am_michael,kokoro-am_michael-command-09,3,1114,99.959,0.09,0,4,What time is it?
+kokoro-am_michael,kokoro-am_michael-command-09,4,1114,103.589,0.093,0,4,What time is it?
+kokoro-am_michael,kokoro-am_michael-command-10,0,1411,125.193,0.089,0,5,What is the date today?
+kokoro-am_michael,kokoro-am_michael-command-10,1,1411,125.637,0.089,0,5,What is the date today?
+kokoro-am_michael,kokoro-am_michael-command-10,2,1411,121.552,0.086,0,5,What is the date today?
+kokoro-am_michael,kokoro-am_michael-command-10,3,1411,121.611,0.086,0,5,What is the date today?
+kokoro-am_michael,kokoro-am_michael-command-10,4,1411,126.102,0.089,0,5,What is the date today?
+kokoro-am_michael,kokoro-am_michael-command-11,0,1029,94.343,0.092,0,2,Volume up
+kokoro-am_michael,kokoro-am_michael-command-11,1,1029,97.377,0.095,0,2,Volume up
+kokoro-am_michael,kokoro-am_michael-command-11,2,1029,99.222,0.096,0,2,Volume up
+kokoro-am_michael,kokoro-am_michael-command-11,3,1029,122.562,0.119,0,2,Volume up
+kokoro-am_michael,kokoro-am_michael-command-11,4,1029,106.63,0.104,0,2,Volume up
+kokoro-am_michael,kokoro-am_michael-command-12,0,1119,107.768,0.096,0,2,Volume down.
+kokoro-am_michael,kokoro-am_michael-command-12,1,1119,103.5,0.093,0,2,Volume down.
+kokoro-am_michael,kokoro-am_michael-command-12,2,1119,105.857,0.095,0,2,Volume down.
+kokoro-am_michael,kokoro-am_michael-command-12,3,1119,103.419,0.092,0,2,Volume down.
+kokoro-am_michael,kokoro-am_michael-command-12,4,1119,105.186,0.094,0,2,Volume down.
+kokoro-am_michael,kokoro-am_michael-command-13,0,1157,110.059,0.095,0,3,Mute the volume.
+kokoro-am_michael,kokoro-am_michael-command-13,1,1157,94.995,0.082,0,3,Mute the volume.
+kokoro-am_michael,kokoro-am_michael-command-13,2,1157,108.04,0.093,0,3,Mute the volume.
+kokoro-am_michael,kokoro-am_michael-command-13,3,1157,105.432,0.091,0,3,Mute the volume.
+kokoro-am_michael,kokoro-am_michael-command-13,4,1157,103.768,0.09,0,3,Mute the volume.
+kokoro-am_michael,kokoro-am_michael-command-14,0,1662,137.376,0.083,0,5,Search for weather in Chennai.
+kokoro-am_michael,kokoro-am_michael-command-14,1,1662,147.739,0.089,0,5,Search for weather in Chennai.
+kokoro-am_michael,kokoro-am_michael-command-14,2,1662,195.877,0.118,0,5,Search for weather in Chennai.
+kokoro-am_michael,kokoro-am_michael-command-14,3,1662,171.58,0.103,0,5,Search for weather in Chennai.
+kokoro-am_michael,kokoro-am_michael-command-14,4,1662,139.912,0.084,0,5,Search for weather in Chennai.
+kokoro-am_michael,kokoro-am_michael-command-15,0,2017,174.73,0.087,0,6,play lo-fi music on YouTube.
+kokoro-am_michael,kokoro-am_michael-command-15,1,2017,187.074,0.093,0,6,play lo-fi music on YouTube.
+kokoro-am_michael,kokoro-am_michael-command-15,2,2017,168.735,0.084,0,6,play lo-fi music on YouTube.
+kokoro-am_michael,kokoro-am_michael-command-15,3,2017,170.629,0.085,0,6,play lo-fi music on YouTube.
+kokoro-am_michael,kokoro-am_michael-command-15,4,2017,154.134,0.076,0,6,play lo-fi music on YouTube.
+kokoro-am_michael,kokoro-am_michael-command-16,0,1142,111.124,0.097,0,3,Read the news.
+kokoro-am_michael,kokoro-am_michael-command-16,1,1142,103.339,0.09,0,3,Read the news.
+kokoro-am_michael,kokoro-am_michael-command-16,2,1142,101.542,0.089,0,3,Read the news.
+kokoro-am_michael,kokoro-am_michael-command-16,3,1142,92.626,0.081,0,3,Read the news.
+kokoro-am_michael,kokoro-am_michael-command-16,4,1142,89.643,0.078,0,3,Read the news.
+kokoro-am_michael,kokoro-am_michael-command-17,0,1148,91.893,0.08,0,3,Lock the screen.
+kokoro-am_michael,kokoro-am_michael-command-17,1,1148,108.469,0.094,0,3,Lock the screen.
+kokoro-am_michael,kokoro-am_michael-command-17,2,1148,104.461,0.091,0,3,Lock the screen.
+kokoro-am_michael,kokoro-am_michael-command-17,3,1148,95.369,0.083,0,3,Lock the screen.
+kokoro-am_michael,kokoro-am_michael-command-17,4,1148,100.305,0.087,0,3,Lock the screen.
+kokoro-am_michael,kokoro-am_michael-command-18,0,1777,147.647,0.083,0,6,What is the capital of France?
+kokoro-am_michael,kokoro-am_michael-command-18,1,1777,153.341,0.086,0,6,What is the capital of France?
+kokoro-am_michael,kokoro-am_michael-command-18,2,1777,136.877,0.077,0,6,What is the capital of France?
+kokoro-am_michael,kokoro-am_michael-command-18,3,1777,125.211,0.07,0,6,What is the capital of France?
+kokoro-am_michael,kokoro-am_michael-command-18,4,1777,149.307,0.084,0,6,What is the capital of France?
+kokoro-am_michael,kokoro-am_michael-command-19,0,1027,103.276,0.101,0,4,Tell me a joke.
+kokoro-am_michael,kokoro-am_michael-command-19,1,1027,100.964,0.098,0,4,Tell me a joke.
+kokoro-am_michael,kokoro-am_michael-command-19,2,1027,100.623,0.098,0,4,Tell me a joke.
+kokoro-am_michael,kokoro-am_michael-command-19,3,1027,99.17,0.097,0,4,Tell me a joke.
+kokoro-am_michael,kokoro-am_michael-command-19,4,1027,105.649,0.103,0,4,Tell me a joke.
+kokoro-am_michael,kokoro-am_michael-command-20,0,1696,136.613,0.081,0,6,What is the weather like today?
+kokoro-am_michael,kokoro-am_michael-command-20,1,1696,149.624,0.088,0,6,What is the weather like today?
+kokoro-am_michael,kokoro-am_michael-command-20,2,1696,154.79,0.091,0,6,What is the weather like today?
+kokoro-am_michael,kokoro-am_michael-command-20,3,1696,150.814,0.089,0,6,What is the weather like today?
+kokoro-am_michael,kokoro-am_michael-command-20,4,1696,152.32,0.09,0,6,What is the weather like today?
+kokoro-am_michael,kokoro-am_michael-command-21,0,1796,161.178,0.09,1,6,Set a timer for 5 minutes.
+kokoro-am_michael,kokoro-am_michael-command-21,1,1796,161.882,0.09,1,6,Set a timer for 5 minutes.
+kokoro-am_michael,kokoro-am_michael-command-21,2,1796,157.481,0.088,1,6,Set a timer for 5 minutes.
+kokoro-am_michael,kokoro-am_michael-command-21,3,1796,159.924,0.089,1,6,Set a timer for 5 minutes.
+kokoro-am_michael,kokoro-am_michael-command-21,4,1796,138.718,0.077,1,6,Set a timer for 5 minutes.
+kokoro-am_michael,kokoro-am_michael-command-22,0,1687,146.496,0.087,0,6,Remind me to call my mother.
+kokoro-am_michael,kokoro-am_michael-command-22,1,1687,142.3,0.084,0,6,Remind me to call my mother.
+kokoro-am_michael,kokoro-am_michael-command-22,2,1687,142.429,0.084,0,6,Remind me to call my mother.
+kokoro-am_michael,kokoro-am_michael-command-22,3,1687,146.207,0.087,0,6,Remind me to call my mother.
+kokoro-am_michael,kokoro-am_michael-command-22,4,1687,150.909,0.089,0,6,Remind me to call my mother.
+kokoro-am_michael,kokoro-am_michael-command-23,0,1874,163.519,0.087,0,5,How many days until Christmas?
+kokoro-am_michael,kokoro-am_michael-command-23,1,1874,156.219,0.083,0,5,How many days until Christmas?
+kokoro-am_michael,kokoro-am_michael-command-23,2,1874,161.305,0.086,0,5,How many days until Christmas?
+kokoro-am_michael,kokoro-am_michael-command-23,3,1874,153.435,0.082,0,5,How many days until Christmas?
+kokoro-am_michael,kokoro-am_michael-command-23,4,1874,151.942,0.081,0,5,How many days until Christmas?
+kokoro-am_michael,kokoro-am_michael-command-24,0,1978,155.082,0.078,0,4,Translate hello into Spanish.
+kokoro-am_michael,kokoro-am_michael-command-24,1,1978,160.573,0.081,0,4,Translate hello into Spanish.
+kokoro-am_michael,kokoro-am_michael-command-24,2,1978,138.816,0.07,0,4,Translate hello into Spanish.
+kokoro-am_michael,kokoro-am_michael-command-24,3,1978,157.706,0.08,0,4,Translate hello into Spanish.
+kokoro-am_michael,kokoro-am_michael-command-24,4,1978,155.1,0.078,0,4,Translate hello into Spanish.
+kokoro-am_michael,kokoro-am_michael-command-25,0,1562,131.035,0.084,0,4,Read my important mail.
+kokoro-am_michael,kokoro-am_michael-command-25,1,1562,134.338,0.086,0,4,Read my important mail.
+kokoro-am_michael,kokoro-am_michael-command-25,2,1562,135.931,0.087,0,4,Read my important mail.
+kokoro-am_michael,kokoro-am_michael-command-25,3,1562,117.823,0.075,0,4,Read my important mail.
+kokoro-am_michael,kokoro-am_michael-command-25,4,1562,138.103,0.088,0,4,Read my important mail.
+kokoro-am_michael,kokoro-am_michael-command-26,0,1466,135.865,0.093,0,6,Write a note to buy milk.
+kokoro-am_michael,kokoro-am_michael-command-26,1,1466,133.708,0.091,0,6,Write a note to buy milk.
+kokoro-am_michael,kokoro-am_michael-command-26,2,1466,135.665,0.093,0,6,Write a note to buy milk.
+kokoro-am_michael,kokoro-am_michael-command-26,3,1466,128.237,0.087,0,6,Write a note to buy milk.
+kokoro-am_michael,kokoro-am_michael-command-26,4,1466,119.576,0.082,0,6,Write a note to buy milk.
+kokoro-am_michael,kokoro-am_michael-command-27,0,1715,151.529,0.088,2,5,What is 12 times 15?
+kokoro-am_michael,kokoro-am_michael-command-27,1,1715,132.007,0.077,2,5,What is 12 times 15?
+kokoro-am_michael,kokoro-am_michael-command-27,2,1715,145.41,0.085,2,5,What is 12 times 15?
+kokoro-am_michael,kokoro-am_michael-command-27,3,1715,119.327,0.07,2,5,What is 12 times 15?
+kokoro-am_michael,kokoro-am_michael-command-27,4,1715,135.961,0.079,2,5,What is 12 times 15?
+kokoro-am_michael,kokoro-am_michael-command-28,0,1265,110.553,0.087,0,2,Open Spotify
+kokoro-am_michael,kokoro-am_michael-command-28,1,1265,108.406,0.086,0,2,Open Spotify
+kokoro-am_michael,kokoro-am_michael-command-28,2,1265,99.318,0.078,0,2,Open Spotify
+kokoro-am_michael,kokoro-am_michael-command-28,3,1265,89.054,0.07,0,2,Open Spotify
+kokoro-am_michael,kokoro-am_michael-command-28,4,1265,93.141,0.074,0,2,Open Spotify
+kokoro-am_michael,kokoro-am_michael-command-29,0,1807,156.283,0.086,0,4,Name three primary colors.
+kokoro-am_michael,kokoro-am_michael-command-29,1,1807,114.677,0.063,0,4,Name three primary colors.
+kokoro-am_michael,kokoro-am_michael-command-29,2,1807,136.726,0.076,0,4,Name three primary colors.
+kokoro-am_michael,kokoro-am_michael-command-29,3,1807,131.817,0.073,0,4,Name three primary colors.
+kokoro-am_michael,kokoro-am_michael-command-29,4,1807,127.732,0.071,0,4,Name three primary colors.
+sapi-david,sapi-david-command-00,0,1775,140.967,0.079,0,2,Open Notepad.
+sapi-david,sapi-david-command-00,1,1775,142.046,0.08,0,2,Open Notepad.
+sapi-david,sapi-david-command-00,2,1775,126.285,0.071,0,2,Open Notepad.
+sapi-david,sapi-david-command-00,3,1775,134.76,0.076,0,2,Open Notepad.
+sapi-david,sapi-david-command-00,4,1775,124.232,0.07,0,2,Open Notepad.
+sapi-david,sapi-david-command-01,0,1925,134.788,0.07,0,2,Open calculator.
+sapi-david,sapi-david-command-01,1,1925,95.531,0.05,0,2,Open calculator.
+sapi-david,sapi-david-command-01,2,1925,97.907,0.051,0,2,Open calculator.
+sapi-david,sapi-david-command-01,3,1925,103.897,0.054,0,2,Open calculator.
+sapi-david,sapi-david-command-01,4,1925,135.825,0.071,0,2,Open calculator.
+sapi-david,sapi-david-command-02,0,1775,139.484,0.079,0,3,Open the browser.
+sapi-david,sapi-david-command-02,1,1775,112.958,0.064,0,3,Open the browser.
+sapi-david,sapi-david-command-02,2,1775,121.629,0.069,0,3,Open the browser.
+sapi-david,sapi-david-command-02,3,1775,115.283,0.065,0,3,Open the browser.
+sapi-david,sapi-david-command-02,4,1775,127.676,0.072,0,3,Open the browser.
+sapi-david,sapi-david-command-03,0,1700,136.854,0.081,0,2,Open YouTube.
+sapi-david,sapi-david-command-03,1,1700,114.84,0.068,0,2,Open YouTube.
+sapi-david,sapi-david-command-03,2,1700,129.792,0.076,0,2,Open YouTube.
+sapi-david,sapi-david-command-03,3,1700,138.543,0.081,0,2,Open YouTube.
+sapi-david,sapi-david-command-03,4,1700,122.066,0.072,0,2,Open YouTube.
+sapi-david,sapi-david-command-04,0,1715,96.461,0.056,0,2,Open Gmail.
+sapi-david,sapi-david-command-04,1,1715,88.677,0.052,0,2,Open Gmail.
+sapi-david,sapi-david-command-04,2,1715,87.315,0.051,0,2,Open Gmail.
+sapi-david,sapi-david-command-04,3,1715,84.305,0.049,0,2,Open Gmail.
+sapi-david,sapi-david-command-04,4,1715,88.252,0.051,0,2,Open Gmail.
+sapi-david,sapi-david-command-05,0,2130,96.43,0.045,0,3,Open File Explorer.
+sapi-david,sapi-david-command-05,1,2130,96.467,0.045,0,3,Open File Explorer.
+sapi-david,sapi-david-command-05,2,2130,116.314,0.055,0,3,Open File Explorer.
+sapi-david,sapi-david-command-05,3,2130,116.768,0.055,0,3,Open File Explorer.
+sapi-david,sapi-david-command-05,4,2130,120.564,0.057,0,3,Open File Explorer.
+sapi-david,sapi-david-command-06,0,1745,150.673,0.086,0,2,Open Settings.
+sapi-david,sapi-david-command-06,1,1745,98.712,0.057,0,2,Open Settings.
+sapi-david,sapi-david-command-06,2,1745,90.612,0.052,0,2,Open Settings.
+sapi-david,sapi-david-command-06,3,1745,99.092,0.057,0,2,Open Settings.
+sapi-david,sapi-david-command-06,4,1745,95.544,0.055,0,2,Open Settings.
+sapi-david,sapi-david-command-07,0,1815,102.493,0.056,0,2,Close notepad.
+sapi-david,sapi-david-command-07,1,1815,96.209,0.053,0,2,Close notepad.
+sapi-david,sapi-david-command-07,2,1815,91.911,0.051,0,2,Close notepad.
+sapi-david,sapi-david-command-07,3,1815,93.495,0.052,0,2,Close notepad.
+sapi-david,sapi-david-command-07,4,1815,97.689,0.054,0,2,Close notepad.
+sapi-david,sapi-david-command-08,0,2075,111.707,0.054,0,3,Close the calculator.
+sapi-david,sapi-david-command-08,1,2075,104.098,0.05,0,3,Close the calculator.
+sapi-david,sapi-david-command-08,2,2075,144.233,0.07,0,3,Close the calculator.
+sapi-david,sapi-david-command-08,3,2075,146.272,0.07,0,3,Close the calculator.
+sapi-david,sapi-david-command-08,4,2075,126.792,0.061,0,3,Close the calculator.
+sapi-david,sapi-david-command-09,0,1745,119.113,0.068,0,4,What time is it?
+sapi-david,sapi-david-command-09,1,1745,97.711,0.056,0,4,What time is it?
+sapi-david,sapi-david-command-09,2,1745,83.138,0.048,0,4,What time is it?
+sapi-david,sapi-david-command-09,3,1745,84.714,0.049,0,4,What time is it?
+sapi-david,sapi-david-command-09,4,1745,84.076,0.048,0,4,What time is it?
+sapi-david,sapi-david-command-10,0,1935,96.04,0.05,0,5,What is the date today?
+sapi-david,sapi-david-command-10,1,1935,89.034,0.046,0,5,What is the date today?
+sapi-david,sapi-david-command-10,2,1935,95.024,0.049,0,5,What is the date today?
+sapi-david,sapi-david-command-10,3,1935,91.623,0.047,0,5,What is the date today?
+sapi-david,sapi-david-command-10,4,1935,88.585,0.046,0,5,What is the date today?
+sapi-david,sapi-david-command-11,0,1600,78.422,0.049,0,2,Volume up.
+sapi-david,sapi-david-command-11,1,1600,93.086,0.058,0,2,Volume up.
+sapi-david,sapi-david-command-11,2,1600,81.524,0.051,0,2,Volume up.
+sapi-david,sapi-david-command-11,3,1600,86.116,0.054,0,2,Volume up.
+sapi-david,sapi-david-command-11,4,1600,79.249,0.05,0,2,Volume up.
+sapi-david,sapi-david-command-12,0,1740,100.334,0.058,0,2,Volume down.
+sapi-david,sapi-david-command-12,1,1740,82.207,0.047,0,2,Volume down.
+sapi-david,sapi-david-command-12,2,1740,95.836,0.055,0,2,Volume down.
+sapi-david,sapi-david-command-12,3,1740,84.602,0.049,0,2,Volume down.
+sapi-david,sapi-david-command-12,4,1740,81.91,0.047,0,2,Volume down.
+sapi-david,sapi-david-command-13,0,1765,86.317,0.049,0,3,Mute the volume.
+sapi-david,sapi-david-command-13,1,1765,83.253,0.047,0,3,Mute the volume.
+sapi-david,sapi-david-command-13,2,1765,85.019,0.048,0,3,Mute the volume.
+sapi-david,sapi-david-command-13,3,1765,91.091,0.052,0,3,Mute the volume.
+sapi-david,sapi-david-command-13,4,1765,84.035,0.048,0,3,Mute the volume.
+sapi-david,sapi-david-command-14,0,2290,106.964,0.047,0,5,Search for weather in Chennai.
+sapi-david,sapi-david-command-14,1,2290,100.845,0.044,0,5,Search for weather in Chennai.
+sapi-david,sapi-david-command-14,2,2290,103.709,0.045,0,5,Search for weather in Chennai.
+sapi-david,sapi-david-command-14,3,2290,113.59,0.05,0,5,Search for weather in Chennai.
+sapi-david,sapi-david-command-14,4,2290,112.767,0.049,0,5,Search for weather in Chennai.
+sapi-david,sapi-david-command-15,0,2745,124.252,0.045,0,6,Play lo-fi music on YouTube.
+sapi-david,sapi-david-command-15,1,2745,118.219,0.043,0,6,Play lo-fi music on YouTube.
+sapi-david,sapi-david-command-15,2,2745,115.853,0.042,0,6,Play lo-fi music on YouTube.
+sapi-david,sapi-david-command-15,3,2745,133.13,0.048,0,6,Play lo-fi music on YouTube.
+sapi-david,sapi-david-command-15,4,2745,135.941,0.05,0,6,Play lo-fi music on YouTube.
+sapi-david,sapi-david-command-16,0,1615,86.189,0.053,0,3,Read the news.
+sapi-david,sapi-david-command-16,1,1615,84.997,0.053,0,3,Read the news.
+sapi-david,sapi-david-command-16,2,1615,81.203,0.05,0,3,Read the news.
+sapi-david,sapi-david-command-16,3,1615,82.484,0.051,0,3,Read the news.
+sapi-david,sapi-david-command-16,4,1615,81.424,0.05,0,3,Read the news.
+sapi-david,sapi-david-command-17,0,1755,86.535,0.049,0,3,Lock the screen.
+sapi-david,sapi-david-command-17,1,1755,82.684,0.047,0,3,Lock the screen.
+sapi-david,sapi-david-command-17,2,1755,85.328,0.049,0,3,Lock the screen.
+sapi-david,sapi-david-command-17,3,1755,89.73,0.051,0,3,Lock the screen.
+sapi-david,sapi-david-command-17,4,1755,85.178,0.049,0,3,Lock the screen.
+sapi-david,sapi-david-command-18,0,2495,111.287,0.045,0,6,What is the capital of France?
+sapi-david,sapi-david-command-18,1,2495,104.862,0.042,0,6,What is the capital of France?
+sapi-david,sapi-david-command-18,2,2495,120.881,0.048,0,6,What is the capital of France?
+sapi-david,sapi-david-command-18,3,2495,105.767,0.042,0,6,What is the capital of France?
+sapi-david,sapi-david-command-18,4,2495,105.336,0.042,0,6,What is the capital of France?
+sapi-david,sapi-david-command-19,0,1725,85.157,0.049,0,4,Tell me a joke.
+sapi-david,sapi-david-command-19,1,1725,82.728,0.048,0,4,Tell me a joke.
+sapi-david,sapi-david-command-19,2,1725,82.152,0.048,0,4,Tell me a joke.
+sapi-david,sapi-david-command-19,3,1725,96.165,0.056,0,4,Tell me a joke.
+sapi-david,sapi-david-command-19,4,1725,86.538,0.05,0,4,Tell me a joke.
+sapi-david,sapi-david-command-20,0,2210,102.567,0.046,0,6,What is the weather like today?
+sapi-david,sapi-david-command-20,1,2210,98.284,0.044,0,6,What is the weather like today?
+sapi-david,sapi-david-command-20,2,2210,98.247,0.044,0,6,What is the weather like today?
+sapi-david,sapi-david-command-20,3,2210,100.792,0.046,0,6,What is the weather like today?
+sapi-david,sapi-david-command-20,4,2210,104.436,0.047,0,6,What is the weather like today?
+sapi-david,sapi-david-command-21,0,2645,124.726,0.047,1,6,Set a timer for 5 minutes.
+sapi-david,sapi-david-command-21,1,2645,110.034,0.042,1,6,Set a timer for 5 minutes.
+sapi-david,sapi-david-command-21,2,2645,115.028,0.043,1,6,Set a timer for 5 minutes.
+sapi-david,sapi-david-command-21,3,2645,126.093,0.048,1,6,Set a timer for 5 minutes.
+sapi-david,sapi-david-command-21,4,2645,140.771,0.053,1,6,Set a timer for 5 minutes.
+sapi-david,sapi-david-command-22,0,2325,125.667,0.054,0,6,Remind me to call my mother.
+sapi-david,sapi-david-command-22,1,2325,133.177,0.057,0,6,Remind me to call my mother.
+sapi-david,sapi-david-command-22,2,2325,134.299,0.058,0,6,Remind me to call my mother.
+sapi-david,sapi-david-command-22,3,2325,101.123,0.043,0,6,Remind me to call my mother.
+sapi-david,sapi-david-command-22,4,2325,104.546,0.045,0,6,Remind me to call my mother.
+sapi-david,sapi-david-command-23,0,2560,107.17,0.042,0,5,How many days until Christmas?
+sapi-david,sapi-david-command-23,1,2560,115.612,0.045,0,5,How many days until Christmas?
+sapi-david,sapi-david-command-23,2,2560,114.83,0.045,0,5,How many days until Christmas?
+sapi-david,sapi-david-command-23,3,2560,117.684,0.046,0,5,How many days until Christmas?
+sapi-david,sapi-david-command-23,4,2560,123.523,0.048,0,5,How many days until Christmas?
+sapi-david,sapi-david-command-24,0,2715,127.052,0.047,0,4,Translate hello into Spanish.
+sapi-david,sapi-david-command-24,1,2715,122.147,0.045,0,4,Translate hello into Spanish.
+sapi-david,sapi-david-command-24,2,2715,131.487,0.048,0,4,Translate hello into Spanish.
+sapi-david,sapi-david-command-24,3,2715,151.194,0.056,0,4,Translate hello into Spanish.
+sapi-david,sapi-david-command-24,4,2715,123.175,0.045,0,4,Translate hello into Spanish.
+sapi-david,sapi-david-command-25,0,2170,122.547,0.056,0,4,Read my important mail.
+sapi-david,sapi-david-command-25,1,2170,97.773,0.045,0,4,Read my important mail.
+sapi-david,sapi-david-command-25,2,2170,107.995,0.05,0,4,Read my important mail.
+sapi-david,sapi-david-command-25,3,2170,95.893,0.044,0,4,Read my important mail.
+sapi-david,sapi-david-command-25,4,2170,102.874,0.047,0,4,Read my important mail.
+sapi-david,sapi-david-command-26,0,2130,95.234,0.045,0,6,Write a note to buy milk.
+sapi-david,sapi-david-command-26,1,2130,91.901,0.043,0,6,Write a note to buy milk.
+sapi-david,sapi-david-command-26,2,2130,96.379,0.045,0,6,Write a note to buy milk.
+sapi-david,sapi-david-command-26,3,2130,102.699,0.048,0,6,Write a note to buy milk.
+sapi-david,sapi-david-command-26,4,2130,94.007,0.044,0,6,Write a note to buy milk.
+sapi-david,sapi-david-command-27,0,2505,106.38,0.042,2,5,What is 12 times 15?
+sapi-david,sapi-david-command-27,1,2505,105.428,0.042,2,5,What is 12 times 15?
+sapi-david,sapi-david-command-27,2,2505,126.484,0.05,2,5,What is 12 times 15?
+sapi-david,sapi-david-command-27,3,2505,119.744,0.048,2,5,What is 12 times 15?
+sapi-david,sapi-david-command-27,4,2505,123.224,0.049,2,5,What is 12 times 15?
+sapi-david,sapi-david-command-28,0,1795,88.843,0.049,0,2,Open Spotify.
+sapi-david,sapi-david-command-28,1,1795,91.096,0.051,0,2,Open Spotify.
+sapi-david,sapi-david-command-28,2,1795,93.334,0.052,0,2,Open Spotify.
+sapi-david,sapi-david-command-28,3,1795,88.801,0.049,0,2,Open Spotify.
+sapi-david,sapi-david-command-28,4,1795,85.028,0.047,0,2,Open Spotify.
+sapi-david,sapi-david-command-29,0,2535,112.732,0.044,0,4,Name three primary colors.
+sapi-david,sapi-david-command-29,1,2535,107.497,0.042,0,4,Name three primary colors.
+sapi-david,sapi-david-command-29,2,2535,114.595,0.045,0,4,Name three primary colors.
+sapi-david,sapi-david-command-29,3,2535,122.556,0.048,0,4,Name three primary colors.
+sapi-david,sapi-david-command-29,4,2535,106.961,0.042,0,4,Name three primary colors.
+sapi-zira,sapi-zira-command-00,0,1695,88.534,0.052,0,2,Open Notepad.
+sapi-zira,sapi-zira-command-00,1,1695,82.557,0.049,0,2,Open Notepad.
+sapi-zira,sapi-zira-command-00,2,1695,92.411,0.055,0,2,Open Notepad.
+sapi-zira,sapi-zira-command-00,3,1695,81.756,0.048,0,2,Open Notepad.
+sapi-zira,sapi-zira-command-00,4,1695,84.243,0.05,0,2,Open Notepad.
+sapi-zira,sapi-zira-command-01,0,1940,91.203,0.047,0,2,Open calculator.
+sapi-zira,sapi-zira-command-01,1,1940,89.041,0.046,0,2,Open calculator.
+sapi-zira,sapi-zira-command-01,2,1940,92.725,0.048,0,2,Open calculator.
+sapi-zira,sapi-zira-command-01,3,1940,99.336,0.051,0,2,Open calculator.
+sapi-zira,sapi-zira-command-01,4,1940,93.743,0.048,0,2,Open calculator.
+sapi-zira,sapi-zira-command-02,0,1765,90.473,0.051,0,3,Open the browser.
+sapi-zira,sapi-zira-command-02,1,1765,87.746,0.05,0,3,Open the browser.
+sapi-zira,sapi-zira-command-02,2,1765,88.262,0.05,0,3,Open the browser.
+sapi-zira,sapi-zira-command-02,3,1765,97.413,0.055,0,3,Open the browser.
+sapi-zira,sapi-zira-command-02,4,1765,85.125,0.048,0,3,Open the browser.
+sapi-zira,sapi-zira-command-03,0,1625,95.867,0.059,0,2,Open YouTube.
+sapi-zira,sapi-zira-command-03,1,1625,90.443,0.056,0,2,Open YouTube.
+sapi-zira,sapi-zira-command-03,2,1625,83.748,0.052,0,2,Open YouTube.
+sapi-zira,sapi-zira-command-03,3,1625,82.21,0.051,0,2,Open YouTube.
+sapi-zira,sapi-zira-command-03,4,1625,92.859,0.057,0,2,Open YouTube.
+sapi-zira,sapi-zira-command-04,0,1675,90.385,0.054,0,2,Open Gmail.
+sapi-zira,sapi-zira-command-04,1,1675,83.766,0.05,0,2,Open Gmail.
+sapi-zira,sapi-zira-command-04,2,1675,85.625,0.051,0,2,Open Gmail.
+sapi-zira,sapi-zira-command-04,3,1675,79.015,0.047,0,2,Open Gmail.
+sapi-zira,sapi-zira-command-04,4,1675,90.384,0.054,0,2,Open Gmail.
+sapi-zira,sapi-zira-command-05,0,2120,94.154,0.044,0,3,Open File Explorer.
+sapi-zira,sapi-zira-command-05,1,2120,101.438,0.048,0,3,Open File Explorer.
+sapi-zira,sapi-zira-command-05,2,2120,98.077,0.046,0,3,Open File Explorer.
+sapi-zira,sapi-zira-command-05,3,2120,93.896,0.044,0,3,Open File Explorer.
+sapi-zira,sapi-zira-command-05,4,2120,105.484,0.05,0,3,Open File Explorer.
+sapi-zira,sapi-zira-command-06,0,1735,78.958,0.046,0,2,Open settings.
+sapi-zira,sapi-zira-command-06,1,1735,81.845,0.047,0,2,Open settings.
+sapi-zira,sapi-zira-command-06,2,1735,85.703,0.049,0,2,Open settings.
+sapi-zira,sapi-zira-command-06,3,1735,80.819,0.047,0,2,Open settings.
+sapi-zira,sapi-zira-command-06,4,1735,94.409,0.054,0,2,Open settings.
+sapi-zira,sapi-zira-command-07,0,1790,99.927,0.056,0,2,Close notepad.
+sapi-zira,sapi-zira-command-07,1,1790,94.038,0.053,0,2,Close notepad.
+sapi-zira,sapi-zira-command-07,2,1790,112.121,0.063,0,2,Close notepad.
+sapi-zira,sapi-zira-command-07,3,1790,103.319,0.058,0,2,Close notepad.
+sapi-zira,sapi-zira-command-07,4,1790,103.89,0.058,0,2,Close notepad.
+sapi-zira,sapi-zira-command-08,0,2120,114.977,0.054,0,3,Close the calculator.
+sapi-zira,sapi-zira-command-08,1,2120,118.855,0.056,0,3,Close the calculator.
+sapi-zira,sapi-zira-command-08,2,2120,117.891,0.056,0,3,Close the calculator.
+sapi-zira,sapi-zira-command-08,3,2120,103.01,0.049,0,3,Close the calculator.
+sapi-zira,sapi-zira-command-08,4,2120,105.596,0.05,0,3,Close the calculator.
+sapi-zira,sapi-zira-command-09,0,1685,93.219,0.055,0,4,What time is it?
+sapi-zira,sapi-zira-command-09,1,1685,101.535,0.06,0,4,What time is it?
+sapi-zira,sapi-zira-command-09,2,1685,93.996,0.056,0,4,What time is it?
+sapi-zira,sapi-zira-command-09,3,1685,89.223,0.053,0,4,What time is it?
+sapi-zira,sapi-zira-command-09,4,1685,89.285,0.053,0,4,What time is it?
+sapi-zira,sapi-zira-command-10,0,1870,94.01,0.05,0,5,What is the date today?
+sapi-zira,sapi-zira-command-10,1,1870,88.762,0.047,0,5,What is the date today?
+sapi-zira,sapi-zira-command-10,2,1870,108.356,0.058,0,5,What is the date today?
+sapi-zira,sapi-zira-command-10,3,1870,114.653,0.061,0,5,What is the date today?
+sapi-zira,sapi-zira-command-10,4,1870,104.622,0.056,0,5,What is the date today?
+sapi-zira,sapi-zira-command-11,0,1620,104.52,0.065,0,2,Volume up.
+sapi-zira,sapi-zira-command-11,1,1620,111.37,0.069,0,2,Volume up.
+sapi-zira,sapi-zira-command-11,2,1620,95.732,0.059,0,2,Volume up.
+sapi-zira,sapi-zira-command-11,3,1620,94.139,0.058,0,2,Volume up.
+sapi-zira,sapi-zira-command-11,4,1620,85.574,0.053,0,2,Volume up.
+sapi-zira,sapi-zira-command-12,0,1750,91.07,0.052,0,2,Volume down.
+sapi-zira,sapi-zira-command-12,1,1750,89.848,0.051,0,2,Volume down.
+sapi-zira,sapi-zira-command-12,2,1750,84.86,0.048,0,2,Volume down.
+sapi-zira,sapi-zira-command-12,3,1750,80.856,0.046,0,2,Volume down.
+sapi-zira,sapi-zira-command-12,4,1750,81.669,0.047,0,2,Volume down.
+sapi-zira,sapi-zira-command-13,0,1815,86.031,0.047,0,3,Mute the volume.
+sapi-zira,sapi-zira-command-13,1,1815,97.14,0.054,0,3,Mute the volume.
+sapi-zira,sapi-zira-command-13,2,1815,86.085,0.047,0,3,Mute the volume.
+sapi-zira,sapi-zira-command-13,3,1815,86.449,0.048,0,3,Mute the volume.
+sapi-zira,sapi-zira-command-13,4,1815,84.038,0.046,0,3,Mute the volume.
+sapi-zira,sapi-zira-command-14,0,2260,107.27,0.047,1,5,Search for weather in Jinnah.
+sapi-zira,sapi-zira-command-14,1,2260,102.633,0.045,1,5,Search for weather in Jinnah.
+sapi-zira,sapi-zira-command-14,2,2260,98.566,0.044,1,5,Search for weather in Jinnah.
+sapi-zira,sapi-zira-command-14,3,2260,96.205,0.043,1,5,Search for weather in Jinnah.
+sapi-zira,sapi-zira-command-14,4,2260,102.726,0.045,1,5,Search for weather in Jinnah.
+sapi-zira,sapi-zira-command-15,0,2595,115.08,0.044,0,6,Play lo-fi music on YouTube.
+sapi-zira,sapi-zira-command-15,1,2595,110.073,0.042,0,6,Play lo-fi music on YouTube.
+sapi-zira,sapi-zira-command-15,2,2595,118.904,0.046,0,6,Play lo-fi music on YouTube.
+sapi-zira,sapi-zira-command-15,3,2595,121.02,0.047,0,6,Play lo-fi music on YouTube.
+sapi-zira,sapi-zira-command-15,4,2595,119.759,0.046,0,6,Play lo-fi music on YouTube.
+sapi-zira,sapi-zira-command-16,0,1610,90.398,0.056,0,3,Read the news.
+sapi-zira,sapi-zira-command-16,1,1610,84.47,0.052,0,3,Read the news.
+sapi-zira,sapi-zira-command-16,2,1610,82.898,0.051,0,3,Read the news.
+sapi-zira,sapi-zira-command-16,3,1610,81.03,0.05,0,3,Read the news.
+sapi-zira,sapi-zira-command-16,4,1610,86.513,0.054,0,3,Read the news.
+sapi-zira,sapi-zira-command-17,0,1715,81.708,0.048,0,3,Lock the screen.
+sapi-zira,sapi-zira-command-17,1,1715,79.948,0.047,0,3,Lock the screen.
+sapi-zira,sapi-zira-command-17,2,1715,79.588,0.046,0,3,Lock the screen.
+sapi-zira,sapi-zira-command-17,3,1715,94.131,0.055,0,3,Lock the screen.
+sapi-zira,sapi-zira-command-17,4,1715,86.859,0.051,0,3,Lock the screen.
+sapi-zira,sapi-zira-command-18,0,2395,110.249,0.046,0,6,What is the capital of France?
+sapi-zira,sapi-zira-command-18,1,2395,116.163,0.049,0,6,What is the capital of France?
+sapi-zira,sapi-zira-command-18,2,2395,148.697,0.062,0,6,What is the capital of France?
+sapi-zira,sapi-zira-command-18,3,2395,138.497,0.058,0,6,What is the capital of France?
+sapi-zira,sapi-zira-command-18,4,2395,123.744,0.052,0,6,What is the capital of France?
+sapi-zira,sapi-zira-command-19,0,1705,96.668,0.057,0,4,Tell me a joke.
+sapi-zira,sapi-zira-command-19,1,1705,93.096,0.055,0,4,Tell me a joke.
+sapi-zira,sapi-zira-command-19,2,1705,82.208,0.048,0,4,Tell me a joke.
+sapi-zira,sapi-zira-command-19,3,1705,78.253,0.046,0,4,Tell me a joke.
+sapi-zira,sapi-zira-command-19,4,1705,89.927,0.053,0,4,Tell me a joke.
+sapi-zira,sapi-zira-command-20,0,2165,98.665,0.046,0,6,What is the weather like today?
+sapi-zira,sapi-zira-command-20,1,2165,125.496,0.058,0,6,What is the weather like today?
+sapi-zira,sapi-zira-command-20,2,2165,124.034,0.057,0,6,What is the weather like today?
+sapi-zira,sapi-zira-command-20,3,2165,123.607,0.057,0,6,What is the weather like today?
+sapi-zira,sapi-zira-command-20,4,2165,137.584,0.064,0,6,What is the weather like today?
+sapi-zira,sapi-zira-command-21,0,2615,110.889,0.042,1,6,Set a timer for 5 minutes.
+sapi-zira,sapi-zira-command-21,1,2615,117.766,0.045,1,6,Set a timer for 5 minutes.
+sapi-zira,sapi-zira-command-21,2,2615,116.14,0.044,1,6,Set a timer for 5 minutes.
+sapi-zira,sapi-zira-command-21,3,2615,108.986,0.042,1,6,Set a timer for 5 minutes.
+sapi-zira,sapi-zira-command-21,4,2615,109.87,0.042,1,6,Set a timer for 5 minutes.
+sapi-zira,sapi-zira-command-22,0,2385,111.372,0.047,0,6,Remind me to call my mother.
+sapi-zira,sapi-zira-command-22,1,2385,106.086,0.044,0,6,Remind me to call my mother.
+sapi-zira,sapi-zira-command-22,2,2385,101.236,0.042,0,6,Remind me to call my mother.
+sapi-zira,sapi-zira-command-22,3,2385,113.771,0.048,0,6,Remind me to call my mother.
+sapi-zira,sapi-zira-command-22,4,2385,111.795,0.047,0,6,Remind me to call my mother.
+sapi-zira,sapi-zira-command-23,0,2530,109.832,0.043,0,5,How many days until Christmas?
+sapi-zira,sapi-zira-command-23,1,2530,102.315,0.04,0,5,How many days until Christmas?
+sapi-zira,sapi-zira-command-23,2,2530,122.196,0.048,0,5,How many days until Christmas?
+sapi-zira,sapi-zira-command-23,3,2530,126.001,0.05,0,5,How many days until Christmas?
+sapi-zira,sapi-zira-command-23,4,2530,140.065,0.055,0,5,How many days until Christmas?
+sapi-zira,sapi-zira-command-24,0,2680,129.533,0.048,0,4,Translate hello into Spanish.
+sapi-zira,sapi-zira-command-24,1,2680,138.107,0.052,0,4,Translate hello into Spanish.
+sapi-zira,sapi-zira-command-24,2,2680,131.179,0.049,0,4,Translate hello into Spanish.
+sapi-zira,sapi-zira-command-24,3,2680,142.829,0.053,0,4,Translate hello into Spanish.
+sapi-zira,sapi-zira-command-24,4,2680,134.649,0.05,0,4,Translate hello into Spanish.
+sapi-zira,sapi-zira-command-25,0,2150,116.766,0.054,0,4,Read my important mail.
+sapi-zira,sapi-zira-command-25,1,2150,103.896,0.048,0,4,Read my important mail.
+sapi-zira,sapi-zira-command-25,2,2150,118.257,0.055,0,4,Read my important mail.
+sapi-zira,sapi-zira-command-25,3,2150,116.418,0.054,0,4,Read my important mail.
+sapi-zira,sapi-zira-command-25,4,2150,114.3,0.053,0,4,Read my important mail.
+sapi-zira,sapi-zira-command-26,0,2085,104.514,0.05,0,6,Write a note to buy milk.
+sapi-zira,sapi-zira-command-26,1,2085,113.136,0.054,0,6,Write a note to buy milk.
+sapi-zira,sapi-zira-command-26,2,2085,122.115,0.059,0,6,Write a note to buy milk.
+sapi-zira,sapi-zira-command-26,3,2085,118.033,0.057,0,6,Write a note to buy milk.
+sapi-zira,sapi-zira-command-26,4,2085,113.462,0.054,0,6,Write a note to buy milk.
+sapi-zira,sapi-zira-command-27,0,2505,120.043,0.048,2,5,What is 12 times 15?
+sapi-zira,sapi-zira-command-27,1,2505,115.645,0.046,2,5,What is 12 times 15?
+sapi-zira,sapi-zira-command-27,2,2505,125.775,0.05,2,5,What is 12 times 15?
+sapi-zira,sapi-zira-command-27,3,2505,129.842,0.052,2,5,What is 12 times 15?
+sapi-zira,sapi-zira-command-27,4,2505,118.092,0.047,2,5,What is 12 times 15?
+sapi-zira,sapi-zira-command-28,0,1790,97.848,0.055,2,2,Opens Patifa.
+sapi-zira,sapi-zira-command-28,1,1790,95.662,0.053,2,2,Opens Patifa.
+sapi-zira,sapi-zira-command-28,2,1790,93.115,0.052,2,2,Opens Patifa.
+sapi-zira,sapi-zira-command-28,3,1790,86.446,0.048,2,2,Opens Patifa.
+sapi-zira,sapi-zira-command-28,4,1790,98.322,0.055,2,2,Opens Patifa.
+sapi-zira,sapi-zira-command-29,0,2530,122.141,0.048,0,4,Name three primary colors.
+sapi-zira,sapi-zira-command-29,1,2530,121.305,0.048,0,4,Name three primary colors.
+sapi-zira,sapi-zira-command-29,2,2530,116.825,0.046,0,4,Name three primary colors.
+sapi-zira,sapi-zira-command-29,3,2530,129.451,0.051,0,4,Name three primary colors.
+sapi-zira,sapi-zira-command-29,4,2530,133.5,0.053,0,4,Name three primary colors.

@@ -1,0 +1,22 @@
+{
+  "bench": "operator",
+  "at": "2026-10-22T07:48:11.163Z",
+  "n": 7720,
+  "branch": "air/feat/voice-metrics-progress",
+  "upstreamTag": "dsh-v0.2.1-rc.2",
+  "os": "Windows 11 Home 10.0.26300",
+  "cpu": "AMD Ryzen AI 9 HX 370 w/ Radeon 890M",
+  "logicalCores": 24,
+  "ramGiB": 31.1,
+  "gpu": "NVIDIA GeForce RTX 4060 Laptop GPU",
+  "node": "v26.12.0",
+  "ollama": "0.40.7",
+  "modelDigests": {},
+  "kokoroVoice": "am_michael",
+  "matchRepsPerCommand": 200,
+  "commands": 30,
+  "matchedIntents": 19,
+  "dryRunCommands": 17,
+  "dryRunRepsPerCommand": 100,
+  "realRepetitions": 10
+}

@@ -1,0 +1,28 @@
+{
+  "bench": "tts",
+  "at": "2026-10-22T07:47:56.059Z",
+  "n": 120,
+  "branch": "air/feat/voice-metrics-progress",
+  "upstreamTag": "dsh-v0.2.1-rc.2",
+  "os": "Windows 11 Home 10.0.26300",
+  "cpu": "AMD Ryzen AI 9 HX 370 w/ Radeon 890M",
+  "logicalCores": 24,
+  "ramGiB": 31.1,
+  "gpu": "NVIDIA GeForce RTX 4060 Laptop GPU",
+  "node": "v26.12.0",
+  "ollama": "0.40.7",
+  "modelDigests": {},
+  "kokoroVoice": "am_michael",
+  "runsPerCell": 20,
+  "sentenceCounts": [
+    1,
+    2,
+    3
+  ],
+  "engines": [
+    "kokoro am_michael",
+    "sapi"
+  ],
+  "kokoroLoadInProcessMs": 1068,
+  "kokoroWorkerReadyMs": 1534
+}
